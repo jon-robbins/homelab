@@ -26,6 +26,7 @@ This document extends the stack audit: what was done, what to do next, and long-
 - Tunnel ingress in `/home/jon/docker/data/cloudflared/config.yml` matches the table above (Seerr + Plex stream + Jellyfin). If you use **`CLOUDFLARE_TUNNEL_TOKEN`**, mirror the same routes in the Zero Trust dashboard (local file is ignored in that mode).
 - Caddy is optional behind Compose profile `caddy` — do not use it to duplicate tunnel public names; see Caddyfile notes for Seerr.
 - Plex `PLEX_CLAIM` removed from compose; reclaim via https://www.plex.tv/claim only when setting up a new server.
+- Added `security_opt: ["no-new-privileges:true"]` to low-risk services across `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml` (excluding `tailscale`, which keeps required caps/devices).
 - `hardening/secure-secret-file-permissions.sh` — `600` on app secrets; `755` on `cloudflared/credentials/` (not `700`: cloudflared runs as UID `65532` and must **traverse** the directory) and `644` on tunnel `*.json`.
 - `hardening/nftables-arr-stack.nft` — optional host firewall snippet: RFC1918 + loopback only to management ports; drops the same ports from WAN.
 

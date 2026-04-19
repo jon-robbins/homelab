@@ -3,6 +3,7 @@ services:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     shm_size: "2gb"
     environment:
       - LOG_LEVEL=info
@@ -13,6 +14,7 @@ services:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -25,6 +27,7 @@ services:
     image: lscr.io/linuxserver/jackett:latest
     container_name: jackett
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -37,6 +40,7 @@ services:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -51,6 +55,7 @@ services:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -65,6 +70,7 @@ services:
     image: lscr.io/linuxserver/readarr:0.4.19-nightly
     container_name: readarr
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -80,6 +86,7 @@ services:
     container_name: overseerr
     init: true
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
@@ -98,6 +105,7 @@ services:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -122,6 +130,7 @@ services:
     image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -147,6 +156,7 @@ services:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
