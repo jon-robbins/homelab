@@ -3,6 +3,7 @@ services:
     image: caddy:2-alpine
     container_name: caddy
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     volumes:
       - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/certs:/etc/caddy/certs:ro
@@ -15,6 +16,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     command: tunnel --no-autoupdate run
     volumes:
       - ./data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
@@ -25,6 +27,7 @@ services:
     build: ./scripts/gcp-proxy/tunnel
     container_name: gcp-proxy-tunnel
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       GCP_PROXY_IP: ${GCP_PROXY_IP:-}
       GCP_PROXY_USER: ${GCP_PROXY_USER:-ubuntu}
