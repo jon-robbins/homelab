@@ -8,9 +8,6 @@ data/cloudflared/**
 !data/cloudflared/config.yml
 !data/cloudflared/.gitignore
 
-!data/caddy/
-data/caddy/**
-!data/caddy/Caddyfile
 
 # Local environment and secrets
 .env
