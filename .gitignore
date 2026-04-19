@@ -1,0 +1,16 @@
+# Persistent runtime data
+data/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Legacy leftovers not part of tracked config
+arr/
+
+# Local artifacts
+*.tar
+*.tar.gz
+*.tmp
+*.swp

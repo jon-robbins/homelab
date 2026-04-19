@@ -1,0 +1,7 @@
+# Copy to /etc/default/prowlarr-gcp-proxy
+#   sudo cp gcp/home-systemd/etc-default.prowlarr-gcp-proxy.example /etc/default/prowlarr-gcp-proxy
+#   sudo chmod 644 /etc/default/prowlarr-gcp-proxy
+# Edit GCP_PROXY_IP to your VM's external IP.
+
+GCP_PROXY_IP=1.2.3.4
+GCP_PROXY_USER=ubuntu

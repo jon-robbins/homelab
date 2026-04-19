@@ -1,0 +1,58 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    network_mode: host
+    volumes:
+      - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/certs:/etc/caddy/certs:ro
+      - ./data/caddy/home-portal:/srv/home-portal:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    network_mode: host
+    command: tunnel --no-autoupdate run
+    volumes:
+      - ./data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ./data/cloudflared/credentials:/etc/cloudflared/credentials
+    restart: unless-stopped
+
+  gcp-proxy-tunnel:
+    build: ./scripts/gcp-proxy/tunnel
+    container_name: gcp-proxy-tunnel
+    network_mode: host
+    environment:
+      GCP_PROXY_IP: ${GCP_PROXY_IP:-}
+      GCP_PROXY_USER: ${GCP_PROXY_USER:-ubuntu}
+      SSH_PRIVATE_KEY: /ssh/id_ed25519
+    volumes:
+      - ${SSH_PRIVATE_KEY_PATH:-${HOME}/.ssh/id_ed25519}:/ssh/id_ed25519:ro
+    restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: tailscale
+    hostname: jon-server
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+    command: >
+      tailscaled
+      --state=/var/lib/tailscale/tailscaled.state
+      --statedir=/var/lib/tailscale
+      --socket=/tmp/tailscaled.sock
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
+    name: homelab_net

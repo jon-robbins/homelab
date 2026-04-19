@@ -1,0 +1,22 @@
+[Unit]
+Description=SSH tunnel to GCP tinyproxy for Prowlarr (localhost:8888)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+EnvironmentFile=-/etc/default/prowlarr-gcp-proxy
+Environment=GCP_PROXY_USER=ubuntu
+ExecStart=/usr/bin/ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new \
+  -L 8888:127.0.0.1:8888 \
+  ${GCP_PROXY_USER}@${GCP_PROXY_IP}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

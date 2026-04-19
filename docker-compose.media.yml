@@ -1,0 +1,166 @@
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    network_mode: host
+    shm_size: "2gb"
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./data/prowlarr:/config
+    restart: unless-stopped
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./data/jackett:/config
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./data/sonarr:/config
+      - /mnt/media-hdd/TV:/tv
+      - /mnt/media-nvme/Incoming:/downloads
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./data/radarr:/config
+      - /mnt/media-hdd/Movies:/movies
+      - /mnt/media-nvme/Incoming:/downloads
+    restart: unless-stopped
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:0.4.19-nightly
+    container_name: readarr
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./data/readarr:/config
+      - /mnt/media-hdd/Books:/books
+      - /mnt/media-nvme/Incoming:/downloads
+    restart: unless-stopped
+
+  overseerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: overseerr
+    init: true
+    network_mode: host
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+      - PORT=5055
+    volumes:
+      - ./data/overseerr:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5055/api/v1/settings/public >/dev/null || exit 1"]
+      start_period: 40s
+      timeout: 5s
+      interval: 20s
+      retries: 3
+    restart: unless-stopped
+
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VERSION=docker
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./data/plex:/config
+      - /mnt/media-hdd:/mnt/media-hdd
+      - /mnt/media-nvme:/mnt/media-nvme
+      - /srv/plex:/srv/plex
+      - /mnt/media-hdd/Movies:/movies
+      - /mnt/media-hdd/TV:/tv
+      - /mnt/media-nvme/Incoming:/downloads
+    gpus: all
+    group_add:
+      - video
+      - render
+    restart: unless-stopped
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - JELLYFIN_PublishedServerUrl=https://jf.ashorkqueen.xyz
+    volumes:
+      - ./data/jellyfin:/config
+      - /mnt/media-hdd/Movies:/movies:ro
+      - /mnt/media-hdd/TV:/tv:ro
+      - /mnt/media-nvme/Incoming:/downloads:ro
+      - /mnt/media-hdd:/mnt/media-hdd:ro
+      - /mnt/media-nvme:/mnt/media-nvme:ro
+    devices:
+      - /dev/dri:/dev/dri
+    gpus: all
+    group_add:
+      - video
+    restart: unless-stopped
+
+  # qBittorrent running directly on host networking (no VPN namespace).
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ./data/qbittorrent/config:/config
+      - ./data/qbittorrent/torrent-trackers:/torrent-trackers
+      - /mnt/media-nvme/Incoming:/downloads
+      - /mnt/media-hdd/Movies:/movies
+      - /mnt/media-hdd/TV:/tv
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
+    name: homelab_net

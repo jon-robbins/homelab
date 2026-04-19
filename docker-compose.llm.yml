@@ -1,0 +1,30 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/llm/ollama:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    gpus: all
+    networks:
+      - homelab_net
+
+  internal-dashboard:
+    image: nginx:alpine
+    container_name: internal-dashboard
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./data/internal-dashboard:/usr/share/nginx/html:ro
+    networks:
+      - homelab_net
+
+networks:
+  homelab_net:
+    external: true
+    name: homelab_net
