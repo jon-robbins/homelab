@@ -1,0 +1,20 @@
+# Cloudflare tunnel (dashboard name: homelab; UUID below)
+# tunnel: <UUID from: cloudflared tunnel create ...>
+# credentials-file: must match the JSON filename cloudflared created (usually same UUID.json)
+
+tunnel: 4467aa87-631d-4103-83bd-cbaf8e6c024e
+credentials-file: /etc/cloudflared/credentials/4467aa87-631d-4103-83bd-cbaf8e6c024e.json
+
+# Prefer IPv4 to Cloudflare edge when IPv6 has no route (avoids QUIC "network is unreachable" on [::]).
+edge-ip-version: "4"
+
+# Public ingress (no VPN): Seerr + Plex stream + Jellyfin. Other UIs: LAN / Tailscale.
+# Token-based tunnel: mirror these hostnames in Zero Trust → Tunnels → Public Hostnames.
+ingress:
+  - hostname: get.ashorkqueen.xyz
+    service: http://127.0.0.1:5055
+  - hostname: stream.ashorkqueen.xyz
+    service: http://127.0.0.1:32400
+  - hostname: jf.ashorkqueen.xyz
+    service: http://127.0.0.1:8096
+  - service: http_status:404

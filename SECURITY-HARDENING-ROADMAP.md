@@ -9,7 +9,6 @@ This document extends the stack audit: what was done, what to do next, and long-
 | Hostname | Service |
 |----------|---------|
 | `get.ashorkqueen.xyz` | Seerr (`127.0.0.1:5055`) |
-| `prowl.ashorkqueen.xyz` | Prowlarr (`127.0.0.1:9696`) |
 | `stream.ashorkqueen.xyz` | Plex (`127.0.0.1:32400`) |
 | `jf.ashorkqueen.xyz` | Jellyfin (`127.0.0.1:8096`) |
 
@@ -17,7 +16,7 @@ This document extends the stack audit: what was done, what to do next, and long-
 
 ## Done (baseline)
 
-- Tunnel ingress in `/home/jon/docker/cloudflared/config.yml` matches the table above (Seerr + Prowlarr + Plex stream). If you use **`CLOUDFLARE_TUNNEL_TOKEN`**, mirror the same routes in the Zero Trust dashboard (local file is ignored in that mode).
+- Tunnel ingress in `/home/jon/docker/data/cloudflared/config.yml` matches the table above (Seerr + Plex stream + Jellyfin). If you use **`CLOUDFLARE_TUNNEL_TOKEN`**, mirror the same routes in the Zero Trust dashboard (local file is ignored in that mode).
 - Caddy is optional behind Compose profile `caddy` — do not use it to duplicate tunnel public names; see Caddyfile notes for Seerr.
 - Plex `PLEX_CLAIM` removed from compose; reclaim via https://www.plex.tv/claim only when setting up a new server.
 - `hardening/secure-secret-file-permissions.sh` — `600` on app secrets; `755` on `cloudflared/credentials/` (not `700`: cloudflared runs as UID `65532` and must **traverse** the directory) and `644` on tunnel `*.json`.
@@ -35,7 +34,6 @@ Local `config.yml` only applies when the tunnel runs with **that file** (`/home/
 4. Open the **Public Hostname** (or **Hostname routes**) section for that tunnel.
 5. **Keep** exactly:
    - `get.ashorkqueen.xyz` → `http://127.0.0.1:5055`
-   - `prowl.ashorkqueen.xyz` → `http://127.0.0.1:9696`
    - `stream.ashorkqueen.xyz` → `http://127.0.0.1:32400`
    - `jf.ashorkqueen.xyz` → `http://127.0.0.1:8096`
 6. **Delete** public routes that violate policy, for example:
@@ -46,7 +44,7 @@ Local `config.yml` only applies when the tunnel runs with **that file** (`/home/
 ### 2. DNS records (zone `ashorkqueen.xyz`)
 
 1. Open the [Cloudflare dashboard](https://dash.cloudflare.com/) → select zone **ashorkqueen.xyz** → **DNS** → **Records**.
-2. Ensure **get**, **prowl**, and **stream** are **Proxied** CNAMEs (or equivalent) to the tunnel.
+2. Ensure **get**, **stream**, and **jf** are **Proxied** CNAMEs (or equivalent) to the tunnel.
 3. Remove **qbt** (and similar) records if those hostnames are no longer served.
 
 ### 3. Optional: CLI parity later
@@ -57,7 +55,7 @@ Local `config.yml` only applies when the tunnel runs with **that file** (`/home/
 
 ### Host firewall / UFW
 
-If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr ports (and other non-tunnel services), remove those rules so only LAN/VPN can hit them directly; public access stays via Cloudflare for **get** / **prowl** / **stream** only. (Or load `nftables-arr-stack.nft` and avoid conflicting double-filtering.) SSH (22) should be restricted if possible (tailnet, jump host, or allowlist).
+If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr ports (and other non-tunnel services), remove those rules so only LAN/VPN can hit them directly; public access stays via Cloudflare for **get** / **stream** / **jf** only. (Or load `nftables-arr-stack.nft` and avoid conflicting double-filtering.) SSH (22) should be restricted if possible (tailnet, jump host, or allowlist).
 
 ### Network isolation
 
@@ -70,7 +68,7 @@ If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr
 
 ### Authentication and trust
 
-- Enable authentication for *arr and related UIs for all clients (not only non-local). **Prowlarr is on the internet** — treat it as untrusted unless behind [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) or similar.
+- Enable authentication for *arr and related UIs for all clients (not only non-local), even when they are LAN/VPN-only.
 - Seerr: Application URL `https://get.ashorkqueen.xyz`; enable `trustProxy` behind Cloudflare (or your known reverse proxy).
 
 ### Supply chain
@@ -84,7 +82,7 @@ If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr
 
 ## Long term
 
-- **Zero-trust:** Cloudflare Access (or similar) in front of **get**, **prowl**, and **stream** with IdP + MFA.
+- **Zero-trust:** Cloudflare Access (or similar) in front of **get**, **stream**, and **jf** with IdP + MFA.
 - **Secrets:** Docker secrets, SOPS/age, or Vault for compose and backup automation.
 - **Host:** unattended security updates, SSH hardening / fail2ban, immutable backups, log alerting.
 - **Network:** isolated VLAN for the server; minimal east-west traffic.
@@ -92,6 +90,6 @@ If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr
 ## Validation checklist
 
 - [ ] WAN cannot reach management ports except as intended (test from outside LAN or use an external port scan).
-- [ ] Cloudflare tunnel public hostnames are **only** get + prowl + stream (unless you deliberately re-approved more).
+- [ ] Cloudflare tunnel public hostnames are **only** get + stream + jf (unless you deliberately re-approved more).
 - [ ] `hardening/secure-secret-file-permissions.sh` run after restores or new configs.
 - [ ] Backups of appdata encrypted and stored offsite.
