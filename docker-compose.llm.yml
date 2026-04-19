@@ -4,7 +4,8 @@ services:
     container_name: ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      # Intentional loopback bind: keep Ollama local-only on this host.
+      - "127.0.0.1:11434:11434"
     volumes:
       - ./data/llm/ollama:/root/.ollama
     environment:
@@ -18,7 +19,8 @@ services:
     container_name: internal-dashboard
     restart: unless-stopped
     ports:
-      - "8088:80"
+      # Intentional loopback bind: internal dashboard is local-only.
+      - "127.0.0.1:8088:80"
     volumes:
       - ./data/internal-dashboard:/usr/share/nginx/html:ro
     networks:

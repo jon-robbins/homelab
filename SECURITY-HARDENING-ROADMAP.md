@@ -14,6 +14,13 @@ This document extends the stack audit: what was done, what to do next, and long-
 
 **Sonarr, Radarr, Jackett, qBittorrent Web UI, FlareSolverr, etc.:** LAN or WireGuard (`../wireguard/`) only — no public DNS/tunnel routes.
 
+## Exposure controls
+
+- `docker-compose.llm.yml` binds internal services to loopback only:
+  - Ollama: `127.0.0.1:11434:11434`
+  - Internal dashboard: `127.0.0.1:8088:80`
+- These loopback binds are intentional to reduce local attack surface while keeping Compose-managed access on the host.
+
 ## Done (baseline)
 
 - Tunnel ingress in `/home/jon/docker/data/cloudflared/config.yml` matches the table above (Seerr + Plex stream + Jellyfin). If you use **`CLOUDFLARE_TUNNEL_TOKEN`**, mirror the same routes in the Zero Trust dashboard (local file is ignored in that mode).
