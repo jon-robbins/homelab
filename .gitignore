@@ -1,5 +1,16 @@
-# Persistent runtime data
-data/
+# Persistent runtime data (default ignored)
+data/**
+!data/
+
+# Track source-of-truth infra configs that live under data/
+!data/cloudflared/
+data/cloudflared/**
+!data/cloudflared/config.yml
+!data/cloudflared/.gitignore
+
+!data/caddy/
+data/caddy/**
+!data/caddy/Caddyfile
 
 # Local environment and secrets
 .env
