@@ -43,7 +43,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
-      - PGID=${PGID}
+      - PGID=988
       - TZ=${TZ}
     volumes:
       - ./data/sonarr:/config
@@ -168,6 +168,35 @@ services:
       - /mnt/media-nvme/Incoming:/downloads
       - /mnt/media-hdd/Movies:/movies
       - /mnt/media-hdd/TV:/tv
+    restart: unless-stopped
+
+  arr-retry-worker:
+    image: python:3.12-alpine
+    container_name: arr-retry-worker
+    network_mode: host
+    working_dir: /workspace
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - TZ=${TZ}
+      - SONARR_URL=${SONARR_URL:-http://127.0.0.1:8989/sonarr}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_URL=${RADARR_URL:-http://127.0.0.1:7878}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - ./data/sonarr:/workspace/data/sonarr:ro
+      - ./data/radarr:/workspace/data/radarr:ro
+    command: |
+      sh -c '
+        set -eu
+        RETRY_CMD="cd /workspace && python /workspace/scripts/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 20 --max-searches 20 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
+        echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
+        sh -c "$$RETRY_CMD" >> /proc/1/fd/1 2>> /proc/1/fd/2 &
+        echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
+        printf "%s\n" "*/15 * * * * $$RETRY_CMD >> /proc/1/fd/1 2>> /proc/1/fd/2" > /etc/crontabs/root
+        echo "[arr-retry-worker] $(date -Iseconds) installed cron schedule: */15 * * * *"
+        exec crond -f -l 8
+      '
     restart: unless-stopped
 
 networks:
