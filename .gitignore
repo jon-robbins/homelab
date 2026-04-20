@@ -1,3 +1,6 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
 # Persistent runtime data (default ignored)
 data/**
 !data/
