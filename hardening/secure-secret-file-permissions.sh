@@ -25,16 +25,6 @@ for p in "${paths[@]}"; do
   fi
 done
 
-# Optional tunnel SSH key used by gcp-proxy-tunnel.
-SSH_KEY_PATH="${SSH_PRIVATE_KEY_PATH:-${HOME}/.ssh/id_ed25519}"
-if [[ -f "$SSH_KEY_PATH" ]]; then
-  if chmod 600 "$SSH_KEY_PATH" 2>/dev/null || chmod u=rw,go= "$SSH_KEY_PATH" 2>/dev/null; then
-    echo "chmod 600 $SSH_KEY_PATH"
-  else
-    echo "skip (not owner): $SSH_KEY_PATH — run: sudo chmod 600 $SSH_KEY_PATH"
-  fi
-fi
-
 # Tunnel JSON: cloudflared image runs as UID 65532 and must read bind-mounted creds — use 644 on the file,
 # 755 on the directory so the container user can traverse to the JSON (700 breaks cloudflared after restart).
 if [[ -d "${ROOT}/data/cloudflared/credentials" ]]; then

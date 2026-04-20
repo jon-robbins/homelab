@@ -1,0 +1,18 @@
+# Copy to config.yml and edit. Paths below match docker-compose volume layout.
+#
+# tunnel: <UUID from: cloudflared tunnel create ...>
+# credentials-file: must match the JSON filename cloudflared created (usually same UUID.json)
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+# Path is inside the container (see docker-compose volume ./credentials)
+credentials-file: /etc/cloudflared/credentials/REPLACE_WITH_TUNNEL_UUID.json
+
+# Example: Seerr + Prowlarr + Plex on the internet; other UIs via LAN/VPN only.
+ingress:
+  - hostname: seerr.example.com
+    service: http://127.0.0.1:5055
+  - hostname: prowl.example.com
+    service: http://127.0.0.1:9696
+  - hostname: stream.example.com
+    service: http://127.0.0.1:32400
+  - service: http_status:404

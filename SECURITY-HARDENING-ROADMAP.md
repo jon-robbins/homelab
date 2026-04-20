@@ -23,7 +23,7 @@ This document extends the stack audit: what was done, what to do next, and long-
 
 ## Done (baseline)
 
-- Tunnel ingress in `/home/jon/docker/data/cloudflared/config.yml` matches the table above (Seerr + Plex stream + Jellyfin). If you use **`CLOUDFLARE_TUNNEL_TOKEN`**, mirror the same routes in the Zero Trust dashboard (local file is ignored in that mode).
+- Tunnel ingress in `/home/jon/docker/data/cloudflared/config.yml` matches the table above (Seerr + Plex stream + Jellyfin). Source of truth is the **local** `config.yml` mounted into the `cloudflared` container by `docker-compose.network.yml`.
 - Caddy is optional behind Compose profile `caddy` — do not use it to duplicate tunnel public names; see Caddyfile notes for Seerr.
 - Plex `PLEX_CLAIM` removed from compose; reclaim via https://www.plex.tv/claim only when setting up a new server.
 - Added `security_opt: ["no-new-privileges:true"]` to low-risk services across `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml` (excluding `tailscale`, which keeps required caps/devices).
@@ -32,7 +32,7 @@ This document extends the stack audit: what was done, what to do next, and long-
 
 ## Align Cloudflare dashboard (Public Hostnames & DNS)
 
-Local `config.yml` only applies when the tunnel runs with **that file** (`/home/jon/docker/cloudflared/docker-compose.yml`). If you use **`CLOUDFLARE_TUNNEL_TOKEN`** (`arr/docker-compose.cloudflared.yml`), ingress is defined in the **Zero Trust dashboard**, not from `config.yml` — you must edit both places if you switch modes.
+This stack runs `cloudflared` via `docker-compose.network.yml` and mounts `/home/jon/docker/data/cloudflared/config.yml`. Cloudflare’s Zero Trust dashboard still controls which DNS records/public hostnames exist and where they point; keep it aligned with the “Approved public surface” table above.
 
 ### 1. Public Hostnames (Zero Trust)
 
@@ -57,7 +57,7 @@ Local `config.yml` only applies when the tunnel runs with **that file** (`/home/
 
 ### 3. Optional: CLI parity later
 
-`cloudflared tunnel list` / route commands need **`cert.pem`** from `cloudflared tunnel login` (account origin certificate). This host currently has no `cert.pem` under `~/.cloudflared`, so the CLI cannot talk to the Cloudflare API for tunnels until you run login once and store the cert next to your credentials. Dashboard edits above do not require that.
+`cloudflared tunnel list` / route commands need **`cert.pem`** from `cloudflared tunnel login` (account origin certificate). Dashboard edits above do not require that.
 
 ## Medium term (weeks)
 

@@ -5,17 +5,15 @@ data/**
 # Track source-of-truth infra configs that live under data/
 !data/cloudflared/
 data/cloudflared/**
-!data/cloudflared/config.yml
 !data/cloudflared/.gitignore
+!data/cloudflared/README.md
+!data/cloudflared/config.yml.example
 
 
 # Local environment and secrets
 .env
 .env.*
 !.env.example
-
-# Legacy leftovers not part of tracked config
-arr/
 
 # Local artifacts
 *.tar

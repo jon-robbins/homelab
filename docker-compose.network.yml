@@ -23,19 +23,6 @@ services:
       - ./data/cloudflared/credentials:/etc/cloudflared/credentials
     restart: unless-stopped
 
-  gcp-proxy-tunnel:
-    build: ./scripts/gcp-proxy/tunnel
-    container_name: gcp-proxy-tunnel
-    network_mode: host
-    security_opt: ["no-new-privileges:true"]
-    environment:
-      GCP_PROXY_IP: ${GCP_PROXY_IP:-}
-      GCP_PROXY_USER: ${GCP_PROXY_USER:-ubuntu}
-      SSH_PRIVATE_KEY: /ssh/id_ed25519
-    volumes:
-      - ${SSH_PRIVATE_KEY_PATH:-${HOME}/.ssh/id_ed25519}:/ssh/id_ed25519:ro
-    restart: unless-stopped
-
   tailscale:
     image: tailscale/tailscale:stable
     container_name: tailscale
