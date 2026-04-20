@@ -18,7 +18,7 @@ cd <repo>
 ```
 
 The wizard will:
-- Create `.env` (from prompts) for `PUID`, `PGID`, `TZ`
+- Create/update `.env` for `PUID`, `PGID`, `TZ` (preserves existing custom keys such as `SONARR_API_KEY` / `RADARR_API_KEY`)
 - Rewrite compose files to match **your** host paths and GPU choice:
   - `[docker-compose.media.yml](docker-compose.media.yml)` (media mounts, Jellyfin URL, GPU toggles)
   - `[docker-compose.llm.yml](docker-compose.llm.yml)` (GPU toggles)
@@ -37,6 +37,8 @@ docker compose -f docker-compose.network.yml up -d
 docker compose -f docker-compose.media.yml up -d
 docker compose -f docker-compose.llm.yml up -d
 ```
+
+The media stack includes `arr-retry-worker`, which runs an immediate startup sweep and then retries every 15 minutes via in-container cron.
 
 ### Secrets and what is (not) in git
 
@@ -58,4 +60,23 @@ The wizard rewrites a few hard-coded defaults so a new user can set up quickly:
 - GPU settings (`gpus: all`, `NVIDIA_VISIBLE_DEVICES=...`) when GPU is disabled
 
 If you prefer manual setup, copy `.env.example` to `.env` and edit the compose files directly.
+
+### Arr retry automation
+
+The retry script entrypoint is:
+
+```bash
+python3 scripts/retry-sonarr-stalled-downloads.py --help
+```
+
+Configuration priority is:
+- CLI flags
+- Environment variables (including repo-root `.env` when running locally)
+- Arr `config.xml` API key fallback
+
+Recommended `.env` keys:
+- `SONARR_URL`
+- `SONARR_API_KEY`
+- `RADARR_URL`
+- `RADARR_API_KEY`
 

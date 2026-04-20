@@ -29,6 +29,8 @@ This document extends the stack audit: what was done, what to do next, and long-
 - Added `security_opt: ["no-new-privileges:true"]` to low-risk services across `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml` (excluding `tailscale`, which keeps required caps/devices).
 - `hardening/secure-secret-file-permissions.sh` — `600` on app secrets; `755` on `cloudflared/credentials/` (not `700`: cloudflared runs as UID `65532` and must **traverse** the directory) and `644` on tunnel `*.json`; rerun after migrations/restores/new configs.
 - `hardening/nftables-arr-stack.nft` — optional host firewall snippet: RFC1918 + loopback only to management ports; drops the same ports from WAN.
+- `arr-retry-worker` in `docker-compose.media.yml` runs `retry-sonarr-stalled-downloads.py` on startup and every 15 minutes via cron to recover missed/stalled grabs in Sonarr/Radarr.
+- Arr API keys can be sourced from `.env` (`SONARR_API_KEY`, `RADARR_API_KEY`) for the retry automation; treat `.env` as sensitive local configuration.
 
 ## Align Cloudflare dashboard (Public Hostnames & DNS)
 
@@ -100,4 +102,5 @@ If **UFW** still has `ALLOW Anywhere` on Sonarr/Radarr/qBit/Jackett/FlareSolverr
 - [ ] WAN cannot reach management ports except as intended (test from outside LAN or use an external port scan).
 - [ ] Cloudflare tunnel public hostnames are **only** get + stream + jf (unless you deliberately re-approved more).
 - [ ] `hardening/secure-secret-file-permissions.sh` run after restores or new configs.
+- [ ] `.env` is mode-restricted (for example `chmod 600 .env`) when API keys are stored there.
 - [ ] Backups of appdata encrypted and stored offsite.

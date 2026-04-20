@@ -123,13 +123,44 @@ style_header() {
 }
 
 write_env() {
-  local puid pgid tz
+  local puid pgid tz env_file tmp
   puid="$1"; pgid="$2"; tz="$3"
-  cat > "${ROOT}/.env" <<EOF
+  env_file="${ROOT}/.env"
+  tmp="$(mktemp)"
+
+  if [[ -f "$env_file" ]]; then
+    awk '
+      {
+        line = $0
+        if (line ~ /^[[:space:]]*#/) { print; next }
+        if (line ~ /^[[:space:]]*$/) { print; next }
+
+        sub(/^[[:space:]]*export[[:space:]]+/, "", line)
+        split(line, parts, "=")
+        key = parts[1]
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+
+        if (key == "PUID" || key == "PGID" || key == "TZ") next
+        print
+      }
+    ' "$env_file" > "$tmp"
+  else
+    : > "$tmp"
+  fi
+
+  {
+    cat <<EOF
 PUID=${puid}
 PGID=${pgid}
 TZ=${tz}
 EOF
+    if [[ -s "$tmp" ]]; then
+      printf '\n'
+      cat "$tmp"
+    fi
+  } > "$env_file"
+
+  rm -f "$tmp"
 }
 
 detect_tz() {
