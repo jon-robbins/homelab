@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.arr_retry.logic import (
+from arr_retry.logic import (
     analyze_releases,
     choose_force_grab_candidate,
     is_force_grab_eligible_rejection,

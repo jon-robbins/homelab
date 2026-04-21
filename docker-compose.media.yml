@@ -182,20 +182,55 @@ services:
       - SONARR_API_KEY=${SONARR_API_KEY:-}
       - RADARR_URL=${RADARR_URL:-http://127.0.0.1:7878}
       - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - QBITTORRENT_URL=${QBITTORRENT_URL:-http://127.0.0.1:8080}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
+      - ARR_HEALTH_STATE_FILE=${ARR_HEALTH_STATE_FILE:-/workspace/data/arr-retry/health_state.json}
     volumes:
       - ./scripts:/workspace/scripts:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
+      - ./data/arr-retry:/workspace/data/arr-retry
     command: |
       sh -c '
         set -eu
-        RETRY_CMD="cd /workspace && python /workspace/scripts/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 20 --max-searches 20 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
+        mkdir -p /workspace/data/arr-retry
+        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/scripts/workers python -u /workspace/scripts/workers/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 20 --max-searches 20 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
         echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
-        sh -c "$$RETRY_CMD" >> /proc/1/fd/1 2>> /proc/1/fd/2 &
+        sh -c "$$RETRY_CMD" 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1 &
         echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
-        printf "%s\n" "*/15 * * * * $$RETRY_CMD >> /proc/1/fd/1 2>> /proc/1/fd/2" > /etc/crontabs/root
+        printf "%s\n" "*/15 * * * * $$RETRY_CMD 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1" > /etc/crontabs/root
         echo "[arr-retry-worker] $(date -Iseconds) installed cron schedule: */15 * * * *"
         exec crond -f -l 8
+      '
+    restart: unless-stopped
+
+  torrent-health-ui:
+    image: python:3.12-alpine
+    container_name: torrent-health-ui
+    network_mode: host
+    working_dir: /workspace
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - TZ=${TZ}
+      - ARR_HEALTH_UI_HOST=127.0.0.1
+      - ARR_HEALTH_UI_PORT=8091
+      - SONARR_URL=${SONARR_URL:-http://127.0.0.1:8989/sonarr}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_URL=${RADARR_URL:-http://127.0.0.1:7878}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - QBITTORRENT_URL=${QBITTORRENT_URL:-http://127.0.0.1:8080}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
+      - ARR_HEALTH_LOG_FILE=${ARR_HEALTH_LOG_FILE:-/workspace/data/arr-retry/health-last-run.log}
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - ./data/sonarr:/workspace/data/sonarr:ro
+      - ./data/radarr:/workspace/data/radarr:ro
+      - ./data/arr-retry:/workspace/data/arr-retry:ro
+    command: >
+      sh -c '
+      PYTHONPATH=/workspace/scripts/workers python /workspace/scripts/workers/torrent_health_ui/app.py
       '
     restart: unless-stopped
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tighten permissions on typical secret-bearing paths under ~/docker (no key rotation).
+# Tighten permissions on typical secret-bearing paths under the repo root (no key rotation).
 # Run as the user that owns the files; use sudo for root-owned paths (e.g. configs written by containers).
 set -uo pipefail
-ROOT="${HOME}/docker"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 paths=(
   "${ROOT}/.env"

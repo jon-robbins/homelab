@@ -1,0 +1,47 @@
+pageInfo:
+  title: Homelab
+  description: Internal dashboard (Caddy + Tailscale)
+
+appConfig:
+  theme: minimal-dark
+  layout: auto
+  iconSize: medium
+  statusCheck: false
+  preventWriteToDisk: true
+  disableConfiguration: true
+
+sections:
+  - name: Apps (via Caddy paths)
+    icon: fas fa-network-wired
+    items:
+      - title: Sonarr
+        url: /sonarr/
+      - title: Radarr
+        url: /radarr/
+      - title: Jackett
+        url: /jackett/
+      - title: Prowlarr
+        url: /prowlarr/
+      - title: Readarr
+        url: /readarr/
+      - title: Seerr
+        url: /seerr/
+      - title: Jellyfin
+        url: /jellyfin/
+      - title: qBittorrent
+        url: /qbittorrent/
+      - title: FlareSolverr
+        url: /flaresolverr/
+      - title: Torrent Health UI
+        url: /torrent-health/
+
+  - name: Public (Cloudflare)
+    icon: fas fa-globe
+    items:
+      - title: Seerr
+        url: https://get.ashorkqueen.xyz/
+      - title: Plex
+        url: https://stream.ashorkqueen.xyz/
+      - title: Jellyfin
+        url: https://jf.ashorkqueen.xyz/
+

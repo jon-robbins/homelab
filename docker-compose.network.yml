@@ -4,12 +4,56 @@ services:
     container_name: caddy
     network_mode: host
     security_opt: ["no-new-privileges:true"]
+    # Force Caddy to use the repo Caddyfile, not autosave.json.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/certs:/etc/caddy/certs:ro
       - ./data/caddy/home-portal:/srv/home-portal:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
+    restart: unless-stopped
+
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    # Pi-hole needs to listen on DNS ports (53/tcp+udp). Host networking avoids
+    # Docker port publishing edge-cases, but requires freeing port 53 on host.
+    network_mode: host
+    environment:
+      - TZ=${TZ}
+      # Pi-hole v6+: use FTLCONF_* variables (old WEBPASSWORD/WEB_PORT/PIHOLE_DNS_ are deprecated).
+      - FTLCONF_webserver_api_password=${PIHOLE_WEBPASSWORD:-}
+      - FTLCONF_dns_upstreams=${PIHOLE_DNS_:-1.1.1.1;1.0.0.1}
+      # Caddy already owns :80 on this host, so run the admin UI on a high port.
+      - FTLCONF_webserver_port=${PIHOLE_WEB_PORT:-8083}
+      - FTLCONF_dns_listeningMode=all
+    volumes:
+      - ./data/pihole/etc-pihole:/etc/pihole
+      - ./data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d
+    # Needed to bind to :53 when running as non-root.
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_RAW
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:${PIHOLE_WEB_PORT:-8083}/admin/ >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+
+  dashy:
+    image: lissy93/dashy:latest
+    container_name: dashy
+    network_mode: host
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - NODE_ENV=production
+      - HOST=127.0.0.1
+      - PORT=8082
+    volumes:
+      - ./data/dashy/conf.yml:/app/user-data/conf.yml
     restart: unless-stopped
 
   cloudflared:

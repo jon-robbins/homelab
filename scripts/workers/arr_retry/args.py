@@ -141,6 +141,99 @@ def build_parser() -> argparse.ArgumentParser:
             "rejected only by size/quality/cutoff reasons, force-grab best-seeded release."
         ),
     )
+
+    parser.add_argument(
+        "--qbittorrent-url",
+        default=os.environ.get("QBITTORRENT_URL", "http://127.0.0.1:8080"),
+        help="qBittorrent WebUI base URL",
+    )
+    parser.add_argument(
+        "--qbittorrent-username",
+        default=os.environ.get("QBITTORRENT_USERNAME", ""),
+        help="qBittorrent username",
+    )
+    parser.add_argument(
+        "--qbittorrent-password",
+        default=os.environ.get("QBITTORRENT_PASSWORD", ""),
+        help="qBittorrent password",
+    )
+    parser.add_argument(
+        "--enable-health-replacement",
+        action="store_true",
+        help="Enable health-based replacement action for slow old torrents",
+    )
+    parser.add_argument(
+        "--enable-health-race",
+        action="store_true",
+        help="Enable health race mode (keep current torrent and trigger one competitor search)",
+    )
+    parser.add_argument(
+        "--health-replace-age-hours",
+        type=float,
+        default=float(os.environ.get("ARR_HEALTH_REPLACE_AGE_HOURS", "12")),
+        help="Minimum torrent age in hours before replacement logic applies",
+    )
+    parser.add_argument(
+        "--health-race-age-hours",
+        type=float,
+        default=float(os.environ.get("ARR_HEALTH_RACE_AGE_HOURS", "36")),
+        help="Minimum torrent age in hours before race mode can be considered",
+    )
+    parser.add_argument(
+        "--health-min-avg-speed-kib",
+        type=float,
+        default=float(os.environ.get("ARR_HEALTH_MIN_AVG_SPEED_KIB", "10")),
+        help="Minimum average speed (KiB/s). Below this and past age threshold becomes unhealthy.",
+    )
+    parser.add_argument(
+        "--health-skip-progress-percent",
+        type=float,
+        default=float(os.environ.get("ARR_HEALTH_SKIP_PROGRESS_PERCENT", "95")),
+        help="Skip replacement if torrent progress is at or above this percent",
+    )
+    parser.add_argument(
+        "--health-cooldown-hours",
+        type=float,
+        default=float(os.environ.get("ARR_HEALTH_COOLDOWN_HOURS", "12")),
+        help="Cooldown in hours between health actions for the same item",
+    )
+    parser.add_argument(
+        "--health-max-replacements-per-day",
+        type=int,
+        default=int(os.environ.get("ARR_HEALTH_MAX_REPLACEMENTS_PER_DAY", "2")),
+        help="Maximum health replacements per item per day",
+    )
+    parser.add_argument(
+        "--health-max-actions-per-sweep",
+        type=int,
+        default=int(os.environ.get("ARR_HEALTH_MAX_ACTIONS_PER_SWEEP", "8")),
+        help="Global cap on health actions (replace/race) per script run",
+    )
+    parser.add_argument(
+        "--health-min-seeders",
+        type=int,
+        default=int(os.environ.get("ARR_HEALTH_MIN_SEEDERS", "1")),
+        help="Minimum seeders required among candidate releases before health action",
+    )
+    parser.add_argument(
+        "--health-episode-id",
+        type=int,
+        action="append",
+        default=[],
+        help="Limit Sonarr health actions to these episode IDs (repeatable)",
+    )
+    parser.add_argument(
+        "--health-movie-id",
+        type=int,
+        action="append",
+        default=[],
+        help="Limit Radarr health actions to these movie IDs (repeatable)",
+    )
+    parser.add_argument(
+        "--health-state-file",
+        default=os.environ.get("ARR_HEALTH_STATE_FILE", "/tmp/arr_retry_health_state.json"),
+        help="Path to persistent health action state file",
+    )
     return parser
 
 

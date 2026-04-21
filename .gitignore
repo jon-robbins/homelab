@@ -12,6 +12,10 @@ data/cloudflared/**
 !data/cloudflared/README.md
 !data/cloudflared/config.yml.example
 
+!data/dashy/
+data/dashy/**
+!data/dashy/conf.yml.example
+
 
 # Local environment and secrets
 .env
@@ -23,6 +27,8 @@ data/cloudflared/**
 *.tar.gz
 *.tmp
 *.swp
+*.bak
+*.bak.*
 
 # Local helper binaries downloaded by bootstrap (gum/cloudflared)
 bin/
