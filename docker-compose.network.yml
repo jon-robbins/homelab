@@ -2,7 +2,13 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: caddy
-    network_mode: host
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - homelab_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     security_opt: ["no-new-privileges:true"]
     # Force Caddy to use the repo Caddyfile, not autosave.json.
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
@@ -46,11 +52,12 @@ services:
   dashy:
     image: lissy93/dashy:latest
     container_name: dashy
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - NODE_ENV=production
-      - HOST=127.0.0.1
+      - HOST=0.0.0.0
       - PORT=8082
     volumes:
       - ./data/dashy/conf.yml:/app/user-data/conf.yml

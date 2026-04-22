@@ -3,6 +3,8 @@
 This package backs the thin CLI [retry-sonarr-stalled-downloads.py](../retry-sonarr-stalled-downloads.py) (used by the `arr-retry-worker` service in [docker-compose.media.yml](../../../docker-compose.media.yml)).
 
 - **Retry flow**: stalled queue cleanup, missing monitored search, optional force-grab fallback.
+- **qBittorrent orphan stalls (Sonarr)**: torrents in the Sonarr qB category (default `tv-sonarr`) in `stalledDL` / `missingFiles`, with no matching Sonarr queue row, are parsed to a library episode; if still monitored and missing, the worker schedules **EpisodeSearch** and **removes** that torrent from qBittorrent so a new grab can proceed. Tunables: `ARR_RETRY_QBT_ORPHAN_STALLS`, `SONARR_QBT_CATEGORY`, `ARR_RETRY_MAX_QB_ORPHANS`, `ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS`.
+- **Missing + empty `/release` cache**: monitored missing episodes/movies with no cached indexer rows still get **EpisodeSearch** / **MoviesSearch** when `ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH` is true (default).
 - **Optional health policy** (qBittorrent-backed): classify slow/aging items as `watch`, `replace`, or `race`; requires qBittorrent credentials in `.env` when enabled.
 
 Health tuning keys and defaults are documented in the repo root [`.env.example`](../../../.env.example) (`ARR_HEALTH_*`).
@@ -40,7 +42,7 @@ Configuration order: CLI flags → environment variables (including repo `.env` 
 |------|------|
 | `args.py` | CLI and env loading |
 | `client.py` | Sonarr/Radarr API |
-| `qbittorrent.py` | qBittorrent Web API (read-only for health) |
+| `qbittorrent.py` | qBittorrent Web API (reads + orphan torrent delete) |
 | `logic.py` | Arr release/stall logic |
 | `health.py` | Policy + state |
 | `processors.py` | Orchestration |

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 
 from .args import parse_args
@@ -8,10 +9,16 @@ from .processors import process_radarr, process_sonarr
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
+    log = logging.getLogger("arr_retry")
     args = parse_args()
     dry_run = not args.apply
-    print(f"Mode: {'dry-run' if dry_run else 'apply'}")
-    print(f"search_missing_monitored={args.search_missing_monitored} min_seeders={args.min_seeders}")
+    log.info("Mode: %s", "dry-run" if dry_run else "apply")
+    log.info("search_missing_monitored=%s min_seeders=%s", args.search_missing_monitored, args.min_seeders)
 
     total_retries = 0
     total_health_actions = 0
@@ -23,7 +30,7 @@ def main() -> int:
         total_health_actions += sonarr_result.health_actions_used
         health_actions_remaining = max(0, health_actions_remaining - sonarr_result.health_actions_used)
     except Exception as exc:  # noqa: BLE001
-        print(f"[sonarr][error] {exc}", file=sys.stderr)
+        log.exception("[sonarr][error] %s", exc)
         return 1
 
     try:
@@ -32,17 +39,17 @@ def main() -> int:
         total_health_actions += radarr_result.health_actions_used
         health_actions_remaining = max(0, health_actions_remaining - radarr_result.health_actions_used)
     except Exception as exc:  # noqa: BLE001
-        print(f"[radarr][error] {exc}", file=sys.stderr)
+        log.exception("[radarr][error] %s", exc)
         return 1
 
     if not dry_run:
         state_store.save(args.health_state_file)
 
-    print(f"Total retries planned={total_retries}")
+    log.info("Total retries planned=%s", total_retries)
     if args.enable_health_replacement or args.enable_health_race:
-        print(f"Total health actions planned={total_health_actions}")
+        log.info("Total health actions planned=%s", total_health_actions)
     if dry_run:
-        print("Dry-run complete. Re-run with --apply to execute retries.")
+        log.info("Dry-run complete. Re-run with --apply to execute retries.")
     else:
-        print("Apply run complete.")
+        log.info("Apply run complete.")
     return 0

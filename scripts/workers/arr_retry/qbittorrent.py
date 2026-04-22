@@ -10,6 +10,7 @@ from dataclasses import dataclass
 class QBTorrent:
     torrent_hash: str
     name: str
+    category: str
     added_on: int
     progress: float
     dlspeed_bps: float
@@ -71,6 +72,7 @@ class QBittorrentClient:
                 QBTorrent(
                     torrent_hash=torrent_hash,
                     name=str(raw.get("name", "")),
+                    category=str(raw.get("category") or ""),
                     added_on=int(raw.get("added_on") or 0),
                     progress=float(raw.get("progress") or 0.0),
                     dlspeed_bps=float(raw.get("dlspeed") or 0.0),
@@ -81,3 +83,22 @@ class QBittorrentClient:
                 )
             )
         return torrents
+
+    def torrents_delete_hashes(self, hashes: list[str], *, delete_files: bool = False) -> None:
+        if not hashes:
+            return
+        self.login()
+        body = urllib.parse.urlencode(
+            {
+                "hashes": "|".join(hashes),
+                "deleteFiles": "true" if delete_files else "false",
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            self._url("/api/v2/torrents/delete"),
+            data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with self._opener.open(req, timeout=self.timeout_seconds):
+            return

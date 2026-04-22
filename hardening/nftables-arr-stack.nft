@@ -18,9 +18,14 @@ table inet arr_stack_mgmt {
 
   chain input {
     type filter hook input priority 0; policy accept;
-    # Caddy portal (HTTP) and management UIs: allow only local/LAN/Tailscale sources.
-    # Note: torrent peer ports are separate and not included here.
-    tcp dport { 80, 7878, 8787, 8989, 9117, 9696, 5055, 8096, 8191, 8080, 8091, 32400, 11434, 8088 } ip saddr @local_v4 accept
-    tcp dport { 80, 7878, 8787, 8989, 9117, 9696, 5055, 8096, 8191, 8080, 8091, 32400, 11434, 8088 } drop
+    # Exposed ingress after bridge migration: Caddy (80/443), Pi-hole DNS/UI,
+    # and optional direct media/public listeners (Seerr/Jellyfin/Plex).
+    # BitTorrent peer ingress (must match qBittorrent listen port).
+    tcp dport { 51423 } accept
+    udp dport { 51423 } accept
+    tcp dport { 53, 80, 443, 5055, 8083, 8096, 32400 } ip saddr @local_v4 accept
+    udp dport { 53 } ip saddr @local_v4 accept
+    tcp dport { 53, 80, 443, 5055, 8083, 8096, 32400 } drop
+    udp dport { 53 } drop
   }
 }

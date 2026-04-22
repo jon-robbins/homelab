@@ -2,7 +2,8 @@ services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     shm_size: "2gb"
     environment:
@@ -13,7 +14,8 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
@@ -26,7 +28,8 @@ services:
   jackett:
     image: lscr.io/linuxserver/jackett:latest
     container_name: jackett
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
@@ -39,7 +42,8 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
@@ -54,7 +58,8 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
@@ -69,7 +74,8 @@ services:
   readarr:
     image: lscr.io/linuxserver/readarr:0.4.19-nightly
     container_name: readarr
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
@@ -85,12 +91,15 @@ services:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: overseerr
     init: true
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
       - PORT=5055
+    ports:
+      - "127.0.0.1:5055:5055"
     volumes:
       - ./data/overseerr:/app/config
     healthcheck:
@@ -104,6 +113,7 @@ services:
   plex:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
+    # Intentional exception: keep host mode for discovery/casting compatibility.
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     environment:
@@ -129,6 +139,7 @@ services:
   jellyfin:
     image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin
+    # Intentional exception: keep host mode for discovery/casting compatibility.
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     environment:
@@ -151,17 +162,22 @@ services:
       - video
     restart: unless-stopped
 
-  # qBittorrent running directly on host networking (no VPN namespace).
+  # qBittorrent on bridge network; ingress is via Caddy path routing.
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    network_mode: host
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
       - WEBUI_PORT=8080
+    ports:
+      # Incoming peer connections (must match qBittorrent listening port).
+      - "51423:51423/tcp"
+      - "51423:51423/udp"
     volumes:
       - ./data/qbittorrent/config:/config
       - ./data/qbittorrent/torrent-trackers:/torrent-trackers
@@ -173,19 +189,27 @@ services:
   arr-retry-worker:
     image: python:3.12-alpine
     container_name: arr-retry-worker
-    network_mode: host
     working_dir: /workspace
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - TZ=${TZ}
-      - SONARR_URL=${SONARR_URL:-http://127.0.0.1:8989/sonarr}
+      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
       - SONARR_API_KEY=${SONARR_API_KEY:-}
-      - RADARR_URL=${RADARR_URL:-http://127.0.0.1:7878}
+      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
       - RADARR_API_KEY=${RADARR_API_KEY:-}
-      - QBITTORRENT_URL=${QBITTORRENT_URL:-http://127.0.0.1:8080}
+      - QBITTORRENT_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
       - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - ARR_HEALTH_STATE_FILE=${ARR_HEALTH_STATE_FILE:-/workspace/data/arr-retry/health_state.json}
+      # Stalled qBittorrent torrents in Sonarr category with no Sonarr queue row -> EpisodeSearch + remove torrent
+      - ARR_RETRY_QBT_ORPHAN_STALLS=${ARR_RETRY_QBT_ORPHAN_STALLS:-true}
+      - SONARR_QBT_CATEGORY=${SONARR_QBT_CATEGORY:-tv-sonarr}
+      - ARR_RETRY_MAX_QB_ORPHANS=${ARR_RETRY_MAX_QB_ORPHANS:-10}
+      - ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS=${ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS:-3600}
+      # Missing monitored items with empty /release cache still get a search (Sonarr/Radarr)
+      - ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH=${ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH:-true}
     volumes:
       - ./scripts:/workspace/scripts:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
@@ -195,7 +219,7 @@ services:
       sh -c '
         set -eu
         mkdir -p /workspace/data/arr-retry
-        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/scripts/workers python -u /workspace/scripts/workers/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 20 --max-searches 20 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
+        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/scripts/workers python -u /workspace/scripts/workers/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
         echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
         sh -c "$$RETRY_CMD" 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1 &
         echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
@@ -208,18 +232,19 @@ services:
   torrent-health-ui:
     image: python:3.12-alpine
     container_name: torrent-health-ui
-    network_mode: host
     working_dir: /workspace
+    networks:
+      - homelab_net
     security_opt: ["no-new-privileges:true"]
     environment:
       - TZ=${TZ}
-      - ARR_HEALTH_UI_HOST=127.0.0.1
+      - ARR_HEALTH_UI_HOST=0.0.0.0
       - ARR_HEALTH_UI_PORT=8091
-      - SONARR_URL=${SONARR_URL:-http://127.0.0.1:8989/sonarr}
+      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
       - SONARR_API_KEY=${SONARR_API_KEY:-}
-      - RADARR_URL=${RADARR_URL:-http://127.0.0.1:7878}
+      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
       - RADARR_API_KEY=${RADARR_API_KEY:-}
-      - QBITTORRENT_URL=${QBITTORRENT_URL:-http://127.0.0.1:8080}
+      - QBITTORRENT_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
       - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - ARR_HEALTH_LOG_FILE=${ARR_HEALTH_LOG_FILE:-/workspace/data/arr-retry/health-last-run.log}
