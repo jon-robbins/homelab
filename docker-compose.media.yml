@@ -9,6 +9,10 @@ services:
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/flaresolverr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8191}}"
     restart: unless-stopped
 
   prowlarr:
@@ -23,6 +27,10 @@ services:
       - TZ=${TZ}
     volumes:
       - ./data/prowlarr:/config
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/prowlarr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 9696}}"
     restart: unless-stopped
 
   jackett:
@@ -37,6 +45,10 @@ services:
       - TZ=${TZ}
     volumes:
       - ./data/jackett:/config
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/jackett*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 9117}}"
     restart: unless-stopped
 
   sonarr:
@@ -47,12 +59,16 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       - PUID=${PUID}
-      - PGID=988
+      - PGID=${PGID}
       - TZ=${TZ}
     volumes:
       - ./data/sonarr:/config
-      - /mnt/media-hdd/TV:/tv
-      - /mnt/media-nvme/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/sonarr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8989}}"
     restart: unless-stopped
 
   radarr:
@@ -67,8 +83,12 @@ services:
       - TZ=${TZ}
     volumes:
       - ./data/radarr:/config
-      - /mnt/media-hdd/Movies:/movies
-      - /mnt/media-nvme/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/radarr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 7878}}"
     restart: unless-stopped
 
   readarr:
@@ -83,8 +103,12 @@ services:
       - TZ=${TZ}
     volumes:
       - ./data/readarr:/config
-      - /mnt/media-hdd/Books:/books
-      - /mnt/media-nvme/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/readarr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8787}}"
     restart: unless-stopped
 
   overseerr:
@@ -102,6 +126,10 @@ services:
       - "127.0.0.1:5055:5055"
     volumes:
       - ./data/overseerr:/app/config
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/overseerr*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5055/api/v1/settings/public >/dev/null || exit 1"]
       start_period: 40s
@@ -121,16 +149,17 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
       - VERSION=docker
-      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ./data/plex:/config
-      - /mnt/media-hdd:/mnt/media-hdd
-      - /mnt/media-nvme:/mnt/media-nvme
-      - /srv/plex:/srv/plex
-      - /mnt/media-hdd/Movies:/movies
-      - /mnt/media-hdd/TV:/tv
-      - /mnt/media-nvme/Incoming:/downloads
-    gpus: all
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme
+      - ${PLEX_DATA_PATH:-/srv/plex}:/srv/plex
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+    labels:
+      caddy: "plex.${BASE_DOMAIN:-homelab.local}"
+      caddy.reverse_proxy: "host.docker.internal:32400"
     group_add:
       - video
       - render
@@ -146,18 +175,19 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
-      - NVIDIA_VISIBLE_DEVICES=all
-      - JELLYFIN_PublishedServerUrl=https://jf.ashorkqueen.xyz
+      - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN:-homelab.local}
     volumes:
       - ./data/jellyfin:/config
-      - /mnt/media-hdd/Movies:/movies:ro
-      - /mnt/media-hdd/TV:/tv:ro
-      - /mnt/media-nvme/Incoming:/downloads:ro
-      - /mnt/media-hdd:/mnt/media-hdd:ro
-      - /mnt/media-nvme:/mnt/media-nvme:ro
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv:ro
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads:ro
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
+    labels:
+      caddy: "jellyfin.${BASE_DOMAIN:-homelab.local}"
+      caddy.reverse_proxy: "host.docker.internal:8096"
     devices:
       - /dev/dri:/dev/dri
-    gpus: all
     group_add:
       - video
     restart: unless-stopped
@@ -181,9 +211,13 @@ services:
     volumes:
       - ./data/qbittorrent/config:/config
       - ./data/qbittorrent/torrent-trackers:/torrent-trackers
-      - /mnt/media-nvme/Incoming:/downloads
-      - /mnt/media-hdd/Movies:/movies
-      - /mnt/media-hdd/TV:/tv
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/qbittorrent*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
     restart: unless-stopped
 
   arr-retry-worker:
@@ -257,6 +291,10 @@ services:
       sh -c '
       PYTHONPATH=/workspace/scripts/workers python /workspace/scripts/workers/torrent_health_ui/app.py
       '
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/torrent-health*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8091}}"
     restart: unless-stopped
 
 networks:

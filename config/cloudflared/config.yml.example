@@ -1,0 +1,14 @@
+# Copy to data/cloudflared/config.yml and edit values.
+# credentials-file path is inside the cloudflared container.
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/credentials/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: seerr.example.com
+    service: http://127.0.0.1:5055
+  - hostname: prowl.example.com
+    service: http://127.0.0.1:9696
+  - hostname: stream.example.com
+    service: http://127.0.0.1:32400
+  - service: http_status:404

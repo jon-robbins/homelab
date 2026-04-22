@@ -1,6 +1,9 @@
 # Python artifacts
 __pycache__/
 *.py[cod]
+.venv/
+src/homelab_workers/.venv/
+.coverage
 # Persistent runtime data (default ignored)
 data/**
 !data/

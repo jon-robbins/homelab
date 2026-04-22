@@ -14,6 +14,10 @@ services:
     gpus: all
     networks:
       - homelab_net
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/ollama*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 11434}}"
 
   internal-dashboard:
     image: nginx:alpine
@@ -27,6 +31,10 @@ services:
       - ./data/internal-dashboard:/usr/share/nginx/html:ro
     networks:
       - homelab_net
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/dashboard*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 80}}"
 
 networks:
   homelab_net:

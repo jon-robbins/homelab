@@ -1,24 +1,22 @@
 services:
   caddy:
-    image: caddy:2-alpine
+    image: lucaslorentz/caddy-docker-proxy:latest
     container_name: caddy
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    environment:
+      - CADDY_INGRESS_NETWORKS=homelab_net
     networks:
       - homelab_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    security_opt: ["no-new-privileges:true"]
-    # Force Caddy to use the repo Caddyfile, not autosave.json.
-    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
-    volumes:
-      - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/caddy/certs:/etc/caddy/certs:ro
-      - ./data/caddy/home-portal:/srv/home-portal:ro
-      - ./data/caddy/data:/data
-      - ./data/caddy/config:/config
-    restart: unless-stopped
 
   pihole:
     image: pihole/pihole:latest
@@ -28,7 +26,7 @@ services:
     network_mode: host
     environment:
       - TZ=${TZ}
-      # Pi-hole v6+: use FTLCONF_* variables (old WEBPASSWORD/WEB_PORT/PIHOLE_DNS_ are deprecated).
+      # Pi-hole v6+: use FTLCONF_* variable names.
       - FTLCONF_webserver_api_password=${PIHOLE_WEBPASSWORD:-}
       - FTLCONF_dns_upstreams=${PIHOLE_DNS_:-1.1.1.1;1.0.0.1}
       # Caddy already owns :80 on this host, so run the admin UI on a high port.
@@ -48,6 +46,9 @@ services:
       retries: 5
       start_period: 45s
     restart: unless-stopped
+    labels:
+      caddy: "pihole.${BASE_DOMAIN:-homelab.local}"
+      caddy.reverse_proxy: "host.docker.internal:${PIHOLE_WEB_PORT:-8083}"
 
   dashy:
     image: lissy93/dashy:latest
@@ -61,6 +62,10 @@ services:
       - PORT=8082
     volumes:
       - ./data/dashy/conf.yml:/app/user-data/conf.yml
+    labels:
+      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy.handle_path: "/dashy*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8082}}"
     restart: unless-stopped
 
   cloudflared:
@@ -95,5 +100,5 @@ services:
 
 networks:
   homelab_net:
-    external: true
+    driver: bridge
     name: homelab_net
