@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from .config import Settings
+from ..core.config import Settings
 from .download_options import (
     grab_radarr,
     grab_sonarr,
@@ -12,7 +12,7 @@ from .download_options import (
     run_download_options_tv,
 )
 from .lookup import normalize_query, run_lookup
-from .models import (
+from ..core.models import (
     ACTION_CALL_ADAPTER,
     ActionDownloadGrabMovie,
     ActionDownloadGrabTV,

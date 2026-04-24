@@ -154,7 +154,7 @@ setup_network() {
         info "Docker network homelab_net already exists"
     else
         docker network create homelab_net >/dev/null
-        info "Created Docker network homelab_net"
+        info "Created external Docker network homelab_net"
     fi
 }
 

@@ -7,9 +7,9 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from ..action_catalog import ROUTER_ACTION_NAMES
-from ..models import ACTION_CALL_ADAPTER, RouterIntentDecision
-from ..router_selection import parse_selection_choice
+from ..core.action_catalog import ROUTER_ACTION_NAMES
+from ..core.models import ACTION_CALL_ADAPTER, RouterIntentDecision
+from .router_selection import parse_selection_choice
 
 ROUTER_SCHEMA: dict[str, Any] = {
     "type": "object",

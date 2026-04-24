@@ -1,13 +1,20 @@
 import httpx
 import respx
 import app.main as main_mod
-import app.router_orchestrator as orchestrator_mod
+import app.router.router_orchestrator as orchestrator_mod
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from app.config import reset_settings
+from app.core.config import reset_settings
 from app.main import app
-from app.models import RouterPendingOption, RouterSessionState
+from app.core.models import RouterPendingOption, RouterSessionState
+from app.router.router_runtime_helpers import (
+    _extract_season_number,
+    _parse_selection_rank,
+    _query_matches_torrent_name,
+    _season_path_matches,
+)
+from app.router.router_selection import canonical_option_id, parse_selection_choice
 
 AUTH = {"Authorization": "Bearer test-bearer-secret"}
 __test__ = False
@@ -503,7 +510,7 @@ def test_router_dispatch_fallback_persists_indexer_options_for_selection(monkeyp
     monkeypatch.setattr(main_mod, "action_dispatch", _fake_action_dispatch)
     monkeypatch.setattr(
         main_mod,
-        "_season_only_selection_after_grab",
+        "season_only_selection_after_grab",
         lambda http, s, release, season: {  # noqa: ARG005
             "status": "season_only_applied",
             "season": 4,
@@ -601,7 +608,7 @@ def test_router_non_media_intent() -> None:
 
 
 def test_season_matcher_ignores_single_episode_release() -> None:
-    matched = main_mod._query_matches_torrent_name(
+    matched = _query_matches_torrent_name(
         query="Crazy Ex Girlfriend",
         torrent_name="Crazy Ex-Girlfriend S04E14 Im Finding My Bliss 720p AMZN WEB-DL",
         season=4,
@@ -610,7 +617,7 @@ def test_season_matcher_ignores_single_episode_release() -> None:
 
 
 def test_season_matcher_rejects_season_range_pack() -> None:
-    matched = main_mod._query_matches_torrent_name(
+    matched = _query_matches_torrent_name(
         query="Crazy Ex Girlfriend",
         torrent_name="Crazy Ex-Girlfriend Seasons 1-4 Complete Pack 1080p",
         season=4,
@@ -619,7 +626,7 @@ def test_season_matcher_rejects_season_range_pack() -> None:
 
 
 def test_season_matcher_accepts_exact_season_pack() -> None:
-    matched = main_mod._query_matches_torrent_name(
+    matched = _query_matches_torrent_name(
         query="Crazy Ex Girlfriend",
         torrent_name="Crazy Ex-Girlfriend Season 4 Complete 1080p",
         season=4,
@@ -628,26 +635,26 @@ def test_season_matcher_accepts_exact_season_pack() -> None:
 
 
 def test_season_path_matcher_targets_requested_season_files() -> None:
-    assert main_mod._season_path_matches("Crazy Ex-Girlfriend/Season 4/Episode 01.mkv", 4) is True
-    assert main_mod._season_path_matches("Crazy Ex-Girlfriend/S04E14.mkv", 4) is True
-    assert main_mod._season_path_matches("Crazy Ex-Girlfriend/Season 1/Episode 01.mkv", 4) is False
+    assert _season_path_matches("Crazy Ex-Girlfriend/Season 4/Episode 01.mkv", 4) is True
+    assert _season_path_matches("Crazy Ex-Girlfriend/S04E14.mkv", 4) is True
+    assert _season_path_matches("Crazy Ex-Girlfriend/Season 1/Episode 01.mkv", 4) is False
 
 
 def test_extract_season_prefers_specific_path_segment() -> None:
     path = "Crazy Ex-Girlfriend (2015) S01-S04 Season 1-4/Season 4/S04E01.mkv"
-    assert main_mod._extract_season_number(path) == 4
+    assert _extract_season_number(path) == 4
 
 
 def test_parse_selection_rank_supports_ordinal_words() -> None:
-    assert main_mod._parse_selection_rank("download only season 4 from first option") == 1
+    assert _parse_selection_rank("download only season 4 from first option") == 1
 
 
 def test_parse_selection_rank_does_not_treat_season_number_as_rank() -> None:
-    assert main_mod._parse_selection_rank("download season 4") is None
+    assert _parse_selection_rank("download season 4") is None
 
 
 def test_parse_selection_rank_accepts_option_id_without_season_confusion() -> None:
-    choice = main_mod.parse_selection_choice(
+    choice = parse_selection_choice(
         "download season 4 option_id opt-01-abc123def4"
     )
     assert choice is not None
@@ -656,7 +663,7 @@ def test_parse_selection_rank_accepts_option_id_without_season_confusion() -> No
 
 
 def test_canonical_option_id_is_deterministic() -> None:
-    option_id_1 = main_mod.canonical_option_id(
+    option_id_1 = canonical_option_id(
         source_action="indexer_search",
         rank=1,
         title="Crazy Ex-Girlfriend S04 Pack",
@@ -665,7 +672,7 @@ def test_canonical_option_id_is_deterministic() -> None:
         movie_id=None,
         release={"guid": "rel-guid", "infoHash": "abc123"},
     )
-    option_id_2 = main_mod.canonical_option_id(
+    option_id_2 = canonical_option_id(
         source_action="indexer_search",
         rank=1,
         title="Crazy Ex-Girlfriend S04 Pack",
@@ -900,7 +907,7 @@ def test_router_selection_followup_indexer_grab_applies_season_only(monkeypatch,
     monkeypatch.setattr(main_mod, "action_dispatch", _fake_action_dispatch)
     monkeypatch.setattr(
         main_mod,
-        "_season_only_selection_after_grab",
+        "season_only_selection_after_grab",
         lambda http, s, release, season: {  # noqa: ARG005
             "status": "season_only_applied",
             "season": 4,
@@ -962,7 +969,7 @@ def test_router_selection_followup_indexer_grab_duplicate_reuses_and_applies_sea
     monkeypatch.setattr(main_mod, "action_dispatch", _fake_action_dispatch)
     monkeypatch.setattr(
         main_mod,
-        "_season_only_selection_after_grab",
+        "season_only_selection_after_grab",
         lambda http, s, release, season: {  # noqa: ARG005
             "status": "season_only_applied",
             "season": 4,

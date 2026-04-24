@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import RouterPendingOption, RouterSessionState
+from ..core.models import RouterPendingOption, RouterSessionState
 from .router_selection import canonical_option_id, parse_selection_rank
 
 

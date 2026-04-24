@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi.responses import JSONResponse
 
-from ..models import ErrorBody, ErrorResponse
+from ..core.models import ErrorBody, ErrorResponse
 
 
 def new_request_id() -> str:

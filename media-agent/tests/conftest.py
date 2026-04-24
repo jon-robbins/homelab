@@ -18,7 +18,7 @@ os.environ["RADARR_API_KEY"] = "radarr-key"
 os.environ["PROWLARR_URL"] = ""
 os.environ["PROWLARR_API_KEY"] = ""
 
-from app.config import reset_settings  # noqa: E402
+from app.core.config import reset_settings  # noqa: E402
 
 pytest_plugins = []
 

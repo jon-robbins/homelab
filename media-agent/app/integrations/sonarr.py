@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from ..config import Settings
+from ..core.config import Settings
 
 
 def sonarr_get(

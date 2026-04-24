@@ -12,8 +12,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from .action_service import execute_action_payload
-from .action_catalog import ACTION_DEFINITIONS, ACTION_NAMES
+from .actions.action_service import execute_action_payload
+from .core.action_catalog import ACTION_DEFINITIONS, ACTION_NAMES
 from .api.auth import err_response, new_request_id, verify_bearer
 from .api.dependencies import (
     close_http_client,
@@ -21,8 +21,8 @@ from .api.dependencies import (
     init_http_client,
 )
 from .api.responses import envelope_action, envelope_download, envelope_indexer
-from .config import get_settings
-from .download_options import (
+from .core.config import get_settings
+from .actions.download_options import (
     grab_radarr,
     grab_sonarr,
     run_download_options_movie,
@@ -33,8 +33,8 @@ from .integrations.qbittorrent import (
     season_only_selection_after_grab,
     try_enable_requested_season_in_existing_torrent,
 )
-from .lookup import normalize_query, run_lookup
-from .models import (
+from .actions.lookup import normalize_query, run_lookup
+from .core.models import (
     ACTION_CALL_ADAPTER,
     DownloadGrabRequest,
     DownloadOptionsMovieRequest,
@@ -49,10 +49,10 @@ from .models import (
     SearchRequestModel,
     SearchSuccessResponse,
 )
-from .prowlarr_flow import prowlarr_grab, run_indexer_search
-from .router_contracts import RouterProviderOps
+from .actions.prowlarr_flow import prowlarr_grab, run_indexer_search
+from .router.router_contracts import RouterProviderOps
 from .router.formatting import format_router_response
-from .router_orchestrator import (
+from .router.router_orchestrator import (
     build_smoke_gate_payload,
     execute_action,
     hydrate_context,
@@ -61,40 +61,16 @@ from .router_orchestrator import (
     render_response,
 )
 from .router.parser import classify_intent, parse_router_action
-from .router_runtime_helpers import (
+from .router.router_runtime_helpers import (
     _build_pending_options,
     _extract_season_number,
-    _parse_selection_rank,
-    _query_matches_torrent_name,
-    _season_path_matches,
     _selection_to_action_from_option,
 )
-from .router_selection import canonical_option_id, parse_selection_choice
-from .router_state import RouterStateStore
+from .router.router_state import RouterStateStore
 
-# Keep this module focused on route wiring; heavy router logic is in router_flow_helpers.py.
+# Keep this module focused on route wiring; router policy and execution live in app.router.
 _DEBUG_LOG_PATH = "/home/jon/docker/.cursor/debug-f44d4c.log"
 _router_state_store: Optional[RouterStateStore] = None
-_EXPORTED_HELPERS = (
-    _parse_selection_rank,
-    canonical_option_id,
-    parse_selection_choice,
-    _query_matches_torrent_name,
-    _season_path_matches,
-)
-# Backward-compat private helper aliases for tests and monkeypatching.
-_classify_intent = classify_intent
-_parse_router_action = parse_router_action
-_format_router_response = format_router_response
-_envelope_download = envelope_download
-_envelope_indexer = envelope_indexer
-_season_only_selection_after_grab = season_only_selection_after_grab
-_completed_download_match_for_action = completed_download_match_for_action
-_try_enable_requested_season_in_existing_torrent = (
-    try_enable_requested_season_in_existing_torrent
-)
-
-
 def _debug_log(hypothesis_id: str, message: str, data: dict[str, Any]) -> None:
     # #region agent log
     try:
@@ -243,7 +219,7 @@ def indexer_search(
         return err_response(request_id, "UPSTREAM_BAD_RESPONSE", str(e)[:200], 502)
     except Exception as e:  # noqa: BLE001
         return err_response(request_id, "INTERNAL_ERROR", str(e)[:200], 500)
-    return _envelope_indexer(result, request_id)
+    return envelope_indexer(result, request_id)
 
 
 @app.post("/internal/media-agent/v1/indexer-grab")
@@ -363,7 +339,7 @@ def download_options(
         return err_response(request_id, "UPSTREAM_BAD_RESPONSE", str(e)[:200], 502)
     except Exception as e:  # noqa: BLE001
         return err_response(request_id, "INTERNAL_ERROR", str(e)[:200], 500)
-    return _envelope_download(result, request_id)
+    return envelope_download(result, request_id)
 
 
 @app.post("/internal/media-agent/v1/download-grab")
@@ -569,13 +545,13 @@ class _MainRouterProviderOps(RouterProviderOps):
     def classify_intent(
         self, user_message: str, has_session_state: bool
     ) -> RouterIntentDecision:
-        return _classify_intent(user_message, has_session_state)
+        return classify_intent(user_message, has_session_state)
 
     def parse_action(self, user_message: str) -> dict[str, Any]:
-        return _parse_router_action(get_http(), self._settings, user_message)
+        return parse_router_action(get_http(), self._settings, user_message)
 
     def library_reuse(self, query: str, season: int) -> dict[str, Any] | None:
-        return _try_enable_requested_season_in_existing_torrent(
+        return try_enable_requested_season_in_existing_torrent(
             http=get_http(),
             s=self._settings,
             query=query,
@@ -615,7 +591,7 @@ class _MainRouterProviderOps(RouterProviderOps):
     def post_grab_season_filter(
         self, release: dict[str, Any], season: int
     ) -> dict[str, Any] | None:
-        return _season_only_selection_after_grab(
+        return season_only_selection_after_grab(
             http=get_http(),
             s=self._settings,
             release=release,
@@ -623,14 +599,14 @@ class _MainRouterProviderOps(RouterProviderOps):
         )
 
     def completed_download_match(self, action_payload: dict[str, Any]) -> str | None:
-        return _completed_download_match_for_action(
+        return completed_download_match_for_action(
             get_http(), self._settings, action_payload
         )
 
     def format_response(
         self, action_payload: dict[str, Any], tool_result: dict[str, Any]
     ) -> str:
-        return _format_router_response(action_payload, tool_result)
+        return format_router_response(action_payload, tool_result)
 
     def build_pending_options(
         self, source_action: str, tool_result: dict[str, Any]

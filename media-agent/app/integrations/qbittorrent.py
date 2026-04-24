@@ -6,7 +6,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from ..router_runtime_helpers import (
+from ..router.router_runtime_helpers import (
     _extract_season_number,
     _is_multi_season_pack,
     _query_matches_torrent_name,

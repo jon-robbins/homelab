@@ -16,6 +16,10 @@ log() {
   printf '[ci-local] %s\n' "$*"
 }
 
+docker_available() {
+  command -v docker >/dev/null 2>&1
+}
+
 debug_log() {
   local hypothesis_id="$1"
   local message="$2"
@@ -105,12 +109,20 @@ ensure_media_agent_test_deps() {
 }
 
 check_compose_configs() {
+  if ! docker_available; then
+    log "SKIP compose config checks (docker is not installed)"
+    return 0
+  fi
   docker compose -f "${REPO_ROOT}/docker-compose.network.yml" config --quiet
   docker compose -f "${REPO_ROOT}/docker-compose.media.yml" config --quiet
   docker compose -f "${REPO_ROOT}/docker-compose.llm.yml" config --quiet
 }
 
 check_optional_gpu_overlay() {
+  if ! docker_available; then
+    log "SKIP GPU overlay compose check (docker is not installed)"
+    return 0
+  fi
   local gpu_root="${REPO_ROOT}/docker-compose.gpu.yml"
   local gpu_template="${REPO_ROOT}/config/gpu/docker-compose.gpu.yml"
   if [[ -f "${gpu_root}" ]]; then
@@ -162,6 +174,10 @@ run_llm_behavior_check() {
     # #endregion
     return 0
   fi
+  if ! docker_available; then
+    log "SKIP llm behavior check (docker is not installed)"
+    return 0
+  fi
   # #region agent log
   debug_log "H7" "llm_behavior_run" "max_attempts=${CI_LOCAL_LLM_MAX_ATTEMPTS:-1}"
   # #endregion
@@ -175,6 +191,10 @@ run_llm_download_flow_check() {
     # #region agent log
     debug_log "H8" "llm_download_flow_skip" "enabled=${CI_LOCAL_LLM_DOWNLOAD_FLOW:-unset}"
     # #endregion
+    return 0
+  fi
+  if ! docker_available; then
+    log "SKIP llm download-flow check (docker is not installed)"
     return 0
   fi
   local request_text="${CI_LOCAL_LLM_DOWNLOAD_REQUEST:-Download Crazy Ex Girlfriend season 4}"
@@ -302,6 +322,10 @@ PY
 }
 
 run_router_smoke_p0_gate() {
+  if ! docker_available; then
+    log "SKIP router smoke P0 gate (docker is not installed)"
+    return 0
+  fi
   local out
   out="$(
     docker exec -i media-agent python - <<'PY'

@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .models import RouterPendingOption
+from ..core.models import RouterPendingOption
 
 _ORDINAL_MAP: dict[str, int] = {
     "first": 1,

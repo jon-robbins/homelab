@@ -4,6 +4,10 @@ This archive captures legacy PR1918/ground-truth artifacts moved out of active w
 
 ## Archived Artifacts
 
+- `media-agent/app/router_flow_helpers.py`
+  - Archived from: `media-agent/app/router_flow_helpers.py`
+  - Reason: re-export facade removed from the active app tree; active code imports helpers from their owning packages.
+
 - `ground-truth/horror_movies.folders.json`
   - Archived from: `ground-truth/horror_movies.folders.json`
   - Reason: ad-hoc one-off dataset, not part of reproducible runtime workflow.

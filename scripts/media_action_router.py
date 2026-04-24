@@ -18,7 +18,7 @@ MEDIA_AGENT_APP_PATH = REPO_ROOT / "media-agent"
 if str(MEDIA_AGENT_APP_PATH) not in sys.path:
     sys.path.insert(0, str(MEDIA_AGENT_APP_PATH))
 
-from app.models import ACTION_CALL_ADAPTER  # noqa: E402
+from app.core.models import ACTION_CALL_ADAPTER  # noqa: E402
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b-instruct-q8_0")

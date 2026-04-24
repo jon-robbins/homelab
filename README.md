@@ -109,7 +109,7 @@ cd ~/homelab
 ./scripts/setup.sh
 ```
 
-`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, validates compose files, and conditionally creates `docker-compose.gpu.yml`.
+`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates the shared external Docker network `homelab_net` if needed, validates compose files, and conditionally creates `docker-compose.gpu.yml`.
 
 ### Start Services
 
@@ -153,6 +153,8 @@ docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d
 ## Configuration
 
 Compose reads variables from `.env`. `scripts/setup.sh` only updates `.env`; it does not rewrite compose files.
+
+The compose files all attach bridge-mode services to an explicitly named external Docker network, `homelab_net`. Setup owns creating that network once with `docker network create homelab_net`; Compose then reuses it across the split stack files. This avoids per-project network names and keeps commands like `docker compose run` working against an already-running homelab.
 
 ### Core environment contract (`.env.example`)
 
@@ -235,7 +237,7 @@ During setup, `scripts/setup.sh` checks `nvidia-smi`, asks for confirmation, and
 
 ## Network Architecture
 
-Bridge networking is the default because it limits exposure and keeps service-to-service DNS stable. Host mode is used only where protocol behavior requires it.
+Bridge networking is the default because it limits exposure and keeps service-to-service DNS stable. The bridge itself is the setup-created external network `homelab_net`, shared by the network, media, and LLM compose files. Host mode is used only where protocol behavior requires it.
 
 | Service | Network mode | Why this mode is used | Security trade-off |
 |---|---|---|---|
@@ -296,11 +298,11 @@ To make capability changes predictable, `media-agent` now uses one action catalo
 
 ### Where to add things
 
-- `media-agent/app/action_catalog.py`
+- `media-agent/app/core/action_catalog.py`
   - Canonical action registry: action names, payload models, categories, descriptions, and router visibility.
-- `media-agent/app/models.py`
+- `media-agent/app/core/models.py`
   - Add/update action payload model(s) in the strict dispatch layer.
-- `media-agent/app/action_service.py`
+- `media-agent/app/actions/action_service.py`
   - Add deterministic execution for the validated action. Both routes and router orchestration call this service.
 - `media-agent/app/router/parser.py`
   - Update parser behavior only when the LLM should emit the action.
@@ -308,14 +310,14 @@ To make capability changes predictable, `media-agent` now uses one action catalo
   - Update user-facing response text.
 - `media-agent/app/integrations/`
   - Put external API clients/helpers here (`qBittorrent`, `Sonarr`, `Radarr`, `Prowlarr`).
-- `media-agent/app/router_orchestrator.py`
+- `media-agent/app/router/router_orchestrator.py`
   - Decide when the router should call the action (`plan_actions` / focused execution helpers).
 
 ### Fast extension checklist
 
-1. Add action metadata in `action_catalog.py`.
-2. Add Pydantic model in `models.py` and include it in `ACTION_CALL_ADAPTER`.
-3. Add deterministic handler call in `action_service.py`.
+1. Add action metadata in `core/action_catalog.py`.
+2. Add Pydantic model in `core/models.py` and include it in `ACTION_CALL_ADAPTER`.
+3. Add deterministic handler call in `actions/action_service.py`.
 4. If router should use it, update parser/formatting and planning rules.
 5. Add tests in `media-agent/tests/test_api_*`.
 6. Run:

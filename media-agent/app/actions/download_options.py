@@ -13,15 +13,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from .config import Settings
-from .integrations.radarr import radarr_get as _radarr_get
-from .integrations.radarr import radarr_post_json as _radarr_post_json
-from .integrations.sonarr import sonarr_get as _sonarr_get
-from .integrations.sonarr import sonarr_post_json as _sonarr_post_json
-from .services.release_formatting import fold_for_match as _fold
-from .services.release_formatting import human_size
-from .services.release_formatting import indexer_name as _indexer_name
-from .services.release_formatting import int_field as _int_field
+from ..core.config import Settings
+from ..integrations.radarr import radarr_get as _radarr_get
+from ..integrations.radarr import radarr_post_json as _radarr_post_json
+from ..integrations.sonarr import sonarr_get as _sonarr_get
+from ..integrations.sonarr import sonarr_post_json as _sonarr_post_json
+from ..services.release_formatting import fold_for_match as _fold
+from ..services.release_formatting import human_size
+from ..services.release_formatting import indexer_name as _indexer_name
+from ..services.release_formatting import int_field as _int_field
 
 # season 0 and large seasons
 _MAX_SEASON = 100_000

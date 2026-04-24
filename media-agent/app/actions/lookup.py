@@ -12,8 +12,8 @@ from typing import Any, List, Set
 
 import httpx
 
-from .config import Settings
-from .models import ExternalIds, ResultItem
+from ..core.config import Settings
+from ..core.models import ExternalIds, ResultItem
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 

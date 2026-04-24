@@ -1,9 +1,9 @@
 import httpx
 import respx
 
-from app.action_catalog import ACTION_BY_NAME, ROUTER_ACTION_NAMES
-from app.action_service import execute_action_payload
-from app.config import get_settings
+from app.core.action_catalog import ACTION_BY_NAME, ROUTER_ACTION_NAMES
+from app.actions.action_service import execute_action_payload
+from app.core.config import get_settings
 from app.router.parser import ROUTER_SCHEMA
 
 

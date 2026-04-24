@@ -12,7 +12,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from .config import Settings
+from ..core.config import Settings
 from .download_options import human_size
 
 

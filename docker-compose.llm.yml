@@ -160,6 +160,6 @@ services:
 
 networks:
   homelab_net:
-    driver: bridge
     name: homelab_net
+    external: true
 

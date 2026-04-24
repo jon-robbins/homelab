@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "migrate-seerr-arr-hosts.py"
 
