@@ -3,7 +3,10 @@ __pycache__/
 *.py[cod]
 .venv/
 src/homelab_workers/.venv/
+src/homelab_workers/.venv-tests/
 .coverage
+.pytest_cache/
+**/.pytest_cache/
 # Persistent runtime data (default ignored)
 data/**
 !data/
@@ -13,12 +16,13 @@ data/**
 data/cloudflared/**
 !data/cloudflared/.gitignore
 !data/cloudflared/README.md
-!data/cloudflared/config.yml.example
 
 !data/dashy/
 data/dashy/**
-!data/dashy/conf.yml.example
 
+!data/openclaw/
+data/openclaw/**
+!data/openclaw/config/openclaw.json.example
 
 # Local environment and secrets
 .env
@@ -32,6 +36,8 @@ data/dashy/**
 *.swp
 *.bak
 *.bak.*
+*.log
+logs/
 
 # Local helper binaries downloaded by bootstrap (gum/cloudflared)
 bin/

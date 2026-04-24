@@ -26,6 +26,8 @@ sections:
         url: /readarr/
       - title: Seerr
         url: /seerr/
+      - title: Seerr (books preview)
+        url: /seerr-pr1918/
       - title: Jellyfin
         url: /jellyfin/
       - title: qBittorrent

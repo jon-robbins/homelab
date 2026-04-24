@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: lucaslorentz/caddy-docker-proxy:latest
+    image: ${CADDY_IMAGE:-local/caddy-cf:latest}
     container_name: caddy
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
@@ -12,7 +12,8 @@ services:
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
     environment:
-      - CADDY_INGRESS_NETWORKS=homelab_net
+      - CADDY_INGRESS_NETWORKS=${CADDY_INGRESS_NETWORKS:-homelab_net}
+      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
     networks:
       - homelab_net
     extra_hosts:
@@ -47,8 +48,9 @@ services:
       start_period: 45s
     restart: unless-stopped
     labels:
-      caddy: "pihole.${BASE_DOMAIN:-homelab.local}"
+      caddy: "pihole.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:${PIHOLE_WEB_PORT:-8083}"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
 
   dashy:
     image: lissy93/dashy:latest
@@ -61,11 +63,12 @@ services:
       - HOST=0.0.0.0
       - PORT=8082
     volumes:
-      - ./data/dashy/conf.yml:/app/user-data/conf.yml
+      - ${DASHY_CONFIG_PATH:-./data/dashy/conf.yml}:/app/user-data/conf.yml
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/dashy*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8082}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+      # Dashy is the catch-all fallback for unmatched paths (SPA with absolute asset paths).
+      caddy.reverse_proxy: "{{upstreams 8082}}"
     restart: unless-stopped
 
   cloudflared:
@@ -75,7 +78,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     command: tunnel --no-autoupdate run
     volumes:
-      - ./data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CONFIG_PATH:-./data/cloudflared/config.yml}:/etc/cloudflared/config.yml:ro
       - ./data/cloudflared/credentials:/etc/cloudflared/credentials
     restart: unless-stopped
 

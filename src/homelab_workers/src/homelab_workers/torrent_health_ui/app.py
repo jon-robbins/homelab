@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -12,27 +13,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from arr_retry.client import ArrClient, read_api_key_from_config_xml
-from arr_retry.qbittorrent import QBittorrentClient
+from homelab_workers.arr_retry.client import ArrClient, read_api_key_from_config_xml
+from homelab_workers.arr_retry.qbittorrent import QBittorrentClient
+from homelab_workers.shared.dotenv import load_dotenv_into_environ
+from homelab_workers.shared.logging import setup_logging
 
 
 def _load_dotenv() -> None:
     candidates = (Path.cwd() / ".env", Path(__file__).resolve().parents[3] / ".env")
     for path in candidates:
-        if not path.exists():
-            continue
-        for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if (value.startswith('"') and value.endswith('"')) or (
-                value.startswith("'") and value.endswith("'")
-            ):
-                value = value[1:-1]
-            os.environ.setdefault(key, value)
+        load_dotenv_into_environ(path)
 
 
 @dataclass(frozen=True)
@@ -772,10 +762,11 @@ INDEX_HTML = """<!doctype html>
 
 
 def main() -> None:
+    logger = setup_logging("torrent_health_ui", logging.INFO)
     host = os.environ.get("ARR_HEALTH_UI_HOST", "127.0.0.1")
     port = int(os.environ.get("ARR_HEALTH_UI_PORT", "8091"))
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"[torrent-health-ui] listening on http://{host}:{port}")
+    logger.info("listening on http://%s:%s", host, port)
     server.serve_forever()
 
 

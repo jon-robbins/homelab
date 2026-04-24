@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from arr_retry.health import (
+from homelab_workers.arr_retry.health import (
     HealthActionState,
     HealthCandidate,
     HealthDecisionPlan,

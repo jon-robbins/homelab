@@ -10,7 +10,7 @@ services:
       - LOG_LEVEL=info
       - TZ=${TZ}
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/flaresolverr*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 8191}}"
     restart: unless-stopped
@@ -28,9 +28,9 @@ services:
     volumes:
       - ./data/prowlarr:/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/prowlarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9696}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/prowlarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 9696}}"
     restart: unless-stopped
 
   jackett:
@@ -46,9 +46,9 @@ services:
     volumes:
       - ./data/jackett:/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/jackett*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9117}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/jackett*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 9117}}"
     restart: unless-stopped
 
   sonarr:
@@ -66,9 +66,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/sonarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8989}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/sonarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 8989}}"
     restart: unless-stopped
 
   radarr:
@@ -86,9 +86,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/radarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 7878}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/radarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 7878}}"
     restart: unless-stopped
 
   readarr:
@@ -106,9 +106,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/readarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8787}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/readarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 8787}}"
     restart: unless-stopped
 
   overseerr:
@@ -127,7 +127,7 @@ services:
     volumes:
       - ./data/overseerr:/app/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/overseerr*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"
     healthcheck:
@@ -158,8 +158,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "plex.${BASE_DOMAIN:-homelab.local}"
+      caddy: "plex.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:32400"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
     group_add:
       - video
       - render
@@ -175,7 +176,7 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
-      - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN:-homelab.local}
+      - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN}
     volumes:
       - ./data/jellyfin:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
@@ -184,8 +185,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
     labels:
-      caddy: "jellyfin.${BASE_DOMAIN:-homelab.local}"
+      caddy: "jellyfin.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:8096"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
     devices:
       - /dev/dri:/dev/dri
     group_add:
@@ -215,8 +217,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/qbittorrent*"
+      caddy: "${BASE_DOMAIN}"
+      caddy.redir_0: "/qbittorrent /qbittorrent/"
+      caddy.handle_path: "/qbittorrent/*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
     restart: unless-stopped
 
@@ -245,7 +248,7 @@ services:
       # Missing monitored items with empty /release cache still get a search (Sonarr/Radarr)
       - ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH=${ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH:-true}
     volumes:
-      - ./scripts:/workspace/scripts:ro
+      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
       - ./data/arr-retry:/workspace/data/arr-retry
@@ -253,7 +256,8 @@ services:
       sh -c '
         set -eu
         mkdir -p /workspace/data/arr-retry
-        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/scripts/workers python -u /workspace/scripts/workers/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
+        pip install --quiet httpx
+        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/src/homelab_workers/src python -u -m homelab_workers.arr_retry.main --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
         echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
         sh -c "$$RETRY_CMD" 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1 &
         echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
@@ -283,21 +287,58 @@ services:
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - ARR_HEALTH_LOG_FILE=${ARR_HEALTH_LOG_FILE:-/workspace/data/arr-retry/health-last-run.log}
     volumes:
-      - ./scripts:/workspace/scripts:ro
+      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
       - ./data/arr-retry:/workspace/data/arr-retry:ro
     command: >
       sh -c '
-      PYTHONPATH=/workspace/scripts/workers python /workspace/scripts/workers/torrent_health_ui/app.py
+      pip install --quiet httpx &&
+      PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
       '
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/torrent-health*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 8091}}"
     restart: unless-stopped
 
+  # Thin API for OpenClaw: TV/movie metadata lookup (Sonarr/Radarr) with a stable JSON contract.
+  media-agent:
+    build: ./media-agent
+    image: local/media-agent:latest
+    container_name: media-agent
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - TZ=${TZ}
+      - MEDIA_AGENT_TOKEN=${MEDIA_AGENT_TOKEN:-}
+      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - MEDIA_AGENT_ROUTER_MODEL=${MEDIA_AGENT_ROUTER_MODEL:-qwen2.5-coder:7b-instruct-q8_0}
+      - MEDIA_AGENT_ROUTER_MAX_RETRIES=${MEDIA_AGENT_ROUTER_MAX_RETRIES:-3}
+      # Direct Prowlarr (GET/POST /api/v1/search) — optional; enables indexer-search / indexer-grab
+      - PROWLARR_URL=${PROWLARR_INTERNAL_URL:-http://prowlarr:9696}
+      - PROWLARR_API_KEY=${PROWLARR_API_KEY:-}
+      - QBITTORRENT_INTERNAL_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import os,urllib.request; t=os.environ.get(\"MEDIA_AGENT_TOKEN\",\"\"); assert t; r=urllib.request.Request(\"http://127.0.0.1:8000/internal/media-agent/v1/health\", headers={\"Authorization\":\"Bearer \"+t}); urllib.request.urlopen(r, timeout=4).read()"',
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
 networks:
   homelab_net:
-    external: true
+    driver: bridge
     name: homelab_net

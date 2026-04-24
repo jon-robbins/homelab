@@ -1,4 +1,5 @@
 services:
+  # Local LLM runtime (GPU-accelerated via overlay in docker-compose.gpu.yml).
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -11,11 +12,14 @@ services:
       - ./data/llm/ollama:/root/.ollama
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      # Keep the loaded model in VRAM between requests (faster TTFT; uses VRAM until unload).
+      # Use a duration (e.g. 24h) if you prefer not to hold indefinitely.
+      - OLLAMA_KEEP_ALIVE=-1
     gpus: all
     networks:
       - homelab_net
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/ollama*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 11434}}"
 
@@ -32,11 +36,130 @@ services:
     networks:
       - homelab_net
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/dashboard*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 80}}"
 
+  # OpenClaw gateway (personal AI assistant control plane). See https://docs.openclaw.ai/install/docker
+  # Ollama + Telegram: copy `data/openclaw/config/openclaw.json.example` to `openclaw.json` (same dir),
+  # set TELEGRAM_BOT_TOKEN in the host `.env` (or `TELEGRAM_BOT_TOKEN=` in the mounted `~/.openclaw/.env`), restart the gateway, then `pairing approve` per https://docs.openclaw.ai/channels/telegram
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    depends_on:
+      ollama:
+        condition: service_started
+    ports:
+      # Loopback only: use Caddy hostname on homelab_net for LAN browsers.
+      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "127.0.0.1:${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-UTC}
+      # OpenClaw
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      # Ollama provider (local-only). Using the docker network hostname, not 127.0.0.1.
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama-local}
+      # Telegram: https://docs.openclaw.ai/channels/telegram — env fallback for the default account (set in .env, not in git)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # Optional provider secrets (only if you actually use them).
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      # Arr stack (read-only access via API keys; URLs must be reachable from inside Docker)
+      SONARR_URL: ${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+      RADARR_URL: ${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      READARR_URL: ${READARR_INTERNAL_URL:-http://readarr:8787/readarr}
+      READARR_API_KEY: ${READARR_API_KEY:-}
+      QBITTORRENT_URL: ${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:-}
+      QBITTORRENT_PASSWORD: ${QBITTORRENT_PASSWORD:-}
+      # media-agent: stable JSON for TV/movie lookup (see workspace TOOLS.md)
+      MEDIA_AGENT_URL: ${MEDIA_AGENT_URL:-http://media-agent:8000}
+      MEDIA_AGENT_TOKEN: ${MEDIA_AGENT_TOKEN:-}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
+      # Media libraries (read-only)
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      # Fresh bind mounts have no openclaw.json; allow HTTP /healthz until you run onboarding.
+      - --allow-unconfigured
+      - --bind
+      - ${OPENCLAW_GATEWAY_BIND:-lan}
+      - --port
+      - "18789"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - homelab_net
+    labels:
+      caddy: "openclaw.${BASE_DOMAIN}"
+      caddy.reverse_proxy: "{{upstreams 18789}}"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+
+  # One-off admin: docker compose -f docker-compose.llm.yml --profile openclaw-cli run --rm openclaw-cli <subcommand>
+  openclaw-cli:
+    profiles: [openclaw-cli]
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: openclaw-cli
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-UTC}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama-local}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      MEDIA_AGENT_URL: ${MEDIA_AGENT_URL:-http://media-agent:8000}
+      MEDIA_AGENT_TOKEN: ${MEDIA_AGENT_TOKEN:-}
+      BROWSER: echo
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      - openclaw-gateway
+
 networks:
   homelab_net:
-    external: true
+    driver: bridge
     name: homelab_net
+
