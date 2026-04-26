@@ -135,7 +135,8 @@ jobs:
         run: |
           set -euo pipefail
           source .env 2>/dev/null || true
-          docker compose pull
+          # local/caddy-cf and other :local tags are not on a registry; do not fail the deploy.
+          docker compose pull --ignore-pull-failures
           docker compose up -d --build
 
       - name: Wait for healthchecks
