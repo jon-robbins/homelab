@@ -45,8 +45,8 @@ cloudflared tunnel route dns homelab seerr.example.com
 From the **repo root**:
 
 ```bash
-docker compose -f docker-compose.network.yml up -d cloudflared
-docker compose -f docker-compose.network.yml logs -f cloudflared
+docker compose up -d cloudflared
+docker compose logs -f cloudflared
 ```
 
 The `cloudflare/cloudflared` image runs as **UID 65532**. On bind mounts it must **traverse** `credentials/` — use `chmod 755` on the directory and `644` on `*.json` (see [`hardening/secure-secret-file-permissions.sh`](../../hardening/secure-secret-file-permissions.sh)). A `700` directory often breaks cloudflared after restart.

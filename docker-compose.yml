@@ -1,0 +1,7 @@
+# Root orchestration: run `docker compose up -d` from the repo root.
+# Default stack is bundled via `include` below (Compose v2 `include` spec).
+include:
+  - path: docker-compose.homelab-net.yml
+  - path: docker-compose.network.yml
+  - path: docker-compose.media.yml
+  - path: docker-compose.llm.yml

@@ -5,7 +5,7 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # Local LLM runtime (GPU-accelerated via overlay in docker-compose.gpu.yml).
+  # Local LLM runtime (GPU enabled by default in this stack).
   # Ollama is LAN-only: loopback bind + homelab_net internal DNS. No Caddy ingress.
   ollama:
     image: ollama/ollama@sha256:2038a264392af4d21f7f14e1568e8dd9aa0f2bd0f31d7d9a59a8cca1e9829663
@@ -140,7 +140,7 @@ services:
       caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     logging: *default-logging
 
-  # One-off admin: docker compose -f docker-compose.llm.yml --profile openclaw-cli run --rm openclaw-cli <subcommand>
+  # One-off admin: docker compose -f docker-compose.yml -f docker-compose.llm.yml --profile openclaw-cli run --rm openclaw-cli <subcommand>
   openclaw-cli:
     profiles: [openclaw-cli]
     image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:7c4370ff8777555d4c9fe5ab821aaaad7c87188d389a6cf761270725d96ec3e9}
@@ -175,7 +175,3 @@ services:
       - openclaw-gateway
     logging: *default-logging
     pids_limit: 200
-
-networks:
-  homelab_net:
-    external: true

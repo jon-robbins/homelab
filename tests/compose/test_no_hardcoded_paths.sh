@@ -6,6 +6,8 @@ REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 cd "$REPO_ROOT"
 
 COMPOSE_FILES=(
+  "docker-compose.yml"
+  "docker-compose.homelab-net.yml"
   "docker-compose.network.yml"
   "docker-compose.media.yml"
   "docker-compose.llm.yml"

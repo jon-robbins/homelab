@@ -98,3 +98,4 @@ class QBittorrentClient:
             },
         )
         resp.raise_for_status()
+

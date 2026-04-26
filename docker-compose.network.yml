@@ -143,8 +143,3 @@ services:
       --socket=/tmp/tailscaled.sock
     logging: *default-logging
     restart: unless-stopped
-
-networks:
-  homelab_net:
-    external: true
-    name: homelab_net

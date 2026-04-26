@@ -28,29 +28,11 @@ jobs:
       - name: Compose config
         run: |
           set -euo pipefail
-          docker compose -f docker-compose.network.yml config --quiet
-          docker compose -f docker-compose.media.yml config --quiet
-          docker compose -f docker-compose.llm.yml config --quiet
-
-      - name: Compose GPU overlay (optional)
-        run: |
-          set -euo pipefail
           ROOT="${GITHUB_WORKSPACE}"
-          if [[ -f "${ROOT}/docker-compose.gpu.yml" ]]; then
-            docker compose \
-              -f "${ROOT}/docker-compose.network.yml" \
-              -f "${ROOT}/docker-compose.media.yml" \
-              -f "${ROOT}/docker-compose.llm.yml" \
-              -f "${ROOT}/docker-compose.gpu.yml" \
-              config --quiet
-          elif [[ -f "${ROOT}/config/gpu/docker-compose.gpu.yml" ]]; then
-            docker compose \
-              -f "${ROOT}/docker-compose.network.yml" \
-              -f "${ROOT}/docker-compose.media.yml" \
-              -f "${ROOT}/docker-compose.llm.yml" \
-              -f "${ROOT}/config/gpu/docker-compose.gpu.yml" \
-              config --quiet
-          fi
+          docker compose -f "${ROOT}/docker-compose.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.network.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.media.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.llm.yml" config --quiet
 
       - name: Compose shell tests
         run: bash "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
@@ -97,11 +79,7 @@ jobs:
       - name: Build local images
         run: |
           set -euo pipefail
-          docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
-            build
+          docker compose -f docker-compose.yml build
 
       - name: Bash syntax
         run: |
