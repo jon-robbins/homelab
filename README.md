@@ -9,6 +9,11 @@ Practical Docker Compose homelab with path-based ingress, media automation, and 
 
 ## Architecture Diagram
 
+![Homelab architecture](docs/images/readme-architecture.svg)
+
+<details>
+<summary>diagram source</summary>
+
 ```mermaid
 flowchart TB
     user[User Devices]
@@ -86,6 +91,8 @@ flowchart TB
     jellyfin --- medianvme
 ```
 
+</details>
+
 ## Features
 
 - Split stack model: `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml`.
@@ -156,6 +163,11 @@ docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d
 
 All development happens on the `dev` branch. Production runs from `main`.
 
+![CI/CD flow](docs/images/readme-ci-cd.svg)
+
+<details>
+<summary>diagram source</summary>
+
 ```mermaid
 flowchart LR
     push["push to dev"] --> validate["CI: validate"]
@@ -164,6 +176,8 @@ flowchart LR
     deploy -- pass --> done["production updated"]
     deploy -- fail --> rollback["revert + redeploy + issue"]
 ```
+
+</details>
 
 **Validate** (every push to `dev` and every PR):
 - Compose config validation
@@ -283,6 +297,11 @@ Bridge networking is the default because it limits exposure and keeps service-to
 
 ## Data Flow Diagram
 
+![Media data flow](docs/images/readme-data-flow.svg)
+
+<details>
+<summary>diagram source</summary>
+
 ```mermaid
 flowchart LR
     user[User]
@@ -311,6 +330,8 @@ flowchart LR
     arrretry -->|Retries stalled/missing items| radarr
     arrretry -->|Checks torrent state| qbit
 ```
+
+</details>
 
 ## Python Workers
 

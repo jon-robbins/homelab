@@ -1,0 +1,27 @@
+name: render-md-mermaid
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render-md-mermaid:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Render Mermaid diagrams in Markdown
+        uses: nielsvaneck/render-md-mermaid@v3
+
+      - name: Commit rendered SVG and PNG files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          file_pattern: "docs/images/*.svg docs/images/*.png"
+          commit_message: "chore(docs): render Mermaid diagrams"
