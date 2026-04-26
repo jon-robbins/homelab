@@ -152,6 +152,39 @@ docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d
 └── data/                             # Runtime state (gitignored)
 ```
 
+## CI/CD
+
+All development happens on the `dev` branch. Production runs from `main`.
+
+```mermaid
+flowchart LR
+    push["push to dev"] --> validate["CI: validate"]
+    cron["2 AM CEST nightly"] --> merge["merge dev → main"]
+    merge --> deploy["deploy + E2E"]
+    deploy -- pass --> done["production updated"]
+    deploy -- fail --> rollback["revert + redeploy + issue"]
+```
+
+**Validate** (every push to `dev` and every PR):
+- Compose config validation
+- `docker compose build` for all local images
+- pytest + ruff for workers and media-agent
+- Bash syntax checks and README structure
+
+**Nightly deploy** (2 AM CEST, or manual via workflow dispatch):
+1. Skips if `dev` has no new commits or if the latest validate is failing.
+2. Fast-forward merges `dev` into `main` and pushes.
+3. Pulls images and runs `docker compose up -d --build` on the server.
+4. Waits for all healthchecks (up to 5 minutes).
+5. Runs E2E integration tests against the live stack.
+6. On failure: reverts the merge, redeploys the previous version, and creates a GitHub issue.
+
+To trigger a deploy without waiting for the nightly schedule:
+
+```bash
+gh workflow run "Nightly Deploy"
+```
+
 ## Configuration
 
 Compose reads variables from `.env`. `scripts/setup.sh` only updates `.env`; it does not rewrite compose files.
