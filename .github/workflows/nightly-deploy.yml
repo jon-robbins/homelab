@@ -77,6 +77,13 @@ jobs:
           git checkout main 2>/dev/null || true
           git reset --hard FETCH_HEAD
 
+      - name: Pre-flight backup of data
+        if: steps.check.outputs.skip != 'true'
+        working-directory: /home/jon/homelab
+        run: |
+          set -euo pipefail
+          bash scripts/backup-data.sh
+
       - name: Deploy
         if: steps.check.outputs.skip != 'true'
         working-directory: /home/jon/homelab

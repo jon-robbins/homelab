@@ -188,10 +188,11 @@ flowchart LR
 **Nightly deploy** (2 AM CEST, or manual via workflow dispatch):
 1. Skips if `dev` has no new commits or if the latest validate is failing.
 2. Fast-forward merges `dev` into `main` and pushes.
-3. Pulls images and runs `docker compose up -d --build` on the server.
-4. Waits for all healthchecks (up to 5 minutes).
-5. Runs E2E integration tests against the live stack.
-6. On failure: reverts the merge, redeploys the previous version, and creates a GitHub issue.
+3. Runs `scripts/backup-data.sh`: compresses `./data/` to a timestamped `.tar.gz` under `${MEDIA_HDD_PATH}/backups/homelab-data/`, prunes archives older than 14 days. If this step fails, deploy does not run.
+4. Pulls images and runs `docker compose up -d --build` on the server.
+5. Waits for all healthchecks (up to 5 minutes).
+6. Runs E2E integration tests against the live stack.
+7. On failure: reverts the merge, redeploys the previous version, and creates a GitHub issue.
 
 To trigger a deploy without waiting for the nightly schedule:
 
