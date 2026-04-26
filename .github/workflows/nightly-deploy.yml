@@ -88,6 +88,7 @@ jobs:
           fi
 
           git push origin main
+          echo "merged_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Merged dev into main (prev: $PREV_SHA, new: $(git rev-parse HEAD))"
 
       # Everything below mutates $DEPLOY_DIR / Docker only after merge + push succeed.
@@ -187,13 +188,15 @@ jobs:
         if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
           set -euo pipefail
-          echo "Deploy or E2E failed. Rolling back main to previous state..."
+          PREV="${{ steps.merge.outputs.prev_sha }}"
+          echo "Deploy or E2E failed. Resetting main to pre-merge SHA ${PREV}..."
 
-          # Revert the merge commit in the workspace checkout
+          # Do not use `git revert HEAD` after a fast-forward merge: HEAD may not be the
+          # deploy merge, so revert can undo the wrong commit. Reset main to the recorded SHA.
           git checkout main
-          git pull origin main
-          git revert HEAD --no-edit
-          git push origin main
+          git fetch origin main
+          git reset --hard "${PREV}"
+          git push origin main --force-with-lease
 
           # Update production directory to the reverted state
           cd "$DEPLOY_DIR"
@@ -210,13 +213,16 @@ jobs:
         if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
           set -euo pipefail
-          FAILED_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "unknown")
+          FAILED_SHA="${{ steps.merge.outputs.merged_sha }}"
+          if [[ -z "${FAILED_SHA}" ]]; then
+            FAILED_SHA="unknown (merge may not have completed push)"
+          fi
           gh issue create \
             --title "Nightly deploy failed: auto-rolled back" \
             --body "$(cat <<EOF
           The nightly deploy at $(date -u +%Y-%m-%dT%H:%M:%SZ) failed and was automatically rolled back.
 
-          **Failed commit:** \`$FAILED_SHA\`
+          **Failed revision:** \`${FAILED_SHA}\`
           **Rolled back to:** \`${{ steps.merge.outputs.prev_sha }}\`
           **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
