@@ -4,7 +4,8 @@ on:
   push:
     branches: [dev, main]
     paths:
-      - "**.md"
+      # Only README contains Mermaid; avoid scanning data/ and other .md (mermaid-cli parses every file).
+      - "README.md"
   workflow_dispatch:
 
 permissions:

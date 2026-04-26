@@ -50,9 +50,9 @@ flowchart TB
 
     subgraph storage["Host Storage Mounts"]
         data[(./data/* runtime state)]
-        mediahdd[${MEDIA_HDD_PATH}]
-        medianvme[${MEDIA_NVME_PATH}]
-        plexdata[${PLEX_DATA_PATH}]
+        mediahdd["MEDIA_HDD_PATH"]
+        medianvme["MEDIA_NVME_PATH"]
+        plexdata["PLEX_DATA_PATH"]
     end
 
     user -->|HTTPS| caddy
