@@ -43,3 +43,5 @@ logs/
 
 # Local helper binaries downloaded by bootstrap (gum/cloudflared)
 bin/
+
+media-agent/media_agent.egg-info/

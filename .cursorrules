@@ -1,0 +1,27 @@
+# Homelab Monorepo - Cursor AI Instructions
+
+CRITICAL: This project uses a strict automated CI/CD pipeline, tiered storage, and an isolated infrastructure structure. You must adhere to the following rules at all times.
+
+## 1. Git Workflow & Branching
+- **The `main` branch is READ-ONLY.** Never suggest committing, pushing, or merging directly to `main`. It is exclusively managed by an automated nightly GitHub Action.
+- **The `dev` branch is the default working branch.** All new work must branch off of `dev`.
+- **Branch Naming Convention:** All working branches must follow the format `type/short-kebab-case-description`.
+  - Allowed types: `feat` (new features/services), `fix` (bug fixes), `chore` (refactoring/maintenance), `ci` (pipeline updates), `docs` (README changes).
+  - Example: `feat/add-authelia-sso`
+- **Context Awareness:** When suggesting terminal commands to create a branch, ALWAYS use: `git checkout dev && git pull && git checkout -b <branch-name>`. If asked to execute Git commands, verify the current branch using `git branch --show-current` and refuse to commit if the current branch is `main`.
+
+## 2. Infrastructure & Docker Compose
+- **Compose V2 Syntax:** Always use modern Docker Compose v2 syntax (`docker compose`, NOT the deprecated `docker-compose` with a hyphen).
+- **Orchestration:** The root `docker-compose.yml` is the primary orchestrator using `include` blocks. Do not add service definitions directly to the root file. Add them to the specific manifests inside the `compose/` directory (`compose/docker-compose.network.yml`, etc.).
+- **Relative Paths:** When editing files inside the `compose/` directory, remember that host bind mounts must resolve to the repository root. Always use `../` for root-level folders (e.g., `../data/sonarr:/config`, not `./data/sonarr`).
+- **Data Persistence:** All application state databases and configs MUST map to the `${APP_DATA_DIR:-../data}` or equivalent variables. Never mount arbitrary root paths without utilizing the `.env` contract.
+
+## 3. Python Workers (`src/homelab_workers`)
+- **Isolation:** All custom Python code belongs in `src/homelab_workers/`. Do not create floating `.py` scripts or bash wrappers at the root directory.
+- **Testing:** All tests must be written using `pytest` and placed in `src/homelab_workers/tests/`.
+- **Dependencies:** If adding a new Python package requirement, update the `pyproject.toml` file inside the worker package directory. Do not create a `requirements.txt` file.
+
+## 4. Security & Hardening
+- **Host Networking:** Use `network_mode: host` ONLY if strictly required by the protocol (e.g., DNS, VPN, mDNS discovery). Default to `networks: - homelab_net`.
+- **Port Publishing:** Do not expose container ports directly to the host (`ports:`) unless absolutely necessary. Rely on Caddy ingress labels (`caddy:` and `caddy.handle_path:`) to route traffic internally on the `homelab_net` mesh.
+- **Secrets:** Remind the user to run `scripts/hardening/secure-secret-file-permissions.sh` if new credential files are generated.
