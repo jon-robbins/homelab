@@ -11,6 +11,8 @@ if [[ ! -f ".env.example" ]]; then
 fi
 
 COMPOSE_FILES=(
+  "docker-compose.yml"
+  "docker-compose.homelab-net.yml"
   "docker-compose.network.yml"
   "docker-compose.media.yml"
   "docker-compose.llm.yml"

@@ -91,14 +91,10 @@ jobs:
           set -euo pipefail
           source .env 2>/dev/null || true
           docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
+            -f docker-compose.yml \
             pull
           docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
+            -f docker-compose.yml \
             up -d --build
 
       - name: Wait for healthchecks
@@ -111,9 +107,7 @@ jobs:
           while (( SECONDS < deadline )); do
             all_ready=true
             for c in $(docker compose \
-              -f docker-compose.network.yml \
-              -f docker-compose.media.yml \
-              -f docker-compose.llm.yml \
+              -f docker-compose.yml \
               ps --format '{{.Name}}'); do
               status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
               case "$status" in
@@ -128,9 +122,7 @@ jobs:
 
           failed=0
           for c in $(docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
+            -f docker-compose.yml \
             ps --format '{{.Name}}'); do
             status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
             if [[ "$status" == "unhealthy" ]]; then
@@ -173,9 +165,7 @@ jobs:
           # Redeploy the previous (working) version
           source .env 2>/dev/null || true
           docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
+            -f docker-compose.yml \
             up -d --build
 
           echo "Rollback complete."

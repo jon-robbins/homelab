@@ -6,3 +6,5 @@ workflow when `README.md` changes, or locally with `scripts/render-readme-mermai
 The markup must match **render-md-mermaid v3**: a `![alt](docs/images/….svg)` line,
 then a `<details>` block (with a ` ```mermaid ` fence), so the action can find each
 diagram. Edit the Mermaid source inside those `<details>` sections in `README.md`.
+
+`readme-architecture-overview.svg` is the collapsed high-level architecture; `readme-architecture.svg` is the full service-level diagram.

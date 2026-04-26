@@ -204,7 +204,6 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | tailscale | (root) | **host** | **NO** | NET_ADMIN, NET_RAW | -- |
 | flaresolverr | flaresolverr | bridge | **yes** | -- | -- |
 | prowlarr | (root) | bridge | **yes** | -- | -- |
-| jackett | (root) | bridge | **yes** | -- | -- |
 | sonarr | (root) | bridge | **yes** | -- | -- |
 | radarr | (root) | bridge | **yes** | -- | -- |
 | readarr | (root) | bridge | **yes** | -- | -- |
@@ -212,7 +211,6 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | plex | (root) | **host** | **yes** | -- | -- |
 | jellyfin | (root) | **host** | **yes** | -- | -- |
 | qbittorrent | (root) | bridge | **yes** | -- | -- |
-| arr-retry-worker | **root** | bridge | **yes** | -- | -- |
 | torrent-health-ui | **root** | bridge | **yes** | -- | -- |
 | media-agent | **root** | bridge | **yes** | -- | -- |
 | ollama | **root** | bridge | **yes** | -- | -- |
@@ -268,7 +266,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Impact** | `arr-retry-worker`, `torrent-health-ui`, `media-agent`, `ollama`, `internal-dashboard`, and `pihole` all confirmed running as UID 0. A container breakout from any of these grants host root |
+| **Impact** | `torrent-health-ui`, `media-agent`, `ollama`, `internal-dashboard`, and `pihole` all confirmed running as UID 0. A container breakout from any of these grants host root |
 | **Recommendation** | For `python:3.12-alpine` workers: add `USER nobody` or create a dedicated user. For `media-agent`: add `USER` in Dockerfile. For `ollama`: set `user: "1000:1000"` in compose. For `internal-dashboard` (nginx): use `nginxinc/nginx-unprivileged` |
 
 ---
@@ -301,7 +299,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Files** | `docker-compose.media.yml:260` (arr-retry-worker), `docker-compose.media.yml:297` (torrent-health-ui) |
+| **Files** | `docker-compose.media.yml` (torrent-health-ui) |
 | **Impact** | `pip install --quiet httpx` runs at every container start with no version pin and no hash verification. A PyPI supply-chain attack would be automatically deployed |
 | **Recommendation** | Build a small Dockerfile from `python:3.12-alpine` that bakes in `httpx` with pinned version. The workspace already has `src/homelab_workers/pyproject.toml` with version constraints |
 
@@ -317,7 +315,6 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | `/radarr/` | 401 | Yes | Same as Sonarr |
 | `/readarr/` | 401 | Yes | Same as Sonarr |
 | `/prowlarr/` | 401 | Yes | Same as Sonarr |
-| `/jackett/` | 301 -> Dashboard | Partial (redirects to UI) | Has its own login, but the redirect is unauthenticated |
 | `/qbittorrent/` | **200** | **Login page served** | Login page accessible; weak password `dinosaurpoop` |
 | `/flaresolverr/` | **200** | **No** | Returns JSON status; no auth at all |
 | `/torrent-health/` | 501 | N/A | Worker not ready (pip still installing) |
@@ -341,7 +338,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | **Severity** | Medium |
 | **File** | `docker-compose.media.yml:12-16` (Caddy labels) |
 | **Impact** | FlareSolverr solves CAPTCHAs via headless Chrome. Exposing it on the Caddy ingress allows any LAN device to use it as a CAPTCHA-solving proxy |
-| **Recommendation** | Remove the Caddy label. FlareSolverr only needs to be reachable from Prowlarr/Jackett on the internal `homelab_net` network |
+| **Recommendation** | FlareSolverr only needs to be reachable from Prowlarr on the internal `homelab_net` network |
 
 ### Finding: F-7.3 -- No global auth layer on Caddy
 
@@ -372,7 +369,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 
 | Has healthcheck | Missing healthcheck |
 |---|---|
-| pihole, overseerr, openclaw-gateway, media-agent | caddy, sonarr, radarr, readarr, prowlarr, jackett, qbittorrent, plex, jellyfin, ollama, flaresolverr, arr-retry-worker, torrent-health-ui, internal-dashboard, dashy, tailscale, cloudflared |
+| pihole, overseerr, openclaw-gateway, media-agent | caddy, sonarr, radarr, readarr, prowlarr, qbittorrent, plex, jellyfin, ollama, flaresolverr, torrent-health-ui, internal-dashboard, dashy, tailscale, cloudflared |
 
 ### Finding: F-9.1 -- Most services lack healthchecks
 

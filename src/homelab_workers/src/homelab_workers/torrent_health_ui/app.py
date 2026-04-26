@@ -13,8 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from homelab_workers.arr_retry.client import ArrClient, read_api_key_from_config_xml
-from homelab_workers.arr_retry.qbittorrent import QBittorrentClient
+from homelab_workers.shared.arr import ArrClient, read_api_key_from_config_xml
+from homelab_workers.shared.qbittorrent import QBittorrentClient
 from homelab_workers.shared.dotenv import load_dotenv_into_environ
 from homelab_workers.shared.logging import setup_logging
 
@@ -115,9 +115,7 @@ class AppContext:
                 qb_pass,
                 timeout,
             )
-        self.health_log_file = Path(
-            os.environ.get("ARR_HEALTH_LOG_FILE", "/workspace/data/arr-retry/health-last-run.log")
-        )
+        self.health_log_file = Path(os.environ.get("TORRENT_HEALTH_LOG_FILE", "/workspace/data/torrent-health/health.log"))
 
     def qb_torrents_by_hash(self) -> dict[str, Any]:
         if self.qb is None:
@@ -763,8 +761,8 @@ INDEX_HTML = """<!doctype html>
 
 def main() -> None:
     logger = setup_logging("torrent_health_ui", logging.INFO)
-    host = os.environ.get("ARR_HEALTH_UI_HOST", "127.0.0.1")
-    port = int(os.environ.get("ARR_HEALTH_UI_PORT", "8091"))
+    host = os.environ.get("TORRENT_HEALTH_UI_HOST", "127.0.0.1")
+    port = int(os.environ.get("TORRENT_HEALTH_UI_PORT", "8091"))
     server = ThreadingHTTPServer((host, port), Handler)
     logger.info("listening on http://%s:%s", host, port)
     server.serve_forever()

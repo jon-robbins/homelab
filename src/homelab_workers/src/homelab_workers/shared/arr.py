@@ -60,3 +60,4 @@ class ArrClient:
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         self.close()
+

@@ -1,17 +1,91 @@
 # Homelab Docker Template
 
-Practical Docker Compose homelab with path-based ingress, media automation, and optional local LLM tooling.
+This is my home lab setup that I use for downloading only open source/public domain media from legitimate sources. DO NOT USE THIS FOR ILLEGAL FILESHARING. 
 
-**Checkout path:** Clone to any directory you like. Scripts use paths relative to the repository root (for example `~/homelab` instead of a folder named `docker`).
+This setup definitely isn't plug and play, but I hope it gives some people some inspiration on how to set up their own home lab, and maybe learn a bit about systems design and CI/CD workflows in the process. 
+
+### Services
+
+| Media | Notes |
+|-------|--------|
+| **Arr stack** | Seerr (Overseerr), Sonarr, Radarr, Prowlarr, qBittorrent |
+| **Playback** | Plex + Jellyfin — both; Jellyfin’s Apple TV client still isn’t mature enough to drop Plex |
+
+| App | Notes |
+|------------------|--------|
+| **Pi-hole** | LAN DNS / blocking |
+| **Cloudflare** | Tunneling (no open inbound ports for public names) |
+| **Caddy** | HTTPS + path routing on one hostname (e.g. qBittorrent at `https://home.com/qbittorrent/` instead of `192.168.x.x:8080`) |
+| **Dashy** | Central dashboard |
+| **Tailscale** | Remote mesh VPN |
+| **Telegram bot** | Gemini Flash + Gemma 31b (4-bit quantized) for torrent search — yes, alongside Seerr; the GPU is there, so why not |
+
+### Server
+
+| Component | Spec |
+|-----------|------|
+| CPU | AMD Ryzen 9 7950X3D |
+| RAM | DDR5 — 96GB 6200 MT/s |
+| GPU | NVIDIA GeForce RTX 3090 |
+| Board | ASUS PRIME X670E-PRO WIFI |
+| OS | Ubuntu Server 24.04 LTS |
+
+| Storage | Role |
+|---------|------|
+| 1 TB NVMe | EFI, boot, OS |
+| 4 TB NVMe | Hot / frequently used media |
+| ~16 TB HDD | Long-term library + backups |
+
 
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker Compose](https://img.shields.io/badge/docker%20compose-v2+-blue)
 
 ## Architecture Diagram
 
+High-level traffic and storage view. Expand the section below for the full per-service diagram.
+
+![Architecture overview](docs/images/readme-architecture-overview.svg)
+
+<details>
+<summary>diagram source (overview)</summary>
+
+```mermaid
+flowchart LR
+    %% -- Styling --
+    classDef external fill:#f8f9fa,stroke:#ced4da,stroke-width:2px;
+    classDef ingress fill:#d1e7dd,stroke:#0f5132,stroke-width:2px;
+    classDef compute fill:#cfe2ff,stroke:#084298,stroke-width:2px;
+    classDef storage fill:#fff3cd,stroke:#856404,stroke-width:2px;
+
+    %% -- Nodes --
+    Clients([External & LAN Users]):::external
+    Edge{Edge & Routing\nCaddy / VPN / DNS}:::ingress
+
+    subgraph Compute ["Compute Workloads"]
+        direction TB
+        Apps["Docker Service Mesh:\n*arr suite, personal Telegram bot, PiHole, private LLM"]:::compute
+        Players[Host Services: Plex / Jellyfin]:::compute
+    end
+
+    Disks[(Persistent Storage\nNVMe State & HDD Media)]:::storage
+
+    %% -- Flow --
+    Clients -->|HTTPS / Tailscale| Edge
+    Edge -->|Proxy| Apps
+    Edge -->|Proxy| Players
+    Apps -.->|Read/Write| Disks
+    Players ==>|Stream| Disks
+```
+
+</details>
+
+<details>
+<summary>▶ Full architecture (all services)</summary>
+
 ![Homelab architecture](docs/images/readme-architecture.svg)
 
 <details>
+
 <summary>diagram source</summary>
 
 ```mermaid
@@ -50,7 +124,6 @@ flowchart LR
             Ollama(Ollama):::core
             Openclaw(Openclaw Gateway):::core
             MediaAgent(Media Agent):::core
-            ArrRetry(Arr Retry Worker):::core
         end
     end
 
@@ -81,7 +154,6 @@ flowchart LR
     Prowlarr --> FlareSolverr
     Openclaw --> MediaAgent
     MediaAgent --> Sonarr & Radarr
-    ArrRetry -.->|Health checks| Qbit & Sonarr & Radarr
 
     %% Storage Mapping (Kept clean)
     Plex & Jellyfin ==> MediaHDD & MediaNVMe
@@ -91,13 +163,15 @@ flowchart LR
 
 </details>
 
+</details>
+
 ## Features
 
-- Split stack model: `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml`.
+- Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `docker-compose.homelab-net.yml` (shared external `homelab_net`), `docker-compose.network.yml`, and `docker-compose.media.yml`. Uncomment the LLM line there (or add `-f docker-compose.llm.yml`) when you want the LLM stack.
 - First-run bootstrap with `scripts/setup.sh` for `.env`, templates, Docker network, and compose validation.
 - Label-driven ingress with `lucaslorentz/caddy-docker-proxy` (routing stays next to each service).
 - Intentional host networking only for DNS, tunnel/VPN, and media discovery workloads.
-- Optional NVIDIA GPU overlay (`docker-compose.gpu.yml`) generated from `config/gpu/docker-compose.gpu.yml`.
+- NVIDIA GPU acceleration is enabled by default (Plex/Jellyfin/Ollama assume NVIDIA Container Toolkit).
 - Python workers ship from the [`src/homelab_workers`](src/homelab_workers/) package, mounted directly into the worker containers.
 
 ## Quick Start
@@ -116,35 +190,34 @@ cd ~/homelab
 ./scripts/setup.sh
 ```
 
-`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, validates compose files, and conditionally creates `docker-compose.gpu.yml`.
+`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, and validates compose files.
 
 ### Start Services
 
-```bash
-docker compose -f docker-compose.network.yml up -d
-docker compose -f docker-compose.media.yml up -d
-docker compose -f docker-compose.llm.yml up -d  # optional
-```
-
-If GPU overlay is enabled:
+From the repo root, bring up **edge + media** (everything in the root `docker-compose.yml` `include` list):
 
 ```bash
-docker compose -f docker-compose.media.yml -f docker-compose.gpu.yml up -d
-docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d
+docker compose up -d
 ```
+
+That reads **`docker-compose.yml`**, which bundles the stack via **`include`** (no long `-f` chain for the default set).
+
+LLM services (Ollama, OpenClaw, internal dashboard) are included by default in `docker-compose.yml`.
 
 ## Repository Structure
 
 ```text
 .
+├── docker-compose.yml                # Root bundle (Compose `include` for default stack)
+├── docker-compose.homelab-net.yml  # Declares external `homelab_net` once (avoids include merge dupes)
 ├── docker-compose.network.yml        # Edge services (Caddy, DNS, remote access)
-├── docker-compose.media.yml          # Arr stack, Plex/Jellyfin, qBittorrent, workers, media-agent
+├── docker-compose.media.yml          # Arr stack, Plex/Jellyfin, qBittorrent, torrent-health-ui, media-agent
 ├── docker-compose.llm.yml            # Ollama, internal dashboard, OpenClaw gateway
 ├── .env.example                      # Baseline environment contract
 ├── config/
 │   ├── cloudflared/config.yml.example
 │   ├── dashy/conf.yml.example
-│   └── gpu/docker-compose.gpu.yml    # Source template for runtime GPU overlay
+│   └── gpu/docker-compose.gpu.yml    # Reference GPU settings (now baked into the default stack)
 ├── scripts/
 │   ├── setup.sh
 │   ├── README.md
@@ -320,15 +393,13 @@ services:
 Validate before starting:
 
 ```bash
-docker compose -f docker-compose.media.yml config --quiet
-docker compose -f docker-compose.media.yml up -d
+docker compose -f docker-compose.yml config --quiet
+docker compose up -d
 ```
 
 ## GPU Acceleration
 
-GPU support is overlay-based so CPU-only hosts can run the same base compose files. The source overlay lives at `config/gpu/docker-compose.gpu.yml`.
-
-During setup, `scripts/setup.sh` checks `nvidia-smi`, asks for confirmation, and copies the overlay to `docker-compose.gpu.yml` only when you enable it. If detection fails or you decline, the runtime overlay file is removed to keep compose commands reproducible.
+GPU support is enabled by default (see `gpus: all` on Plex/Jellyfin and Ollama). This expects NVIDIA Container Toolkit on the host.
 
 ## Network Architecture
 
@@ -341,7 +412,7 @@ Bridge networking is the default because it limits exposure and keeps service-to
 | `cloudflared` | `host` | Tunnel agent sits on host ingress/egress boundary | Treat as edge component; protect tokens |
 | `plex` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
 | `jellyfin` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
-| Most others (`caddy`, Arr apps, workers, LLM services, media-agent) | `bridge` on `homelab_net` | Internal-only mesh with Caddy ingress | Smaller attack surface and centralized routing |
+| Most others (`caddy`, Arr apps, `torrent-health-ui`, LLM services, media-agent) | `bridge` on `homelab_net` | Internal-only mesh with Caddy ingress | Smaller attack surface and centralized routing |
 
 ## Data Flow Diagram
 
@@ -358,8 +429,6 @@ flowchart LR
     classDef arr fill:#e2e3e5,stroke:#41464b,stroke-width:2px;
     classDef download fill:#fff3cd,stroke:#856404,stroke-width:2px;
     classDef player fill:#d1e7dd,stroke:#0f5132,stroke-width:2px;
-    classDef worker fill:#f8d7da,stroke:#842029,stroke-width:2px,stroke-dasharray: 5 5;
-
     %% -- User Entry --
     User([User]):::user
 
@@ -371,7 +440,6 @@ flowchart LR
     subgraph Phase2 ["2. Management"]
         Sonarr(Sonarr):::arr
         Radarr(Radarr):::arr
-        ArrRetry{{Arr Retry Worker}}:::worker
     end
 
     subgraph Phase3 ["3. Acquisition"]
@@ -403,20 +471,15 @@ flowchart LR
     Sonarr ==>|Webhook: Update Library| Jellyfin
     Radarr ==>|Webhook: Update Library| Plex
     Radarr ==>|Webhook: Update Library| Jellyfin
-
-    %% -- Background Automation --
-    ArrRetry -.->|Polls Stalled| Sonarr
-    ArrRetry -.->|Polls Stalled| Radarr
-    ArrRetry -.->|Health Check| Qbit
 ```
 
 </details>
 
 ## Python Workers
 
-The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). It ships two CLI entry points: `arr-retry` and `torrent-health-ui`.
+The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). **Retries and cleanup are handled by Sonarr/Radarr “Failed Download Handling”** (no dedicated worker container).
 
-The `arr-retry-worker` and `torrent-health-ui` services mount `./src/homelab_workers/src` and run the package directly with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [docker-compose.media.yml](docker-compose.media.yml)).
+The **`torrent-health-ui`** service mounts `./src/homelab_workers/src` and runs the package with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [docker-compose.media.yml](docker-compose.media.yml)).
 
 Install for local development:
 
@@ -514,7 +577,7 @@ All TLS-enabled Caddy sites set `Strict-Transport-Security: max-age=31536000; in
 
 ### Authentication (planned)
 
-Management UIs (Sonarr, Radarr, Prowlarr, Jackett, qBittorrent, Readarr) are currently protected only by their built-in auth and LAN-only Caddy routing. A forward-auth middleware (Authelia or Caddy `basic_auth`) is planned but not yet deployed.
+Management UIs (Sonarr, Radarr, Prowlarr, qBittorrent, Readarr) are currently protected only by their built-in auth and LAN-only Caddy routing. A forward-auth middleware (Authelia or Caddy `basic_auth`) is planned but not yet deployed.
 
 ### User namespace remapping (advanced)
 

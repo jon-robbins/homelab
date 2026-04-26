@@ -11,7 +11,6 @@ dependencies = [
 dev = ["pytest>=8.0", "ruff>=0.4", "pytest-httpx>=0.30"]
 
 [project.scripts]
-arr-retry = "homelab_workers.arr_retry.main:main"
 torrent-health-ui = "homelab_workers.torrent_health_ui.app:main"
 
 [tool.ruff]

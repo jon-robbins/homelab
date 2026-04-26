@@ -52,32 +52,6 @@ services:
     logging: *default-logging
     pids_limit: 500
 
-  jackett:
-    image: lscr.io/linuxserver/jackett@sha256:85452fc35f8b446324df6129e5299794602d211f0aeb6418b339cf37ec43bd7c
-    networks:
-      - homelab_net
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-    volumes:
-      - ./data/jackett:/config
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle: "/jackett*"
-      caddy.handle.0_reverse_proxy: "{{upstreams 9117}}"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9117/jackett/api/v2.0/server/config || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-    logging: *default-logging
-    pids_limit: 500
-
   sonarr:
     image: lscr.io/linuxserver/sonarr@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
     networks:
@@ -201,6 +175,8 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
       - VERSION=docker
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+    gpus: all
     volumes:
       - ./data/plex:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
@@ -238,6 +214,8 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
       - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+    gpus: all
     volumes:
       - ./data/jellyfin:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
@@ -325,7 +303,7 @@ services:
     logging: *default-logging
     pids_limit: 200
 
-  arr-retry-worker:
+  torrent-health-ui:
     build:
       context: ./src/homelab_workers
       # Pip during build needs working DNS; some runners break default bridge DNS.
@@ -338,6 +316,8 @@ services:
     cap_drop: [ALL]
     environment:
       - TZ=${TZ}
+      - TORRENT_HEALTH_UI_HOST=0.0.0.0
+      - TORRENT_HEALTH_UI_PORT=8091
       - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
       - SONARR_API_KEY=${SONARR_API_KEY:-}
       - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
@@ -345,67 +325,12 @@ services:
       - QBITTORRENT_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
       - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
-      - ARR_HEALTH_STATE_FILE=${ARR_HEALTH_STATE_FILE:-/workspace/data/arr-retry/health_state.json}
-      - ARR_RETRY_QBT_ORPHAN_STALLS=${ARR_RETRY_QBT_ORPHAN_STALLS:-true}
-      - SONARR_QBT_CATEGORY=${SONARR_QBT_CATEGORY:-tv-sonarr}
-      - ARR_RETRY_MAX_QB_ORPHANS=${ARR_RETRY_MAX_QB_ORPHANS:-10}
-      - ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS=${ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS:-3600}
-      - ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH=${ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH:-true}
+      - TORRENT_HEALTH_LOG_FILE=${TORRENT_HEALTH_LOG_FILE:-/workspace/data/torrent-health/health.log}
     volumes:
       - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
-      - ./data/arr-retry:/workspace/data/arr-retry
-    command: |
-      sh -c '
-        set -eu
-        mkdir -p /workspace/data/arr-retry
-        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/src/homelab_workers/src python -u -m homelab_workers.arr_retry.main --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
-        echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
-        sh -c "$$RETRY_CMD" 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1 &
-        echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
-        printf "%s\n" "*/15 * * * * $$RETRY_CMD 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1" > /etc/crontabs/root
-        echo "[arr-retry-worker] $(date -Iseconds) installed cron schedule: */15 * * * *"
-        exec crond -f -l 8
-      '
-    healthcheck:
-      test: ["CMD", "pgrep", "-f", "crond"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-    logging: *default-logging
-    pids_limit: 200
-
-  # Reuses image from arr-retry-worker (same Dockerfile); do not duplicate `build`
-  # or BuildKit can fail exporting: image "local/homelab-workers:latest" already exists.
-  torrent-health-ui:
-    image: local/homelab-workers:latest
-    depends_on:
-      - arr-retry-worker
-    working_dir: /workspace
-    networks:
-      - homelab_net
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    environment:
-      - TZ=${TZ}
-      - ARR_HEALTH_UI_HOST=0.0.0.0
-      - ARR_HEALTH_UI_PORT=8091
-      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
-      - SONARR_API_KEY=${SONARR_API_KEY:-}
-      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
-      - RADARR_API_KEY=${RADARR_API_KEY:-}
-      - QBITTORRENT_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
-      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
-      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
-      - ARR_HEALTH_LOG_FILE=${ARR_HEALTH_LOG_FILE:-/workspace/data/arr-retry/health-last-run.log}
-    volumes:
-      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
-      - ./data/sonarr:/workspace/data/sonarr:ro
-      - ./data/radarr:/workspace/data/radarr:ro
-      - ./data/arr-retry:/workspace/data/arr-retry:ro
+      - ./data/torrent-health:/workspace/data/torrent-health:ro
     command: >
       sh -c '
       PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
@@ -463,7 +388,3 @@ services:
       start_period: 15s
     logging: *default-logging
     pids_limit: 200
-
-networks:
-  homelab_net:
-    external: true

@@ -126,22 +126,13 @@ setup_configs() {
     copy_template_if_missing "$cloudflared_template" "$cloudflared_path"
 }
 
-GPU_ENABLED=0
-
 setup_gpu() {
+    # GPU configuration is part of the default compose stack now.
+    # We keep detection only as an informative message.
     if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
         info "NVIDIA GPU detected"
-        if [[ -t 0 ]] && confirm "Enable GPU acceleration for Plex, Jellyfin, and Ollama?"; then
-            cp config/gpu/docker-compose.gpu.yml docker-compose.gpu.yml
-            GPU_ENABLED=1
-            info "GPU overlay enabled at docker-compose.gpu.yml"
-        else
-            rm -f docker-compose.gpu.yml
-            info "GPU overlay not enabled"
-        fi
     else
-        warn "No NVIDIA GPU detected, skipping GPU configuration"
-        rm -f docker-compose.gpu.yml
+        warn "No NVIDIA GPU detected (Plex/Jellyfin/Ollama may fail if GPU is required)"
     fi
 }
 
@@ -164,57 +155,31 @@ validate_compose() {
         return 0
     fi
 
-    local files=(
-        "docker-compose.network.yml"
-        "docker-compose.media.yml"
-        "docker-compose.llm.yml"
-    )
-    local file failed=0
+    local failed=0
 
-    for file in "${files[@]}"; do
-        if [[ ! -f "$file" ]]; then
-            warn "Missing compose file: ${file}"
-            continue
-        fi
-        if docker compose -f "$file" config --quiet >/dev/null 2>&1; then
-            info "Compose validation passed: ${file}"
+    _compose_ok() {
+        if docker compose "$@" config --quiet >/dev/null 2>&1; then
+            info "Compose validation passed: $*"
         else
-            error "Compose validation failed: ${file}"
+            error "Compose validation failed: $*"
             failed=1
         fi
-    done
+    }
 
-    if [[ -f docker-compose.gpu.yml ]]; then
-        if docker compose \
-            -f docker-compose.network.yml \
-            -f docker-compose.media.yml \
-            -f docker-compose.llm.yml \
-            -f docker-compose.gpu.yml \
-            config --quiet >/dev/null 2>&1; then
-            info "Compose validation passed: docker-compose.gpu.yml (overlay stack)"
-        else
-            error "Compose validation failed: docker-compose.gpu.yml (overlay stack)"
-            failed=1
-        fi
-    fi
+    _compose_ok -f docker-compose.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.network.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.media.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.llm.yml
+    _compose_ok -f docker-compose.yml -f docker-compose.llm.yml
 
     return "$failed"
 }
 
 print_next_steps() {
-    local media_cmd llm_cmd
-    media_cmd="docker compose -f docker-compose.media.yml"
-    llm_cmd="docker compose -f docker-compose.llm.yml"
-    if [[ "$GPU_ENABLED" -eq 1 && -f docker-compose.gpu.yml ]]; then
-        media_cmd="${media_cmd} -f docker-compose.gpu.yml"
-        llm_cmd="${llm_cmd} -f docker-compose.gpu.yml"
-    fi
-
     echo
     info "Next steps:"
-    echo "  docker compose -f docker-compose.network.yml up -d"
-    echo "  ${media_cmd} up -d"
-    echo "  ${llm_cmd} up -d  # optional"
+    echo "  docker compose up -d"
+    echo "  # LLM stack is included by default in docker-compose.yml"
     echo
 }
 
@@ -240,13 +205,6 @@ run_hardening() {
     else
         warn "Missing ${nft_rules}; skipping firewall rules"
     fi
-
-    echo
-    info "Next steps:"
-    echo "  docker compose -f docker-compose.network.yml up -d"
-    echo "  ${media_cmd} up -d"
-    echo "  ${llm_cmd} up -d  # optional"
-    echo
 }
 
 main() {

@@ -11,7 +11,6 @@ paths=(
   "${ROOT}/data/readarr/config.xml"
   "${ROOT}/data/sonarr/config.xml"
   "${ROOT}/data/radarr/config.xml"
-  "${ROOT}/data/jackett/Jackett/ServerConfig.json"
   "${ROOT}/data/qbittorrent/config/qBittorrent/qBittorrent.conf"
 )
 
