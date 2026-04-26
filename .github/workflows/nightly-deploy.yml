@@ -46,7 +46,7 @@ jobs:
             echo "No new commits on dev since last merge. Skipping."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "dev is ahead of main. Proceeding with deploy."
+            echo "origin/main and origin/dev differ. Proceeding with deploy."
           fi
 
       - name: Check validate status on dev
@@ -61,7 +61,7 @@ jobs:
           The latest CI validate run on \`dev\` has conclusion \`$RESULT\`.
           Fix validation errors on \`dev\` before the next nightly deploy.
           EOF
-          )"
+          )" || echo "::warning::Could not create GitHub issue (network or API)."
             exit 1
           fi
           echo "Latest validate on dev passed."
@@ -70,11 +70,23 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         id: merge
         run: |
+          set -euo pipefail
           PREV_SHA=$(git rev-parse origin/main)
           echo "prev_sha=$PREV_SHA" >> "$GITHUB_OUTPUT"
 
-          git checkout main
-          git merge origin/dev --ff-only
+          git fetch origin main dev
+          git checkout -B main origin/main
+
+          # Fast-forward when dev strictly extends main; otherwise histories diverged
+          # (e.g. merge commits on dev, or main-only commits) and --ff-only would fail.
+          if git merge-base --is-ancestor origin/main origin/dev; then
+            git merge origin/dev --ff-only
+            echo "Fast-forwarded main to origin/dev"
+          else
+            git merge origin/dev --no-ff -m "chore(deploy): merge dev into main (nightly)"
+            echo "Merged origin/dev into main with a merge commit (branches had diverged)"
+          fi
+
           git push origin main
           echo "Merged dev into main (prev: $PREV_SHA, new: $(git rev-parse HEAD))"
 
@@ -193,6 +205,7 @@ jobs:
       - name: Create failure issue
         if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
+          set -euo pipefail
           FAILED_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "unknown")
           gh issue create \
             --title "Nightly deploy failed: auto-rolled back" \
@@ -205,4 +218,4 @@ jobs:
 
           Check the workflow logs above for details on which step failed (healthcheck or E2E).
           EOF
-          )"
+          )" || echo "::warning::Could not create GitHub issue (network or API)."
