@@ -30,9 +30,9 @@ jobs:
           set -euo pipefail
           ROOT="${GITHUB_WORKSPACE}"
           docker compose -f "${ROOT}/docker-compose.yml" config --quiet
-          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.network.yml" config --quiet
-          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.media.yml" config --quiet
-          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/docker-compose.llm.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/compose/docker-compose.network.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/compose/docker-compose.media.yml" config --quiet
+          docker compose -f "${ROOT}/docker-compose.homelab-net.yml" -f "${ROOT}/compose/docker-compose.llm.yml" config --quiet
 
       - name: Compose shell tests
         run: bash "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
@@ -62,7 +62,7 @@ jobs:
 
       - name: Package pytest
         run: |
-          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/pytest" -q "${GITHUB_WORKSPACE}/src/homelab_workers"
+          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/python" -m pytest -q "${GITHUB_WORKSPACE}/src/homelab_workers/src/homelab_workers/tests"
 
       - name: Package ruff
         run: |

@@ -167,7 +167,7 @@ flowchart LR
 
 ## Features
 
-- Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `docker-compose.homelab-net.yml` (shared external `homelab_net`), `docker-compose.network.yml`, and `docker-compose.media.yml`. Uncomment the LLM line there (or add `-f docker-compose.llm.yml`) when you want the LLM stack.
+- Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `docker-compose.homelab-net.yml` (shared external `homelab_net`), `compose/docker-compose.network.yml`, `compose/docker-compose.media.yml`, and `compose/docker-compose.llm.yml`. Comment out the LLM line in `docker-compose.yml` if you want edge + media only.
 - First-run bootstrap with `scripts/setup.sh` for `.env`, templates, Docker network, and compose validation.
 - Label-driven ingress with `lucaslorentz/caddy-docker-proxy` (routing stays next to each service).
 - Intentional host networking only for DNS, tunnel/VPN, and media discovery workloads.
@@ -200,19 +200,20 @@ From the repo root, bring up **edge + media** (everything in the root `docker-co
 docker compose up -d
 ```
 
-That reads **`docker-compose.yml`**, which bundles the stack via **`include`** (no long `-f` chain for the default set).
+That reads **`docker-compose.yml`**, which pulls in the **`compose/`** fragments via **`include`**, so you do not pass a long `-f` list for the default stack (edge + media + LLM).
 
-LLM services (Ollama, OpenClaw, internal dashboard) are included by default in `docker-compose.yml`.
+To run **without** the LLM stack, edit `docker-compose.yml` and comment out the `compose/docker-compose.llm.yml` include (or override with a local compose override file).
 
 ## Repository Structure
 
 ```text
 .
 ├── docker-compose.yml                # Root bundle (Compose `include` for default stack)
-├── docker-compose.homelab-net.yml  # Declares external `homelab_net` once (avoids include merge dupes)
-├── docker-compose.network.yml        # Edge services (Caddy, DNS, remote access)
-├── docker-compose.media.yml          # Arr stack, Plex/Jellyfin, qBittorrent, torrent-health-ui, media-agent
-├── docker-compose.llm.yml            # Ollama, internal dashboard, OpenClaw gateway
+├── docker-compose.homelab-net.yml    # Declares external `homelab_net` once (avoids include merge dupes)
+├── compose/
+│   ├── docker-compose.network.yml    # Edge services (Caddy, DNS, remote access)
+│   ├── docker-compose.media.yml      # Arr stack, Plex/Jellyfin, qBittorrent, torrent-health-ui, media-agent
+│   └── docker-compose.llm.yml        # Ollama, internal dashboard, OpenClaw gateway
 ├── .env.example                      # Baseline environment contract
 ├── config/
 │   ├── cloudflared/config.yml.example
@@ -221,12 +222,11 @@ LLM services (Ollama, OpenClaw, internal dashboard) are included by default in `
 ├── scripts/
 │   ├── setup.sh
 │   ├── README.md
-│   ├── workers/
-│   └── tests/
+│   └── hardening/                    # Host hardening scripts and security audit notes
 ├── src/homelab_workers/
 │   ├── pyproject.toml
-│   └── src/homelab_workers/
-├── hardening/
+│   └── src/homelab_workers/          # Package code + `tests/` (pytest)
+├── tests/                            # Shell-based compose / runtime / integration tests
 └── data/                             # Runtime state (gitignored)
 ```
 
@@ -393,7 +393,7 @@ services:
 Validate before starting:
 
 ```bash
-docker compose -f docker-compose.yml config --quiet
+docker compose config --quiet
 docker compose up -d
 ```
 
@@ -479,7 +479,7 @@ flowchart LR
 
 The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). **Retries and cleanup are handled by Sonarr/Radarr “Failed Download Handling”** (no dedicated worker container).
 
-The **`torrent-health-ui`** service mounts `./src/homelab_workers/src` and runs the package with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [docker-compose.media.yml](docker-compose.media.yml)).
+The **`torrent-health-ui`** service mounts `./src/homelab_workers/src` and runs the package with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [compose/docker-compose.media.yml](compose/docker-compose.media.yml)).
 
 Install for local development:
 
@@ -529,16 +529,16 @@ Run `scripts/setup.sh --harden` to apply file-permission lockdown and host firew
 
 | Script | What it does |
 |---|---|
-| `hardening/secure-secret-file-permissions.sh` | `chmod 600` on `.env`, Arr config XMLs, qBittorrent config, and other secret-bearing files. Run after restoring configs or secrets. |
-| `hardening/nftables-arr-stack.nft` | Host INPUT filter that restricts management ports (Caddy, DNS, media UIs) to RFC 1918 + Tailscale CGNAT ranges. Safe to reload (deduplicates automatically). |
+| `scripts/hardening/secure-secret-file-permissions.sh` | `chmod 600` on `.env`, Arr config XMLs, qBittorrent config, and other secret-bearing files. Run after restoring configs or secrets. |
+| `scripts/hardening/nftables-arr-stack.nft` | Host INPUT filter that restricts management ports (Caddy, DNS, media UIs) to RFC 1918 + Tailscale CGNAT ranges. Safe to reload (deduplicates automatically). |
 
 ```bash
 # Apply both at once
 ./scripts/setup.sh --harden
 
 # Or individually
-bash hardening/secure-secret-file-permissions.sh
-sudo nft -f hardening/nftables-arr-stack.nft
+bash scripts/hardening/secure-secret-file-permissions.sh
+sudo nft -f scripts/hardening/nftables-arr-stack.nft
 ```
 
 ### qBittorrent VPN routing
@@ -559,7 +559,7 @@ Public Cloudflare DNS should not contain A records pointing to LAN IPs. The LAN 
 
 ### Host firewall posture
 
-The nftables ruleset (`hardening/nftables-arr-stack.nft`) filters the host INPUT chain:
+The nftables ruleset (`scripts/hardening/nftables-arr-stack.nft`) filters the host INPUT chain:
 
 - BitTorrent peer ports (`51423`) are open to all sources (required for seeding).
 - Management ports (DNS `:53`, HTTP `:80/:443`, Overseerr `:5055`, Pi-hole `:8083`, Jellyfin `:8096`, Plex `:32400`) are restricted to RFC 1918 + Tailscale CGNAT (`100.64.0.0/10`) sources.

@@ -16,7 +16,7 @@ services:
     ports:
       - "127.0.0.1:11434:11434"
     volumes:
-      - ./data/llm/ollama:/root/.ollama
+      - ../data/llm/ollama:/root/.ollama
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_KEEP_ALIVE=-1
@@ -41,7 +41,7 @@ services:
     ports:
       - "127.0.0.1:8088:8080"
     volumes:
-      - ./data/internal-dashboard:/usr/share/nginx/html:ro
+      - ../data/internal-dashboard:/usr/share/nginx/html:ro
     networks:
       - homelab_net
     labels:
@@ -104,8 +104,8 @@ services:
       MEDIA_AGENT_URL: ${MEDIA_AGENT_URL:-http://media-agent:8000}
       MEDIA_AGENT_TOKEN: ${MEDIA_AGENT_TOKEN:-}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
+      - ${OPENCLAW_CONFIG_DIR:-../data/openclaw/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-../data/openclaw/workspace}:/home/node/.openclaw/workspace
       # Media libraries (read-only)
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
@@ -140,7 +140,7 @@ services:
       caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     logging: *default-logging
 
-  # One-off admin: docker compose -f docker-compose.yml -f docker-compose.llm.yml --profile openclaw-cli run --rm openclaw-cli <subcommand>
+  # One-off admin: docker compose -f docker-compose.yml -f compose/docker-compose.llm.yml --profile openclaw-cli run --rm openclaw-cli <subcommand>
   openclaw-cli:
     profiles: [openclaw-cli]
     image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:7c4370ff8777555d4c9fe5ab821aaaad7c87188d389a6cf761270725d96ec3e9}
@@ -165,8 +165,8 @@ services:
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
+      - ${OPENCLAW_CONFIG_DIR:-../data/openclaw/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-../data/openclaw/workspace}:/home/node/.openclaw/workspace
     stdin_open: true
     tty: true
     init: true

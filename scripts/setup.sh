@@ -167,10 +167,9 @@ validate_compose() {
     }
 
     _compose_ok -f docker-compose.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.network.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.media.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f docker-compose.llm.yml
-    _compose_ok -f docker-compose.yml -f docker-compose.llm.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.network.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.media.yml
+    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.llm.yml
 
     return "$failed"
 }
@@ -179,14 +178,14 @@ print_next_steps() {
     echo
     info "Next steps:"
     echo "  docker compose up -d"
-    echo "  # LLM stack is included by default in docker-compose.yml"
+    echo "  # LLM stack: comment out compose/docker-compose.llm.yml in docker-compose.yml if you do not want it"
     echo
 }
 
 run_hardening() {
     info "Running hardening steps"
 
-    local perms_script="${REPO_ROOT}/hardening/secure-secret-file-permissions.sh"
+    local perms_script="${REPO_ROOT}/scripts/hardening/secure-secret-file-permissions.sh"
     if [[ -f "$perms_script" ]]; then
         bash "$perms_script"
         info "Secret file permissions tightened"
@@ -194,7 +193,7 @@ run_hardening() {
         warn "Missing ${perms_script}; skipping permission hardening"
     fi
 
-    local nft_rules="${REPO_ROOT}/hardening/nftables-arr-stack.nft"
+    local nft_rules="${REPO_ROOT}/scripts/hardening/nftables-arr-stack.nft"
     if [[ -f "$nft_rules" ]]; then
         if command -v nft &>/dev/null; then
             sudo nft -f "$nft_rules"

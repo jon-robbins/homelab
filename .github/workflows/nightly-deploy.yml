@@ -120,12 +120,8 @@ jobs:
         run: |
           set -euo pipefail
           source .env 2>/dev/null || true
-          docker compose \
-            -f docker-compose.yml \
-            pull
-          docker compose \
-            -f docker-compose.yml \
-            up -d --build
+          docker compose pull
+          docker compose up -d --build
 
       - name: Wait for healthchecks
         if: steps.check.outputs.skip != 'true'
@@ -136,9 +132,7 @@ jobs:
           deadline=$(( SECONDS + 300 ))
           while (( SECONDS < deadline )); do
             all_ready=true
-            for c in $(docker compose \
-              -f docker-compose.yml \
-              ps --format '{{.Name}}'); do
+            for c in $(docker compose ps --format '{{.Name}}'); do
               status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
               case "$status" in
                 healthy|none) ;;
@@ -151,9 +145,7 @@ jobs:
           done
 
           failed=0
-          for c in $(docker compose \
-            -f docker-compose.yml \
-            ps --format '{{.Name}}'); do
+          for c in $(docker compose ps --format '{{.Name}}'); do
             status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
             if [[ "$status" == "unhealthy" ]]; then
               echo "FAIL: $c ($status)"
@@ -194,9 +186,7 @@ jobs:
 
           # Redeploy the previous (working) version
           source .env 2>/dev/null || true
-          docker compose \
-            -f docker-compose.yml \
-            up -d --build
+          docker compose up -d --build
 
           echo "Rollback complete."
 

@@ -70,11 +70,11 @@ Port 443 is **not forwarded** at the router (confirmed: connection to public IP 
 
 **Confirmed NOT forwarded:** `curl -4sk --connect-timeout 5 https://213.195.110.145:443` returns connection refused. Port 443 is not NAT-forwarded at the router. Caddy-served UIs are LAN/Tailscale-only.
 
-**Firewall status:** `nft list ruleset` and `iptables -S DOCKER-USER` both require root. The `hardening/nftables-arr-stack.nft` ruleset is **not auto-loaded** by `setup.sh`.
+**Firewall status:** `nft list ruleset` and `iptables -S DOCKER-USER` both require root. The `scripts/hardening/nftables-arr-stack.nft` ruleset is **not auto-loaded** by `setup.sh`.
 
 > **Action required:** Run `sudo nft list ruleset` and paste output to confirm whether the arr_stack_mgmt table is loaded. If not, run:
 > ```
-> sudo nft -f ./hardening/nftables-arr-stack.nft
+> sudo nft -f ./scripts/hardening/nftables-arr-stack.nft
 > ```
 
 ### Finding: F-1.1 -- Pi-hole admin UI on 0.0.0.0:8083
@@ -82,7 +82,7 @@ Port 443 is **not forwarded** at the router (confirmed: connection to public IP 
 | | |
 |---|---|
 | **Severity** | Medium |
-| **File** | `docker-compose.network.yml:34` |
+| **File** | `compose/docker-compose.network.yml:34` |
 | **Impact** | Pi-hole admin panel reachable from any LAN device without Caddy TLS |
 | **Recommendation** | Bind to `127.0.0.1:8083` or rely solely on Caddy label routing (`pihole.${BASE_DOMAIN}`) |
 
@@ -134,7 +134,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | **Severity** | Medium |
 | **File** | `data/qbittorrent/config/qBittorrent/qBittorrent.conf` (mode `644`) |
 | **Impact** | Contains hashed WebUI password; readable by any user on the host |
-| **Recommendation** | Add to `hardening/secure-secret-file-permissions.sh` paths array and `chmod 600` |
+| **Recommendation** | Add to `scripts/hardening/secure-secret-file-permissions.sh` paths array and `chmod 600` |
 
 ### Finding: F-2.3 -- .env.example significantly out of sync
 
@@ -222,7 +222,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Files** | `docker-compose.network.yml:22-49` (pihole), `docker-compose.network.yml:85-102` (tailscale) |
+| **Files** | `compose/docker-compose.network.yml:22-49` (pihole), `compose/docker-compose.network.yml:85-102` (tailscale) |
 | **Impact** | Both run as root on `network_mode: host`. Without `no-new-privileges`, a vulnerability in either container could escalate to full host root |
 | **Recommendation** | Add `security_opt: ["no-new-privileges:true"]` to both services |
 
@@ -231,7 +231,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Low |
-| **File** | `docker-compose.network.yml:41` |
+| **File** | `compose/docker-compose.network.yml:41` |
 | **Impact** | `NET_RAW` allows raw socket creation; only needed if Pi-hole acts as DHCP server |
 | **Recommendation** | Remove `NET_RAW` from `cap_add` unless DHCP mode is enabled |
 
@@ -240,7 +240,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **File** | `docker-compose.network.yml:11` |
+| **File** | `compose/docker-compose.network.yml:11` |
 | **Impact** | `/var/run/docker.sock:ro` gives Caddy read access to the Docker API. If Caddy is compromised, an attacker can enumerate all containers, env vars (including secrets), and potentially escape to the host |
 | **Recommendation** | Interpose `tecnativa/docker-socket-proxy` to filter API calls to only the endpoints caddy-docker-proxy needs |
 
@@ -249,7 +249,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **File** | `docker-compose.network.yml:74-83` |
+| **File** | `compose/docker-compose.network.yml:74-83` |
 | **Impact** | `network_mode: host` means cloudflared can reach Overseerr (`:5055`), Ollama (`:11434`), OpenClaw (`:18789`), internal-dashboard (`:8088`), and Plex admin (`:32401`) on localhost. If the tunnel agent is compromised via a crafted tunnel config, all loopback services are accessible |
 | **Recommendation** | Move cloudflared to bridge networking with explicit upstream targets, or restrict its tunnel ingress rules to only the services it should expose |
 
@@ -278,7 +278,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | High |
-| **File** | `docker-compose.media.yml:198-225` |
+| **File** | `compose/docker-compose.media.yml:198-225` |
 | **Impact** | qBittorrent peer port `51423/tcp+udp` is published on the host's public-facing interface. The home IP address (`213.195.110.145`) is visible to every torrent swarm. This contradicts the `secure-homelab-architect` skill rule requiring `network_mode: "container:wireguard"` |
 | **Recommendation** | Add a `gluetun` or `wireguard` sidecar container, route qBittorrent through it with `network_mode: "service:gluetun"`, and remove the host port publishing |
 
@@ -299,7 +299,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Files** | `docker-compose.media.yml` (torrent-health-ui) |
+| **Files** | `compose/docker-compose.media.yml` (torrent-health-ui) |
 | **Impact** | `pip install --quiet httpx` runs at every container start with no version pin and no hash verification. A PyPI supply-chain attack would be automatically deployed |
 | **Recommendation** | Build a small Dockerfile from `python:3.12-alpine` that bakes in `httpx` with pinned version. The workspace already has `src/homelab_workers/pyproject.toml` with version constraints |
 
@@ -327,7 +327,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | High |
-| **File** | `docker-compose.llm.yml:22-24` (Caddy labels) |
+| **File** | `compose/docker-compose.llm.yml:22-24` (Caddy labels) |
 | **Impact** | `https://home.ashorkqueen.xyz/ollama/api/tags` returns complete model inventory. `POST /ollama/api/generate` allows arbitrary inference. `DELETE /ollama/api/delete` can remove models. Any device on LAN or Tailscale can abuse GPU resources or exfiltrate model weights |
 | **Recommendation** | Either (a) remove the Caddy label and access Ollama only via the `127.0.0.1:11434` loopback binding, or (b) add Caddy `basic_auth` or `forward_auth` (Authelia/Authentik) in front of the `/ollama*` path |
 
@@ -336,7 +336,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **File** | `docker-compose.media.yml:12-16` (Caddy labels) |
+| **File** | `compose/docker-compose.media.yml:12-16` (Caddy labels) |
 | **Impact** | FlareSolverr solves CAPTCHAs via headless Chrome. Exposing it on the Caddy ingress allows any LAN device to use it as a CAPTCHA-solving proxy |
 | **Recommendation** | FlareSolverr only needs to be reachable from Prowlarr on the internal `homelab_net` network |
 
@@ -357,7 +357,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Low |
-| **File** | `docker-compose.media.yml:153-159` |
+| **File** | `compose/docker-compose.media.yml:153-159` |
 | **Impact** | Plex mounts `/mnt/media-hdd` and `/mnt/media-nvme` without `:ro`. A compromised Plex instance could modify or delete the entire media library. Jellyfin correctly uses `:ro` |
 | **Recommendation** | Add `:ro` to Plex library mounts. Use a separate writable path for transcoding temp files |
 
@@ -404,9 +404,9 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Low |
-| **Files** | `scripts/setup.sh`, `hardening/secure-secret-file-permissions.sh`, `hardening/nftables-arr-stack.nft` |
+| **Files** | `scripts/setup.sh`, `scripts/hardening/secure-secret-file-permissions.sh`, `scripts/hardening/nftables-arr-stack.nft` |
 | **Impact** | `setup.sh` creates `.env`, copies templates, creates Docker network, and validates compose -- but does not run the permission hardening script or load nftables. Users must remember to run these separately |
-| **Recommendation** | Add an `--harden` flag to `setup.sh` that optionally runs `hardening/secure-secret-file-permissions.sh` and loads the nftables ruleset |
+| **Recommendation** | Add an `--harden` flag to `setup.sh` that optionally runs `scripts/hardening/secure-secret-file-permissions.sh` and loads the nftables ruleset |
 
 ### Finding: F-10.2 -- README Security section understates risk
 
@@ -572,9 +572,9 @@ The following check requires root access and could not be completed during this 
 sudo nft list ruleset
 ```
 
-Paste the output to confirm whether `table inet arr_stack_mgmt` from `hardening/nftables-arr-stack.nft` is currently loaded. If not:
+Paste the output to confirm whether `table inet arr_stack_mgmt` from `scripts/hardening/nftables-arr-stack.nft` is currently loaded. If not:
 
 ```bash
-sudo nft -f ./hardening/nftables-arr-stack.nft
+sudo nft -f ./scripts/hardening/nftables-arr-stack.nft
 sudo nft list table inet arr_stack_mgmt
 ```

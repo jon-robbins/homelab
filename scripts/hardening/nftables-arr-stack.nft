@@ -2,7 +2,7 @@
 # drop the same ports from other source addresses (e.g. WAN if port-forwarded).
 #
 # Review and edit `elements` in set `local_v4` if you need admin from VPN or non-RFC1918 ranges.
-# From repo root:  sudo nft -f ./hardening/nftables-arr-stack.nft
+# From repo root:  sudo nft -f ./scripts/hardening/nftables-arr-stack.nft
 # List:            sudo nft list table inet arr_stack_mgmt
 #
 # Safe to reload: the file deletes the table first to prevent duplicate rules.

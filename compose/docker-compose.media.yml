@@ -37,7 +37,7 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ./data/prowlarr:/config
+      - ../data/prowlarr:/config
     labels:
       caddy: "${BASE_DOMAIN}"
       caddy.handle: "/prowlarr*"
@@ -63,7 +63,7 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ./data/sonarr:/config
+      - ../data/sonarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
@@ -91,7 +91,7 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ./data/radarr:/config
+      - ../data/radarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
@@ -119,7 +119,7 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ./data/readarr:/config
+      - ../data/readarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
@@ -150,7 +150,7 @@ services:
     ports:
       - "127.0.0.1:5055:5055"
     volumes:
-      - ./data/overseerr:/app/config
+      - ../data/overseerr:/app/config
     labels:
       caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/overseerr*"
@@ -178,7 +178,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     gpus: all
     volumes:
-      - ./data/plex:/config
+      - ../data/plex:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
       - ${PLEX_DATA_PATH:-/srv/plex}:/srv/plex
@@ -217,7 +217,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     gpus: all
     volumes:
-      - ./data/jellyfin:/config
+      - ../data/jellyfin:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads:ro
@@ -287,8 +287,8 @@ services:
       - TZ=${TZ}
       - WEBUI_PORT=8080
     volumes:
-      - ./data/qbittorrent/config:/config
-      - ./data/qbittorrent/torrent-trackers:/torrent-trackers
+      - ../data/qbittorrent/config:/config
+      - ../data/qbittorrent/torrent-trackers:/torrent-trackers
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
@@ -305,7 +305,7 @@ services:
 
   torrent-health-ui:
     build:
-      context: ./src/homelab_workers
+      context: ../src/homelab_workers
       # Pip during build needs working DNS; some runners break default bridge DNS.
       network: host
     image: local/homelab-workers:latest
@@ -327,10 +327,10 @@ services:
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - TORRENT_HEALTH_LOG_FILE=${TORRENT_HEALTH_LOG_FILE:-/workspace/data/torrent-health/health.log}
     volumes:
-      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
-      - ./data/sonarr:/workspace/data/sonarr:ro
-      - ./data/radarr:/workspace/data/radarr:ro
-      - ./data/torrent-health:/workspace/data/torrent-health:ro
+      - ../src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
+      - ../data/sonarr:/workspace/data/sonarr:ro
+      - ../data/radarr:/workspace/data/radarr:ro
+      - ../data/torrent-health:/workspace/data/torrent-health:ro
     command: >
       sh -c '
       PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
@@ -352,7 +352,7 @@ services:
   # Thin API for OpenClaw: TV/movie metadata lookup (Sonarr/Radarr) with a stable JSON contract.
   media-agent:
     build:
-      context: ./media-agent
+      context: ../media-agent
       network: host
     image: local/media-agent:latest
     networks:

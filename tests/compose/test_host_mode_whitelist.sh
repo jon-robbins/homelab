@@ -8,9 +8,9 @@ cd "$REPO_ROOT"
 COMPOSE_FILES=(
   "docker-compose.yml"
   "docker-compose.homelab-net.yml"
-  "docker-compose.network.yml"
-  "docker-compose.media.yml"
-  "docker-compose.llm.yml"
+  "compose/docker-compose.network.yml"
+  "compose/docker-compose.media.yml"
+  "compose/docker-compose.llm.yml"
 )
 
 [[ -f "docker-compose.gpu.yml" ]] && COMPOSE_FILES+=("docker-compose.gpu.yml")

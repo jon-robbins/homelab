@@ -1,6 +1,6 @@
 # Scripts layout
 
-Host-side helpers. Long-running services live in `docker-compose.*.yml`; the canonical worker package lives at [`src/homelab_workers/`](../src/homelab_workers/).
+Host-side helpers. Long-running services live in `compose/docker-compose.*.yml` (included by the root `docker-compose.yml`); the canonical worker package lives at [`src/homelab_workers/`](../src/homelab_workers/).
 
 | Path | Purpose |
 |------|---------|
@@ -12,7 +12,7 @@ Tests live under [`tests/`](../tests/) at the repo root: `compose/`, `runtime/`,
 
 ### Worker runtime
 
-The **`torrent-health-ui`** service in [docker-compose.media.yml](../docker-compose.media.yml) mounts `./src/homelab_workers/src` and runs the package directly. Production retries use Sonarr/Radarr **Failed Download Handling** (no dedicated worker container).
+The **`torrent-health-ui`** service in [compose/docker-compose.media.yml](../compose/docker-compose.media.yml) mounts `./src/homelab_workers/src` and runs the package directly. Production retries use Sonarr/Radarr **Failed Download Handling** (no dedicated worker container).
 
 ```bash
 PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app

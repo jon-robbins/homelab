@@ -33,8 +33,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./data/caddy/data:/data
-      - ./data/caddy/config:/config
+      - ../data/caddy/data:/data
+      - ../data/caddy/config:/config
     environment:
       - CADDY_INGRESS_NETWORKS=${CADDY_INGRESS_NETWORKS:-homelab_net}
       - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
@@ -62,8 +62,8 @@ services:
       - FTLCONF_webserver_port=${PIHOLE_WEB_PORT:-8083}
       - FTLCONF_dns_listeningMode=all
     volumes:
-      - ./data/pihole/etc-pihole:/etc/pihole
-      - ./data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d
+      - ../data/pihole/etc-pihole:/etc/pihole
+      - ../data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d
     cap_add:
       - NET_BIND_SERVICE
     healthcheck:
@@ -91,7 +91,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8082
     volumes:
-      - ${DASHY_CONFIG_PATH:-./data/dashy/conf.yml}:/app/user-data/conf.yml
+      - ${DASHY_CONFIG_PATH:-../data/dashy/conf.yml}:/app/user-data/conf.yml
     labels:
       caddy: "${BASE_DOMAIN}"
       caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
@@ -113,8 +113,8 @@ services:
     cap_drop: [ALL]
     command: tunnel --no-autoupdate run
     volumes:
-      - ${CLOUDFLARED_CONFIG_PATH:-./data/cloudflared/config.yml}:/etc/cloudflared/config.yml:ro
-      - ./data/cloudflared/credentials:/etc/cloudflared/credentials
+      - ${CLOUDFLARED_CONFIG_PATH:-../data/cloudflared/config.yml}:/etc/cloudflared/config.yml:ro
+      - ../data/cloudflared/credentials:/etc/cloudflared/credentials
     healthcheck:
       test: ["CMD", "cloudflared", "tunnel", "info", "--output", "json"]
       interval: 30s
@@ -135,7 +135,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./data/tailscale:/var/lib/tailscale
+      - ../data/tailscale:/var/lib/tailscale
     command: >
       tailscaled
       --state=/var/lib/tailscale/tailscaled.state
