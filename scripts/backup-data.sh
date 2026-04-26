@@ -31,7 +31,10 @@ echo "backup-data: excluding Ollama model blobs (weights); keeping manifests und
 
 mkdir -p "${BACKUP_DIR}"
 
+# --ignore-failed-read: Caddy/Pi-hole (and similar) write root-owned files under ./data;
+# the self-hosted runner user cannot read them, but the archive should still succeed.
 tar -czf "${BACKUP_FILE}" \
+  --ignore-failed-read \
   --exclude='*.log' \
   --exclude='*.pid' \
   --exclude='data/llm/ollama/models/blobs' \
