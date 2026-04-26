@@ -27,12 +27,14 @@ if [[ ! -d "${SOURCE_DIR}" ]]; then
 fi
 
 echo "backup-data: archiving ${REPO_ROOT}/${SOURCE_DIR} -> ${BACKUP_FILE}"
+echo "backup-data: excluding Ollama model blobs (weights); keeping manifests under data/llm/ollama/models/manifests/"
 
 mkdir -p "${BACKUP_DIR}"
 
 tar -czf "${BACKUP_FILE}" \
   --exclude='*.log' \
   --exclude='*.pid' \
+  --exclude='data/llm/ollama/models/blobs' \
   -C "${REPO_ROOT}" \
   "${SOURCE_DIR}"
 

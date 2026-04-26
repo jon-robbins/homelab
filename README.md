@@ -308,7 +308,7 @@ flowchart LR
 **Nightly deploy** (2 AM CEST, or manual via workflow dispatch):
 1. Skips if `dev` has no new commits or if the latest validate is failing.
 2. Fast-forward merges `dev` into `main` and pushes.
-3. Runs `scripts/backup-data.sh`: compresses `./data/` to a timestamped `.tar.gz` under `${MEDIA_HDD_PATH}/backups/homelab-data/`, prunes archives older than 14 days. If this step fails, deploy does not run.
+3. Runs `scripts/backup-data.sh`: compresses `./data/` to a timestamped `.tar.gz` under `${MEDIA_HDD_PATH}/backups/homelab-data/` (Ollama **weights** under `data/llm/ollama/models/blobs/` are excluded; **manifests** stay so you know which models/tags were present), prunes archives older than 14 days. If this step fails, deploy does not run.
 4. Pulls images and runs `docker compose up -d --build` on the server.
 5. Waits for all healthchecks (up to 5 minutes).
 6. Runs E2E integration tests against the live stack.
