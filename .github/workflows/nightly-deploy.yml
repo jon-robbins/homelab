@@ -18,6 +18,7 @@ jobs:
     env:
       DEPLOY_DIR: /home/jon/homelab
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMELAB_BOT_TOKEN: ${{ secrets.HOMELAB_BOT_TOKEN }}
 
     steps:
       - name: Checkout
@@ -25,6 +26,8 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
+          # Use a PAT so `git push` can update workflow files on `main`.
+          token: ${{ secrets.HOMELAB_BOT_TOKEN }}
 
       - name: Configure git identity (for rollback commits)
         run: |
