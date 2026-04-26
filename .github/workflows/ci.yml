@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - dev
 
 jobs:
   # ── Fast static validation (every push, no containers) ─────────────────────
@@ -94,6 +94,15 @@ jobs:
             echo "No media-agent/app; skipping"
           fi
 
+      - name: Build local images
+        run: |
+          set -euo pipefail
+          docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            build
+
       - name: Bash syntax
         run: |
           set -euo pipefail
@@ -102,8 +111,6 @@ jobs:
             "${GITHUB_WORKSPACE}/scripts/setup.sh"
             "${GITHUB_WORKSPACE}/scripts/gh-actions-local.sh"
             "${GITHUB_WORKSPACE}/scripts/fix-media-permissions.sh"
-            "${GITHUB_WORKSPACE}/scripts/ci-vm.sh"
-            "${GITHUB_WORKSPACE}/scripts/build-ci-base.sh"
             "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
             "${GITHUB_WORKSPACE}/tests/runtime/run_tests.sh"
             "${GITHUB_WORKSPACE}"/tests/integration/*.sh
@@ -130,44 +137,3 @@ jobs:
               print("README must contain at least one mermaid block", file=sys.stderr)
               sys.exit(1)
           PY
-
-  # ── VM-based integration tests (push to main only) ─────────────────────────
-  # Boots an ephemeral KVM VM with RTX 3090 GPU passthrough.
-  # The VM runs the full stack in isolation — no conflicts with production.
-  # Requires: base image built via scripts/build-ci-base.sh, sudoers entry for ci-vm.sh.
-  integration:
-    runs-on: self-hosted
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: validate
-    permissions:
-      contents: read
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Check VM prerequisites
-        run: |
-          if [[ ! -f /home/jon/ci/base.qcow2 ]]; then
-            echo "ERROR: Base VM image missing." >&2
-            echo "Run once: bash /home/jon/homelab/scripts/build-ci-base.sh" >&2
-            exit 1
-          fi
-
-      - name: Boot CI VM
-        run: |
-          sudo /home/jon/homelab/scripts/ci-vm.sh boot "${{ github.run_id }}"
-
-      - name: Run integration tests in VM
-        run: |
-          sudo /home/jon/homelab/scripts/ci-vm.sh test \
-            "${{ github.run_id }}" \
-            "${GITHUB_WORKSPACE}"
-
-      - name: Teardown CI VM
-        if: always()
-        run: |
-          sudo /home/jon/homelab/scripts/ci-vm.sh teardown "${{ github.run_id }}"

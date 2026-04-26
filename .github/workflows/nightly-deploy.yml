@@ -1,0 +1,191 @@
+name: Nightly Deploy
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # midnight UTC = 2 AM CEST
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      issues: write
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      DEPLOY_DIR: /home/jon/homelab
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Check for new commits
+        id: check
+        run: |
+          git fetch origin main
+          DEV_SHA=$(git rev-parse origin/dev)
+          MAIN_SHA=$(git rev-parse origin/main)
+          if [ "$DEV_SHA" = "$MAIN_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No new commits on dev since last merge. Skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "dev is ahead of main. Proceeding with deploy."
+          fi
+
+      - name: Check validate status on dev
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion')
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::Latest CI validate on dev has status '$RESULT'. Skipping deploy."
+            gh issue create \
+              --title "Nightly deploy skipped: validate failing on dev" \
+              --body "$(cat <<EOF
+          The latest CI validate run on \`dev\` has conclusion \`$RESULT\`.
+          Fix validation errors on \`dev\` before the next nightly deploy.
+          EOF
+          )"
+            exit 1
+          fi
+          echo "Latest validate on dev passed."
+
+      - name: Merge dev into main
+        if: steps.check.outputs.skip != 'true'
+        id: merge
+        run: |
+          PREV_SHA=$(git rev-parse origin/main)
+          echo "prev_sha=$PREV_SHA" >> "$GITHUB_OUTPUT"
+
+          git checkout main
+          git merge origin/dev --ff-only
+          git push origin main
+          echo "Merged dev into main (prev: $PREV_SHA, new: $(git rev-parse HEAD))"
+
+      - name: Update production directory
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          cd "$DEPLOY_DIR"
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/jon-robbins/homelab.git" main
+          git checkout main 2>/dev/null || true
+          git reset --hard FETCH_HEAD
+
+      - name: Deploy
+        if: steps.check.outputs.skip != 'true'
+        working-directory: /home/jon/homelab
+        run: |
+          set -euo pipefail
+          source .env 2>/dev/null || true
+          docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            pull
+          docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            up -d --build
+
+      - name: Wait for healthchecks
+        if: steps.check.outputs.skip != 'true'
+        working-directory: /home/jon/homelab
+        run: |
+          set -euo pipefail
+          echo "Waiting up to 300s for all services to become healthy..."
+          deadline=$(( SECONDS + 300 ))
+          while (( SECONDS < deadline )); do
+            all_ready=true
+            for c in $(docker compose \
+              -f docker-compose.network.yml \
+              -f docker-compose.media.yml \
+              -f docker-compose.llm.yml \
+              ps --format '{{.Name}}'); do
+              status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
+              case "$status" in
+                healthy|none) ;;
+                *) all_ready=false ;;
+              esac
+            done
+            $all_ready && break
+            echo "  waiting... ($((deadline - SECONDS))s left)"
+            sleep 10
+          done
+
+          failed=0
+          for c in $(docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            ps --format '{{.Name}}'); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
+            if [[ "$status" == "unhealthy" ]]; then
+              echo "FAIL: $c ($status)"
+              docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
+              failed=$(( failed + 1 ))
+            else
+              echo "OK: $c ($status)"
+            fi
+          done
+          (( failed == 0 ))
+
+      - name: Run E2E tests
+        if: steps.check.outputs.skip != 'true'
+        working-directory: /home/jon/homelab
+        run: |
+          set -euo pipefail
+          bash tests/integration/router-smoke-p0.sh
+          bash tests/integration/media-pipeline-e2e.sh
+          bash tests/integration/llm-pipeline-e2e.sh
+          python3 tests/integration/llm_behavior_check.py
+
+      - name: Rollback on failure
+        if: failure() && steps.merge.outputs.prev_sha != ''
+        run: |
+          set -euo pipefail
+          echo "Deploy or E2E failed. Rolling back main to previous state..."
+
+          # Revert the merge commit in the workspace checkout
+          git checkout main
+          git pull origin main
+          git revert HEAD --no-edit
+          git push origin main
+
+          # Update production directory to the reverted state
+          cd "$DEPLOY_DIR"
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/jon-robbins/homelab.git" main
+          git reset --hard FETCH_HEAD
+
+          # Redeploy the previous (working) version
+          source .env 2>/dev/null || true
+          docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            up -d --build
+
+          echo "Rollback complete."
+
+      - name: Create failure issue
+        if: failure() && steps.merge.outputs.prev_sha != ''
+        run: |
+          FAILED_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "unknown")
+          gh issue create \
+            --title "Nightly deploy failed: auto-rolled back" \
+            --body "$(cat <<EOF
+          The nightly deploy at $(date -u +%Y-%m-%dT%H:%M:%SZ) failed and was automatically rolled back.
+
+          **Failed commit:** \`$FAILED_SHA\`
+          **Rolled back to:** \`${{ steps.merge.outputs.prev_sha }}\`
+          **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Check the workflow logs above for details on which step failed (healthcheck or E2E).
+          EOF
+          )"
