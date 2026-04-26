@@ -90,8 +90,11 @@ jobs:
           git push origin main
           echo "Merged dev into main (prev: $PREV_SHA, new: $(git rev-parse HEAD))"
 
+      # Everything below mutates $DEPLOY_DIR / Docker only after merge + push succeed.
+      # If merge fails, the job stops here and production keeps running the previous revision.
+
       - name: Update production directory
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'
         run: |
           cd "$DEPLOY_DIR"
           git fetch "https://x-access-token:${GH_TOKEN}@github.com/jon-robbins/homelab.git" main
@@ -99,7 +102,7 @@ jobs:
           git reset --hard FETCH_HEAD
 
       - name: Pre-flight backup of data
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
@@ -127,7 +130,7 @@ jobs:
           bash scripts/backup-data.sh
 
       - name: Deploy
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
@@ -136,7 +139,7 @@ jobs:
           docker compose up -d --build
 
       - name: Wait for healthchecks
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
@@ -170,7 +173,7 @@ jobs:
           (( failed == 0 ))
 
       - name: Run E2E tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
