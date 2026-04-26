@@ -170,11 +170,60 @@ All development happens on the `dev` branch. Production runs from `main`.
 
 ```mermaid
 flowchart LR
-    push["push to dev"] --> validate["CI: validate"]
-    cron["2 AM CEST nightly"] --> merge["merge dev → main"]
-    merge --> deploy["deploy + E2E"]
-    deploy -- pass --> done["production updated"]
-    deploy -- fail --> rollback["revert + redeploy + issue"]
+    %% -- Theme & Styling --
+    classDef trigger fill:#f8f9fa,stroke:#ced4da,stroke-width:2px;
+    classDef human fill:#cfe2ff,stroke:#084298,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef auto fill:#e2e3e5,stroke:#41464b,stroke-width:2px;
+    classDef pass fill:#d1e7dd,stroke:#0f5132,stroke-width:2px;
+    classDef fail fill:#f8d7da,stroke:#842029,stroke-width:2px;
+    classDef storage fill:#fff3cd,stroke:#856404,stroke-width:2px;
+
+    %% -- Triggers --
+    Commit([Push to dev branch]):::trigger
+    Cron([Nightly 2AM Schedule]):::trigger
+
+    %% -- Stage 1: Validation --
+    subgraph CI ["Stage 1: CI Validation"]
+        direction TB
+        Lint[Ruff Linter]:::auto
+        Build[Docker Build]:::auto
+        Test[Pytest Workers]:::auto
+
+        Lint & Build & Test --> CIPass{CI Status}:::auto
+    end
+
+    %% -- Stage 2: Deployment --
+    subgraph CD ["Stage 2: Continuous Deployment"]
+        direction TB
+        Backup[(Snapshot ./data/)]:::storage
+        Deploy[Docker Compose Up]:::auto
+        E2E[Run E2E Tests]:::auto
+
+        Backup --> Deploy --> E2E
+    end
+
+    %% -- Outcomes --
+    subgraph State ["End State"]
+        direction TB
+        Live([Production Live]):::pass
+        Alert([GitHub Issue Cut]):::fail
+        Restore[(Restore Snapshot)]:::storage
+    end
+
+    %% -- The Human Element --
+    Merge{{Human: Squash & Merge}}:::human
+
+    %% -- Routing Logic --
+    Commit --> Lint & Build & Test
+    CIPass -- Pass --> Merge
+    CIPass -. Fail .-> Alert
+
+    Merge --> Backup
+    Cron -. Triggered on main .-> Backup
+
+    E2E -- Pass --> Live
+    E2E -- Fail --> Restore
+    Restore --> Alert
 ```
 
 </details>
