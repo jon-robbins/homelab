@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from ..core.models import RouterIntentDecision, RouterPendingOption, RouterSessionState
+
+
+class RouterProviderOps(Protocol):
+    def classify_intent(
+        self, user_message: str, has_session_state: bool
+    ) -> RouterIntentDecision: ...
+
+    def parse_action(self, user_message: str) -> dict[str, Any]: ...
+
+    def library_reuse(self, query: str, season: int) -> dict[str, Any] | None: ...
+
+    def library_lookup(self, action_payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    def provider_search(
+        self, query: str, season: int | None
+    ) -> tuple[dict[str, Any], dict[str, Any]]: ...
+
+    def provider_grab(self, action_payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    def execute_action(self, action_payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    def post_grab_season_filter(
+        self, release: dict[str, Any], season: int
+    ) -> dict[str, Any] | None: ...
+
+    def completed_download_match(
+        self, action_payload: dict[str, Any]
+    ) -> str | None: ...
+
+    def format_response(
+        self, action_payload: dict[str, Any], tool_result: dict[str, Any]
+    ) -> str: ...
+
+    def build_pending_options(
+        self, source_action: str, tool_result: dict[str, Any]
+    ) -> list[RouterPendingOption]: ...
+
+    def extract_season_number(self, text: str) -> int | None: ...
+
+    def selection_to_action(
+        self, state: RouterSessionState, option: RouterPendingOption
+    ) -> dict[str, Any] | None: ...
+
+    def get_session_state(self, session_key: str) -> RouterSessionState | None: ...
+
+    def save_session_state(self, state: RouterSessionState) -> None: ...
+
+    def clear_session_state(self, session_key: str) -> None: ...

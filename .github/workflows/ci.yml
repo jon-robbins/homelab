@@ -7,12 +7,15 @@ on:
       - main
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  # ── Fast static validation (every push, no containers) ─────────────────────
+  validate:
+    runs-on: self-hosted
     permissions:
       contents: read
-    env:
-      CI_LOCAL_RUNTIME_SMOKE: "1"
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,10 +25,149 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install tooling
+      - name: Compose config
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install ruff pytest
+          set -euo pipefail
+          docker compose -f docker-compose.network.yml config --quiet
+          docker compose -f docker-compose.media.yml config --quiet
+          docker compose -f docker-compose.llm.yml config --quiet
 
-      - name: Run project CI matrix
-        run: ./scripts/ci-local.sh
+      - name: Compose GPU overlay (optional)
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}"
+          if [[ -f "${ROOT}/docker-compose.gpu.yml" ]]; then
+            docker compose \
+              -f "${ROOT}/docker-compose.network.yml" \
+              -f "${ROOT}/docker-compose.media.yml" \
+              -f "${ROOT}/docker-compose.llm.yml" \
+              -f "${ROOT}/docker-compose.gpu.yml" \
+              config --quiet
+          elif [[ -f "${ROOT}/config/gpu/docker-compose.gpu.yml" ]]; then
+            docker compose \
+              -f "${ROOT}/docker-compose.network.yml" \
+              -f "${ROOT}/docker-compose.media.yml" \
+              -f "${ROOT}/docker-compose.llm.yml" \
+              -f "${ROOT}/config/gpu/docker-compose.gpu.yml" \
+              config --quiet
+          fi
+
+      - name: Compose shell tests
+        run: bash "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
+
+      - name: Create package venv and install deps
+        run: |
+          set -euo pipefail
+          PKG_DIR="${GITHUB_WORKSPACE}/src/homelab_workers"
+          python -m venv "${PKG_DIR}/.venv"
+          "${PKG_DIR}/.venv/bin/pip" install -e "${PKG_DIR}[dev]"
+          "${PKG_DIR}/.venv/bin/pip" install pydantic
+          if [[ -d "${GITHUB_WORKSPACE}/media-agent" ]]; then
+            "${PKG_DIR}/.venv/bin/pip" install -q -r "${GITHUB_WORKSPACE}/media-agent/requirements-dev.txt"
+          fi
+
+      - name: Workers pytest
+        run: |
+          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/python" -m pytest -q "${GITHUB_WORKSPACE}/tests/workers"
+
+      - name: Media agent pytest
+        run: |
+          if [[ -d "${GITHUB_WORKSPACE}/media-agent/tests" ]]; then
+            "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/python" -m pytest -q "${GITHUB_WORKSPACE}/media-agent/tests"
+          else
+            echo "No media-agent/tests; skipping"
+          fi
+
+      - name: Package pytest
+        run: |
+          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/pytest" -q "${GITHUB_WORKSPACE}/src/homelab_workers"
+
+      - name: Package ruff
+        run: |
+          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check "${GITHUB_WORKSPACE}/src/homelab_workers/src"
+
+      - name: Media agent ruff
+        run: |
+          if [[ -d "${GITHUB_WORKSPACE}/media-agent/app" ]]; then
+            "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check "${GITHUB_WORKSPACE}/media-agent/app"
+          else
+            echo "No media-agent/app; skipping"
+          fi
+
+      - name: Bash syntax
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          scripts=(
+            "${GITHUB_WORKSPACE}/scripts/setup.sh"
+            "${GITHUB_WORKSPACE}/scripts/gh-actions-local.sh"
+            "${GITHUB_WORKSPACE}/scripts/fix-media-permissions.sh"
+            "${GITHUB_WORKSPACE}/scripts/ci-vm.sh"
+            "${GITHUB_WORKSPACE}/scripts/build-ci-base.sh"
+            "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
+            "${GITHUB_WORKSPACE}/tests/runtime/run_tests.sh"
+            "${GITHUB_WORKSPACE}"/tests/integration/*.sh
+          )
+          for script in "${scripts[@]}"; do
+            [[ -f "${script}" ]] && bash -n "${script}" && echo "OK  ${script##*/}"
+          done
+
+      - name: README mermaid blocks
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          readme = Path("README.md")
+          if not readme.exists():
+              print("README.md missing", file=sys.stderr)
+              sys.exit(1)
+
+          content = readme.read_text(encoding="utf-8")
+          count = len(re.findall(r"```mermaid", content))
+          if count < 1:
+              print("README must contain at least one mermaid block", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  # ── VM-based integration tests (push to main only) ─────────────────────────
+  # Boots an ephemeral KVM VM with RTX 3090 GPU passthrough.
+  # The VM runs the full stack in isolation — no conflicts with production.
+  # Requires: base image built via scripts/build-ci-base.sh, sudoers entry for ci-vm.sh.
+  integration:
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: validate
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check VM prerequisites
+        run: |
+          if [[ ! -f /home/jon/ci/base.qcow2 ]]; then
+            echo "ERROR: Base VM image missing." >&2
+            echo "Run once: bash /home/jon/homelab/scripts/build-ci-base.sh" >&2
+            exit 1
+          fi
+
+      - name: Boot CI VM
+        run: |
+          sudo /home/jon/homelab/scripts/ci-vm.sh boot "${{ github.run_id }}"
+
+      - name: Run integration tests in VM
+        run: |
+          sudo /home/jon/homelab/scripts/ci-vm.sh test \
+            "${{ github.run_id }}" \
+            "${GITHUB_WORKSPACE}"
+
+      - name: Teardown CI VM
+        if: always()
+        run: |
+          sudo /home/jon/homelab/scripts/ci-vm.sh teardown "${{ github.run_id }}"

@@ -1,10 +1,11 @@
 # Homelab Docker Template
 
-Practical, reusable Docker Compose homelab stack with secure defaults, label-based reverse proxying, and optional GPU acceleration.
+Practical Docker Compose homelab with path-based ingress, media automation, and optional local LLM tooling.
+
+**Checkout path:** Clone to any directory you like. Scripts use paths relative to the repository root (for example `~/homelab` instead of a folder named `docker`).
 
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker Compose](https://img.shields.io/badge/docker%20compose-v2+-blue)
-![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 
 ## Architecture Diagram
 
@@ -12,37 +13,38 @@ Practical, reusable Docker Compose homelab stack with secure defaults, label-bas
 flowchart TB
     user[User Devices]
 
-    subgraph host["Host Network (justified host mode services)"]
+    subgraph host["Host Network Services (intentional exceptions)"]
         pihole[Pi-hole\nDNS on :53]
         tailscale[Tailscale\nprivate remote access]
         cloudflared[cloudflared\nCloudflare Tunnel agent]
-        plex[Plex\nclient discovery compatibility]
-        jellyfin[Jellyfin\nclient discovery compatibility]
+        plex[Plex\nLAN discovery + casting]
+        jellyfin[Jellyfin\nLAN discovery + casting]
     end
 
-    subgraph homelab_net["homelab_net bridge (reverse proxy + app ingress)"]
-        caddy[caddy-docker-proxy\nports 80/443]
+    subgraph homelab["homelab_net bridge (shared service mesh)"]
+        caddy[caddy-docker-proxy\ningress on :80/:443]
         dashy[Dashy]
         overseerr[Overseerr]
-        internaldash[internal-dashboard]
+        mediaagent[media-agent]
+        ollama[Ollama]
+        openclaw[openclaw-gateway]
+        dashboard[internal-dashboard]
     end
 
-    subgraph media_internal["media_internal bridge group (implemented on homelab_net)"]
+    subgraph media["media_internal group (logical; implemented on homelab_net)"]
         sonarr[Sonarr]
         radarr[Radarr]
+        readarr[Readarr]
         prowlarr[Prowlarr]
+        jackett[Jackett]
         qb[qBittorrent]
         flaresolverr[FlareSolverr]
-        arrworker[arr-retry-worker]
+        arrretry[arr-retry-worker]
         thui[torrent-health-ui]
     end
 
-    subgraph llm["LLM stack"]
-        ollama[Ollama]
-    end
-
     subgraph storage["Host Storage Mounts"]
-        data[(./data/* app state)]
+        data[(./data/* runtime state)]
         mediahdd[${MEDIA_HDD_PATH}]
         medianvme[${MEDIA_NVME_PATH}]
         plexdata[${PLEX_DATA_PATH}]
@@ -50,28 +52,33 @@ flowchart TB
 
     user -->|HTTPS| caddy
     user -->|DNS queries| pihole
-    user -->|mesh VPN| tailscale
-    cloudflared -->|tunnel ingress| caddy
-    caddy -->|label-based routes| dashy
+    user -->|Private mesh access| tailscale
+    cloudflared -->|Tunnel ingress| caddy
+    caddy -->|Path routing labels| dashy
     caddy -->|/overseerr| overseerr
-    caddy -->|/sonarr /radarr /qbittorrent| sonarr
-    caddy -->|proxy to host services| plex
-    caddy -->|proxy to host services| jellyfin
-    arrworker -->|API calls| sonarr
-    arrworker -->|API calls| radarr
-    arrworker -->|Web API| qb
-    sonarr -->|indexers| prowlarr
-    radarr -->|indexers| prowlarr
-    prowlarr -->|anti-bot assist| flaresolverr
-    ollama -->|local API| caddy
+    caddy -->|/sonarr /radarr /readarr| sonarr
+    caddy -->|/qbittorrent| qb
+    caddy -->|openclaw.<domain>| openclaw
+    caddy -->|/ollama| ollama
+    arrretry -->|API retries| sonarr
+    arrretry -->|API retries| radarr
+    arrretry -->|Torrent health checks| qb
+    sonarr -->|Indexer queries| prowlarr
+    radarr -->|Indexer queries| prowlarr
+    readarr -->|Indexer queries| prowlarr
+    prowlarr -->|Bypass anti-bot flows| flaresolverr
+    mediaagent -->|Reads Arr metadata| sonarr
+    mediaagent -->|Reads Arr metadata| radarr
+    openclaw -->|Tooling calls| mediaagent
 
+    dashy --- data
     sonarr --- data
     radarr --- data
+    readarr --- data
     prowlarr --- data
     qb --- data
-    dashy --- data
-    cloudflared --- data
     ollama --- data
+    cloudflared --- data
     plex --- mediahdd
     plex --- medianvme
     plex --- plexdata
@@ -81,13 +88,12 @@ flowchart TB
 
 ## Features
 
-- Three compose stacks: network edge, media automation, and optional LLM services.
-- `scripts/setup.sh` bootstrap flow for first-run setup, validation, and network creation.
-- `caddy-docker-proxy` label model for automatic routing (no static `Caddyfile` workflow).
-- Host networking only where it is operationally required (DNS, tunnel/VPN, media discovery).
-- Optional GPU overlay via `docker-compose.gpu.yml`, enabled only after NVIDIA detection and confirmation.
-- Python worker package (`homelab-workers`) for retry automation and torrent health tooling.
-- Open project layout with reusable templates under `config/` and runtime state under `data/`.
+- Split stack model: `docker-compose.network.yml`, `docker-compose.media.yml`, and `docker-compose.llm.yml`.
+- First-run bootstrap with `scripts/setup.sh` for `.env`, templates, Docker network, and compose validation.
+- Label-driven ingress with `lucaslorentz/caddy-docker-proxy` (routing stays next to each service).
+- Intentional host networking only for DNS, tunnel/VPN, and media discovery workloads.
+- Optional NVIDIA GPU overlay (`docker-compose.gpu.yml`) generated from `config/gpu/docker-compose.gpu.yml`.
+- Python workers ship from the [`src/homelab_workers`](src/homelab_workers/) package, mounted directly into the worker containers.
 
 ## Quick Start
 
@@ -95,7 +101,7 @@ flowchart TB
 
 - Docker and Docker Compose v2+
 - Linux host (Ubuntu 22.04+ recommended)
-- Optional: NVIDIA GPU with drivers
+- Optional: NVIDIA GPU with NVIDIA drivers and `nvidia-smi`
 
 ### Setup
 
@@ -105,7 +111,7 @@ cd ~/homelab
 ./scripts/setup.sh
 ```
 
-The setup script copies `.env.example` to `.env` when needed, prompts you for path overrides, creates required `data/` directories, ensures the `homelab_net` Docker network exists, and validates compose files. It does not mutate compose definitions.
+`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, validates compose files, and conditionally creates `docker-compose.gpu.yml`.
 
 ### Start Services
 
@@ -115,7 +121,7 @@ docker compose -f docker-compose.media.yml up -d
 docker compose -f docker-compose.llm.yml up -d  # optional
 ```
 
-If setup enables GPU support, start media and LLM with the overlay file:
+If GPU overlay is enabled:
 
 ```bash
 docker compose -f docker-compose.media.yml -f docker-compose.gpu.yml up -d
@@ -126,71 +132,74 @@ docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d
 
 ```text
 .
-├── docker-compose.network.yml        # Edge, DNS, ingress, and remote access services
-├── docker-compose.media.yml          # Media apps, indexers, download client, and workers
-├── docker-compose.llm.yml            # Ollama and local internal dashboard
-├── .env.example                      # Environment variable template
+├── docker-compose.network.yml        # Edge services (Caddy, DNS, remote access)
+├── docker-compose.media.yml          # Arr stack, Plex/Jellyfin, qBittorrent, workers, media-agent
+├── docker-compose.llm.yml            # Ollama, internal dashboard, OpenClaw gateway
+├── .env.example                      # Baseline environment contract
 ├── config/
 │   ├── cloudflared/config.yml.example
 │   ├── dashy/conf.yml.example
-│   └── gpu/docker-compose.gpu.yml
+│   └── gpu/docker-compose.gpu.yml    # Source template for runtime GPU overlay
 ├── scripts/
-│   ├── setup.sh                      # First-run setup and compose validation
-│   └── workers/                      # Runtime worker scripts mounted in containers
+│   ├── setup.sh
+│   ├── README.md
+│   ├── workers/
+│   └── tests/
 ├── src/homelab_workers/
 │   ├── pyproject.toml
-│   └── src/homelab_workers/          # Packaged worker code
+│   └── src/homelab_workers/
 ├── hardening/
-│   ├── secure-secret-file-permissions.sh
-│   └── nftables-arr-stack.nft
-└── data/                             # Runtime state (gitignored except examples)
+└── data/                             # Runtime state (gitignored)
 ```
 
 ## Configuration
 
-The stack is configured through `.env` values loaded by Compose and worker containers. Copy `.env.example` to `.env` and update only what your host requires.
+Compose reads variables from `.env`. `scripts/setup.sh` only updates `.env`; it does not rewrite compose files.
+
+### Core environment contract (`.env.example`)
 
 | Variable | Required | Purpose | Default |
 |---|---|---|---|
-| `PUID` | Yes | Linux UID for LinuxServer containers | `1000` |
-| `PGID` | Yes | Linux GID for LinuxServer containers | `1000` |
-| `TZ` | Yes | Service timezone | `America/New_York` |
-| `BASE_DOMAIN` | Yes | Base domain for Caddy labels | `homelab.local` |
-| `MEDIA_HDD_PATH` | Yes | Large media library mount root | `/mnt/media-hdd` |
-| `MEDIA_NVME_PATH` | Yes | Fast download/transcode mount root | `/mnt/media-nvme` |
-| `PLEX_DATA_PATH` | Yes | Plex host data path | `/srv/plex` |
-| `NVIDIA_VISIBLE_DEVICES` | Optional | NVIDIA device visibility when GPU overlay is enabled | `all` |
-| `PIHOLE_WEBPASSWORD` | Recommended | Pi-hole admin password | empty |
-| `PIHOLE_DNS_` | Optional | Upstream DNS servers (semicolon-separated) | `1.1.1.1;1.0.0.1` |
-| `PIHOLE_WEB_PORT` | Optional | Pi-hole web UI host port | `8083` |
-| `SONARR_API_KEY` | Optional | Sonarr API auth for workers/UI | empty |
-| `RADARR_API_KEY` | Optional | Radarr API auth for workers/UI | empty |
-| `SONARR_INTERNAL_URL` | Optional | Internal Sonarr URL for containers | `http://sonarr:8989/sonarr` |
-| `RADARR_INTERNAL_URL` | Optional | Internal Radarr URL for containers | `http://radarr:7878/radarr` |
-| `QBITTORRENT_USERNAME` | Optional | qBittorrent username for worker actions | empty |
-| `QBITTORRENT_PASSWORD` | Optional | qBittorrent password for worker actions | empty |
-| `QBITTORRENT_INTERNAL_URL` | Optional | Internal qBittorrent URL for containers | `http://qbittorrent:8080` |
-| `ARR_HEALTH_STATE_FILE` | Optional | Worker state file path | `/workspace/data/arr-retry/health_state.json` |
-| `ARR_HEALTH_LOG_FILE` | Optional | Worker log file path | `/workspace/data/arr-retry/health-last-run.log` |
-| `ARR_RETRY_QBT_ORPHAN_STALLS` | Optional | Retry stalled orphan torrents | `true` |
-| `SONARR_QBT_CATEGORY` | Optional | Sonarr category watched in qBittorrent | `tv-sonarr` |
-| `ARR_RETRY_MAX_QB_ORPHANS` | Optional | Max orphan actions per run | `10` |
-| `ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS` | Optional | Minimum age before orphan handling | `3600` |
-| `ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH` | Optional | Trigger search for monitored missing items | `true` |
+| `PUID` | Yes | UID used by LinuxServer containers | `1000` |
+| `PGID` | Yes | GID used by LinuxServer containers | `1000` |
+| `TZ` | Yes | Time zone for containers | `UTC` |
+| `BASE_DOMAIN` | Yes | Domain root used by Caddy labels | `home.ashorkqueen.xyz` |
+| `CADDY_IMAGE` | Yes | Caddy image tag to run | `local/caddy-cf:latest` |
+| `CADDY_INGRESS_NETWORKS` | Yes | Docker network(s) Caddy watches for labels | `homelab_net` |
+| `PIHOLE_WEB_PORT` | Yes | Pi-hole web admin port on host | `8083` |
+| `DASHY_CONFIG_PATH` | Yes | Runtime Dashy config location | `./data/dashy/conf.yml` |
+| `DASHY_CONFIG_TEMPLATE` | Yes | Dashy template source path | `./config/dashy/conf.yml.example` |
+| `CLOUDFLARED_CONFIG_PATH` | Yes | Runtime cloudflared config location | `./data/cloudflared/config.yml` |
+| `CLOUDFLARED_CONFIG_TEMPLATE` | Yes | cloudflared template source path | `./config/cloudflared/config.yml.example` |
+| `MEDIA_HDD_PATH` | Yes | Main media library mount | `/mnt/media-hdd` |
+| `MEDIA_NVME_PATH` | Yes | Fast download/transcode mount | `/mnt/media-nvme` |
+| `PLEX_DATA_PATH` | Yes | Plex metadata/config storage path | `/srv/plex` |
+| `CLOUDFLARE_TOKEN` | No (recommended for public TLS + tunnel) | Cloudflare API token used by Caddy DNS challenge and tunnel auth | empty |
+
+### Additional compose variables
+
+Media, worker, and LLM services also read optional values (for example: Arr API keys, qBittorrent credentials, OpenClaw tokens, and media-agent token). Leave them blank in `.env` until you enable those features.
 
 ### Path customization
 
-You should point `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH`, and `PLEX_DATA_PATH` at real host mount points before starting services. `scripts/setup.sh` prompts for these values and writes them into `.env` without rewriting compose files.
+Set `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH`, and `PLEX_DATA_PATH` to real host mount points before first start. This is required for stable imports and consistent path mapping between Arr apps, download clients, and media servers.
 
-### Caddy label routing model
+### Caddy label and path routing model
 
-This project uses `lucaslorentz/caddy-docker-proxy`, which watches Docker metadata and generates Caddy config from labels. You define route intent on each service (`caddy`, `caddy.handle_path`, `caddy.reverse_proxy`) and Caddy updates automatically.
+This stack uses `caddy-docker-proxy`: labels define the route contract, and Caddy regenerates config when containers change.
 
-Why this matters: you avoid manual Caddyfile drift, keep routing definitions near each service, and make stack modules portable across hosts.
+| Label | What it does | Example |
+|---|---|---|
+| `caddy` | Selects host/domain matcher | `caddy: "${BASE_DOMAIN}"` |
+| `caddy.handle_path` | Matches and strips a path prefix | `caddy.handle_path: "/overseerr*"` |
+| `caddy.handle_path.0_reverse_proxy` | Proxies stripped request to container port | `caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"` |
+| `caddy.reverse_proxy` | Direct host-level proxy (used for host-mode services) | `caddy.reverse_proxy: "host.docker.internal:32400"` |
+
+Why this model: you keep ingress definitions next to each service, avoid static proxy drift, and make stack modules easier to reuse.
 
 ## Adding New Services
 
-To add a bridge-mode service, connect it to `homelab_net` and attach Caddy labels. This keeps exposure centralized at Caddy instead of publishing new host ports.
+Add the service to the right compose file, attach it to `homelab_net`, then define Caddy labels. Keep host port publishing off unless you have a protocol requirement.
 
 ```yaml
 services:
@@ -207,17 +216,13 @@ services:
       - ./data/bazarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/media
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/bazarr*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 6767}}"
     restart: unless-stopped
-
-networks:
-  homelab_net:
-    external: true
 ```
 
-After adding a service, validate and start:
+Validate before starting:
 
 ```bash
 docker compose -f docker-compose.media.yml config --quiet
@@ -226,22 +231,22 @@ docker compose -f docker-compose.media.yml up -d
 
 ## GPU Acceleration
 
-GPU support is handled as an overlay, not by mutating base compose files. The base stacks stay portable on CPU-only hosts.
+GPU support is overlay-based so CPU-only hosts can run the same base compose files. The source overlay lives at `config/gpu/docker-compose.gpu.yml`.
 
-`scripts/setup.sh` runs `nvidia-smi` detection, asks for explicit confirmation, and then copies `config/gpu/docker-compose.gpu.yml` to `docker-compose.gpu.yml` only when enabled. If no GPU is detected (or you decline), the overlay file is removed so standard compose commands continue to work.
+During setup, `scripts/setup.sh` checks `nvidia-smi`, asks for confirmation, and copies the overlay to `docker-compose.gpu.yml` only when you enable it. If detection fails or you decline, the runtime overlay file is removed to keep compose commands reproducible.
 
 ## Network Architecture
 
-Most services run on bridge networking for isolation and consistent service-to-service DNS. Host mode is reserved for workloads that require direct host network behavior.
+Bridge networking is the default because it limits exposure and keeps service-to-service DNS stable. Host mode is used only where protocol behavior requires it.
 
-| Service | Network mode | Why host mode is used (or not) | Security trade-off |
+| Service | Network mode | Why this mode is used | Security trade-off |
 |---|---|---|---|
-| `pihole` | `host` | Must reliably bind DNS on port `53` (TCP/UDP) | Broader network surface; protect host and admin port |
-| `tailscale` | `host` | Needs low-level networking and `/dev/net/tun` access | Elevated capabilities (`NET_ADMIN`, `NET_RAW`) |
-| `cloudflared` | `host` | Tunnel agent connects host-level ingress/egress paths | Treat as ingress boundary; protect credentials |
-| `plex` | `host` | Better LAN discovery/casting compatibility | Directly reachable media port(s) |
-| `jellyfin` | `host` | Better LAN discovery/casting compatibility | Directly reachable media port(s) |
-| `caddy`, Arr apps, qBittorrent, workers, Ollama | `bridge` (`homelab_net`) | Default model: internal service mesh with proxy ingress | Reduced direct exposure; route intentionally through Caddy |
+| `pihole` | `host` | Needs direct DNS bind on `53/tcp` and `53/udp` | Broader host surface; harden host and admin auth |
+| `tailscale` | `host` | Needs `/dev/net/tun` and low-level networking | Elevated capabilities (`NET_ADMIN`, `NET_RAW`) |
+| `cloudflared` | `host` | Tunnel agent sits on host ingress/egress boundary | Treat as edge component; protect tokens |
+| `plex` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
+| `jellyfin` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
+| Most others (`caddy`, Arr apps, workers, LLM services, media-agent) | `bridge` on `homelab_net` | Internal-only mesh with Caddy ingress | Smaller attack surface and centralized routing |
 
 ## Data Flow Diagram
 
@@ -257,84 +262,137 @@ flowchart LR
     jellyfin[Jellyfin]
     arrretry[arr-retry-worker]
 
-    user -->|request movie/series| overseerr
-    overseerr -->|approve + send job| sonarr
-    overseerr -->|approve + send job| radarr
-    sonarr -->|search command| prowlarr
-    radarr -->|search command| prowlarr
-    prowlarr -->|selected torrent| qbit
-    qbit -->|download complete| sonarr
-    qbit -->|download complete| radarr
-    sonarr -->|library update| plex
-    sonarr -->|library update| jellyfin
-    radarr -->|library update| plex
-    radarr -->|library update| jellyfin
-    arrretry -->|monitor/retry stalled items| sonarr
-    arrretry -->|monitor/retry stalled items| radarr
-    arrretry -->|inspect torrent health| qbit
+    user -->|Request movie/series| overseerr
+    overseerr -->|Approved request| sonarr
+    overseerr -->|Approved request| radarr
+    sonarr -->|Searches indexers| prowlarr
+    radarr -->|Searches indexers| prowlarr
+    prowlarr -->|Sends release| qbit
+    qbit -->|Completed download| sonarr
+    qbit -->|Completed download| radarr
+    sonarr -->|Library refresh| plex
+    sonarr -->|Library refresh| jellyfin
+    radarr -->|Library refresh| plex
+    radarr -->|Library refresh| jellyfin
+    arrretry -->|Retries stalled/missing items| sonarr
+    arrretry -->|Retries stalled/missing items| radarr
+    arrretry -->|Checks torrent state| qbit
 ```
 
 ## Python Workers
 
-The worker package lives in `src/homelab_workers` and is published as `homelab-workers` in `pyproject.toml`. It provides two CLI entry points: `arr-retry` (automated retry logic for stalled/missing Arr items) and `torrent-health-ui` (manual health inspection and release-grab helper).
+The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). It ships two CLI entry points: `arr-retry` and `torrent-health-ui`.
 
-For development, install in editable mode:
+The `arr-retry-worker` and `torrent-health-ui` services mount `./src/homelab_workers/src` and run the package directly with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [docker-compose.media.yml](docker-compose.media.yml)).
+
+Install for local development:
 
 ```bash
 cd src/homelab_workers
 python3 -m pip install -e ".[dev]"
 ```
 
-Run the packaged CLI locally:
+## Extend Media-Agent Capabilities
+
+Each agent-callable capability is a small **action handler** under `media-agent/app/actions/`. The LLM parser (`app/router/parser.py`) and the strict `/action` payload union (`app/models/actions.py`) are driven from the same registry, so a new action is one coherent unit of work.
+
+### Where to add things
+
+- `media-agent/app/actions/<name>.py`
+  - One module per action: Pydantic args model, `@register_action` handler with `run()` (and, if the router needs it, `run_for_router()`), `format_response`, and `selection_to_grab` for option lists.
+- `media-agent/app/actions/__init__.py`
+  - Import the new module so the registry is populated at startup.
+- `media-agent/app/models/actions.py`
+  - Add the action’s payload class and add it to the `ActionCall` union / discriminator.
+- `media-agent/app/router/parser.py` / `app/router/intent.py`
+  - Usually no edits: the router schema and allowed-field map are built from `registry.all_handlers()`. Touch these only for special parsing or intent rules.
+- `media-agent/app/integrations/`
+  - Low-level HTTP to Sonarr, Radarr, Prowlarr, qBittorrent, Ollama. Keep I/O here; business flow stays in `app/actions` or `app/services/`.
+- `media-agent/app/services/`
+  - Reusable non-route helpers (release ranking, torrent-name matching, qB file selection).
+
+### Fast extension checklist
+
+1. Add a Pydantic model in `app/models/actions.py` and include it in `ActionCall`.
+2. Create `app/actions/<your_action>.py` with `register_action`, `run`, and any router overrides. Import it from `app/actions/__init__.py`.
+3. Add tests under `media-agent/tests/api/` or `media-agent/tests/unit/`.
+4. Run:
 
 ```bash
-arr-retry --help
-torrent-health-ui
+cd media-agent && python -m pytest -q
+cd media-agent && ruff check app tests
 ```
-
-## Local CI Gate
-
-Run full local matrix before opening or updating PR:
-
-```bash
-./scripts/ci-local.sh
-```
-
-Matrix includes:
-
-- compose shell checks under `tests/compose/`
-- compose render validation for network/media/llm and GPU overlay
-- worker tests/lint under `scripts/`
-- packaged worker tests/lint under `src/homelab_workers/`
-- bash syntax checks for setup/test runner scripts
-- README mermaid presence sanity check
-
-Script creates `src/homelab_workers/.venv` automatically if missing.
-
-## GitHub Actions (Cloud + Local Docker)
-
-PRs to `main` run `.github/workflows/ci.yml` and execute the same matrix through `./scripts/ci-local.sh`.
-
-Run same workflow locally in Docker with `act`:
-
-```bash
-./scripts/gh-actions-local.sh
-```
-
-Run specific event/job:
-
-```bash
-./scripts/gh-actions-local.sh pull_request verify
-```
-
-This wrapper sets `DOCKER_HOST` from your Docker context when available, matching practical local setup advice for `act` usage in Docker-backed environments.
 
 ## Security
 
-This stack is designed around minimal exposure and explicit routing. You should keep management UIs behind Caddy/Tailscale where possible, avoid publishing unnecessary host ports, and never commit runtime secrets from `.env` or `data/`.
+Security relies on network segmentation, explicit ingress labels, and low-privilege container defaults. The stack applies `no-new-privileges` and `cap_drop: [ALL]` broadly, and services are exposed through Caddy/Tailscale/Cloudflare intentionally rather than through extra host ports.
 
-Use `hardening/secure-secret-file-permissions.sh` after restoring backups or copying credentials, and apply `hardening/nftables-arr-stack.nft` if you want host firewall controls. For public access, expose only intentionally selected endpoints through Cloudflare Tunnel.
+### Hardening scripts
+
+Run `scripts/setup.sh --harden` to apply file-permission lockdown and host firewall rules in one step. You can also run the scripts individually:
+
+| Script | What it does |
+|---|---|
+| `hardening/secure-secret-file-permissions.sh` | `chmod 600` on `.env`, Arr config XMLs, qBittorrent config, and other secret-bearing files. Run after restoring configs or secrets. |
+| `hardening/nftables-arr-stack.nft` | Host INPUT filter that restricts management ports (Caddy, DNS, media UIs) to RFC 1918 + Tailscale CGNAT ranges. Safe to reload (deduplicates automatically). |
+
+```bash
+# Apply both at once
+./scripts/setup.sh --harden
+
+# Or individually
+bash hardening/secure-secret-file-permissions.sh
+sudo nft -f hardening/nftables-arr-stack.nft
+```
+
+### qBittorrent VPN routing
+
+qBittorrent runs behind a gluetun VPN sidecar (`network_mode: "service:gluetun"`). All torrent traffic exits through the WireGuard tunnel. Fill `VPN_SERVICE_PROVIDER`, `WIREGUARD_PRIVATE_KEY`, `WIREGUARD_ADDRESSES`, and `SERVER_COUNTRIES` in `.env` before starting the media stack. Without valid VPN credentials, qBittorrent has no network connectivity.
+
+### Cloudflare Tunnel and ToS
+
+The Cloudflare Tunnel agent (`cloudflared`) provides public HTTPS ingress for Overseerr and select services. Large media streaming through the tunnel may conflict with Cloudflare's Terms of Service. Caching is disabled for media paths; Plex and Jellyfin are accessed directly on the LAN or via Tailscale, not through the tunnel.
+
+### Ollama LAN-only restriction
+
+Ollama binds to `127.0.0.1:11434` on the host (loopback only) and is reachable by other containers via `homelab_net` internal DNS. There is no Caddy ingress label for Ollama, so it is not exposed to the public internet.
+
+### Split-horizon DNS
+
+Public Cloudflare DNS should not contain A records pointing to LAN IPs. The LAN A records for `home.ashorkqueen.xyz` have been removed from Cloudflare. Pi-hole resolves these hostnames locally via `data/pihole/etc-dnsmasq.d/05-homelab-local.conf` (dnsmasq `address=` directive). This keeps all `*.home.ashorkqueen.xyz` subdomains resolvable on the LAN without leaking the private IP publicly.
+
+### Host firewall posture
+
+The nftables ruleset (`hardening/nftables-arr-stack.nft`) filters the host INPUT chain:
+
+- BitTorrent peer ports (`51423`) are open to all sources (required for seeding).
+- Management ports (DNS `:53`, HTTP `:80/:443`, Overseerr `:5055`, Pi-hole `:8083`, Jellyfin `:8096`, Plex `:32400`) are restricted to RFC 1918 + Tailscale CGNAT (`100.64.0.0/10`) sources.
+- All other traffic to those management ports is dropped.
+
+UFW, if enabled, should be configured to not conflict with Docker's nftables/iptables rules. See [Docker and iptables](https://docs.docker.com/network/iptables/) for details.
+
+### Docker socket proxy
+
+Caddy does not mount `/var/run/docker.sock` directly. Instead, a `docker-socket-proxy` (tecnativa/docker-socket-proxy) exposes a restricted read-only Docker API (containers and networks only, no exec/post) over TCP on `homelab_net`. This limits the blast radius if Caddy is compromised.
+
+### HSTS
+
+All TLS-enabled Caddy sites set `Strict-Transport-Security: max-age=31536000; includeSubDomains` via label. This instructs browsers to only connect over HTTPS for one year.
+
+### Authentication (planned)
+
+Management UIs (Sonarr, Radarr, Prowlarr, Jackett, qBittorrent, Readarr) are currently protected only by their built-in auth and LAN-only Caddy routing. A forward-auth middleware (Authelia or Caddy `basic_auth`) is planned but not yet deployed.
+
+### User namespace remapping (advanced)
+
+For additional container isolation, Docker supports user namespace remapping. Add to `/etc/docker/daemon.json`:
+
+```json
+{ "userns-remap": "default" }
+```
+
+This maps container root to an unprivileged host UID range. **Test thoroughly** before enabling — it can break volume ownership for containers that run as specific UIDs (Plex, Arr apps with `PUID`/`PGID`). This is a host-level change and is not applied automatically by the setup script.
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE`.
+MIT License. See `LICENSE`.

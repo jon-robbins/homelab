@@ -1,14 +1,19 @@
 # Scripts layout
 
-Everything here is **repo source**. Long-running services are still defined in **`docker-compose.*.yml`**; these files are what containers mount (e.g. `./scripts:/workspace/scripts:ro`) or what you run on the host during setup.
+Host-side helpers. Long-running services live in `docker-compose.*.yml`; the canonical worker package lives at [`src/homelab_workers/`](../src/homelab_workers/).
 
 | Path | Purpose |
 |------|---------|
-| [setup.sh](setup.sh) | Main host setup flow: `.env` creation/update prompts, config templates, optional GPU overlay copy, compose validation |
+| [setup.sh](setup.sh) | First-run bootstrap: `.env` creation/update prompts, config templates, optional GPU overlay, compose validation |
 | [fix-media-permissions.sh](fix-media-permissions.sh) | One-off host helper for media directory ownership/modes |
-| [workers/](workers/) | **All** Compose worker code: thin CLIs, small UIs, and the [`arr_retry`](workers/arr_retry/) Python package (Sonarr/Radarr retry + optional qBittorrent health policy) |
-| [tests/](tests/) | `pytest` for `arr_retry` — run from repo root: `python3 -m pytest scripts/tests/` ([pytest.ini](../pytest.ini) adds `scripts/workers` to `pythonpath`) |
+| [gh-actions-local.sh](gh-actions-local.sh) | Run the GitHub Actions workflow locally via [`act`](https://nektosact.com/) |
 
-### Workers (`PYTHONPATH`)
+Tests live under [`tests/`](../tests/) at the repo root: `compose/`, `runtime/`, `integration/`, `workers/`.
 
-Services `arr-retry-worker` and `torrent-health-ui` set **`PYTHONPATH=/workspace/scripts/workers`** so `import arr_retry` resolves to `./workers/arr_retry/` inside the mount.
+### Worker runtime
+
+The `arr-retry-worker` and `torrent-health-ui` services in [docker-compose.media.yml](../docker-compose.media.yml) mount `./src/homelab_workers/src` and run the package directly:
+
+```bash
+PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.arr_retry.main ...
+```

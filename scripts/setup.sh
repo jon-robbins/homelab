@@ -20,244 +20,257 @@ confirm() {
     [[ "$response" =~ ^[Yy]$ ]]
 }
 
-ENV_FILE="${REPO_ROOT}/.env"
-ENV_EXAMPLE_FILE="${REPO_ROOT}/.env.example"
-GPU_OVERLAY_FILE="${REPO_ROOT}/docker-compose.gpu.yml"
-GPU_OVERLAY_ENABLED=0
-
-require_command() {
-    local command_name="$1"
-    local help_text="${2:-}"
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        error "Required command not found: ${command_name}"
-        if [[ -n "$help_text" ]]; then
-            warn "$help_text"
-        fi
-        exit 1
+get_env_value() {
+    local key="$1"
+    local file="${2:-.env}"
+    if [[ ! -f "$file" ]]; then
+        return 0
     fi
+    awk -F= -v target="$key" '$1 == target {print substr($0, index($0, "=") + 1); exit}' "$file"
 }
 
 escape_sed_replacement() {
-    printf '%s' "$1" | sed 's/[\/&]/\\&/g'
-}
-
-get_env_value() {
-    local key="$1"
-    if [[ ! -f "$ENV_FILE" ]]; then
-        return 0
-    fi
-
-    awk -F= -v key="$key" '
-        $0 ~ "^[[:space:]]*" key "=" {
-            sub(/^[^=]*=/, "", $0)
-            print $0
-            exit
-        }
-    ' "$ENV_FILE"
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//&/\\&}"
+    value="${value//|/\\|}"
+    printf '%s' "$value"
 }
 
 set_env_value() {
     local key="$1"
     local value="$2"
-    local escaped_value
-    escaped_value="$(escape_sed_replacement "$value")"
-
-    if grep -qE "^[[:space:]]*${key}=" "$ENV_FILE"; then
-        sed -i "s|^[[:space:]]*${key}=.*|${key}=${escaped_value}|" "$ENV_FILE"
+    local escaped
+    escaped="$(escape_sed_replacement "$value")"
+    if grep -qE "^${key}=" .env; then
+        sed -i "s|^${key}=.*|${key}=${escaped}|" .env
     else
-        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+        printf '%s=%s\n' "$key" "$value" >> .env
     fi
 }
 
 prompt_env_value() {
     local key="$1"
-    local prompt_text="$2"
-    local default_value="$3"
-    local response
+    local prompt="$2"
+    local current default input chosen
+
+    current="$(get_env_value "$key" ".env")"
+    default="$(get_env_value "$key" ".env.example")"
+    if [[ -z "$current" ]]; then
+        current="$default"
+    fi
 
     if [[ -t 0 ]]; then
-        read -r -p "${prompt_text} [${default_value}]: " response
-        if [[ -z "$response" ]]; then
-            response="$default_value"
-        fi
+        read -r -p "${prompt} [${current}]: " input
+        chosen="${input:-$current}"
     else
-        response="$default_value"
-        warn "Non-interactive shell: using ${key}=${response}"
+        chosen="$current"
+        warn "Non-interactive shell: keeping ${key}=${chosen}"
     fi
-
-    set_env_value "$key" "$response"
+    set_env_value "$key" "$chosen"
+    info "Set ${key}=${chosen}"
 }
 
-copy_template_if_missing() {
-    local source_file="$1"
-    local destination_file="$2"
-
-    if [[ ! -f "$source_file" ]]; then
-        warn "Template not found: ${source_file} (skipping)"
-        return 0
+ensure_env_file() {
+    if [[ -f .env ]]; then
+        info ".env already exists; preserving existing file"
+        return
     fi
-
-    if [[ -f "$destination_file" ]]; then
-        info "Keeping existing file: ${destination_file}"
-        return 0
+    if [[ ! -f .env.example ]]; then
+        error ".env.example not found; cannot initialize .env"
+        exit 1
     fi
-
-    cp "$source_file" "$destination_file"
-    info "Created from template: ${destination_file}"
+    cp .env.example .env
+    info "Created .env from .env.example"
 }
 
 setup_env() {
-    info "Setting up .env"
-    if [[ ! -f "$ENV_EXAMPLE_FILE" ]]; then
-        error "Missing ${ENV_EXAMPLE_FILE}"
-        exit 1
+    ensure_env_file
+    prompt_env_value "MEDIA_HDD_PATH" "Enter MEDIA_HDD_PATH"
+    prompt_env_value "MEDIA_NVME_PATH" "Enter MEDIA_NVME_PATH"
+    prompt_env_value "PLEX_DATA_PATH" "Enter PLEX_DATA_PATH"
+}
+
+copy_template_if_missing() {
+    local src="$1"
+    local dest="$2"
+    if [[ -f "$dest" ]]; then
+        info "Config exists, keeping ${dest}"
+        return
     fi
-
-    if [[ ! -f "$ENV_FILE" ]]; then
-        cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
-        info "Copied .env.example to .env"
-    else
-        info ".env already exists, preserving current file"
+    if [[ ! -f "$src" ]]; then
+        warn "Template missing: ${src}; skipping ${dest}"
+        return
     fi
-
-    local media_hdd_default media_nvme_default plex_data_default
-    media_hdd_default="$(get_env_value "MEDIA_HDD_PATH")"
-    media_nvme_default="$(get_env_value "MEDIA_NVME_PATH")"
-    plex_data_default="$(get_env_value "PLEX_DATA_PATH")"
-
-    [[ -n "$media_hdd_default" ]] || media_hdd_default="/mnt/media-hdd"
-    [[ -n "$media_nvme_default" ]] || media_nvme_default="/mnt/media-nvme"
-    [[ -n "$plex_data_default" ]] || plex_data_default="/srv/plex"
-
-    prompt_env_value "MEDIA_HDD_PATH" "Enter media HDD path" "$media_hdd_default"
-    prompt_env_value "MEDIA_NVME_PATH" "Enter media NVME path" "$media_nvme_default"
-    prompt_env_value "PLEX_DATA_PATH" "Enter Plex data path" "$plex_data_default"
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+    info "Created ${dest} from ${src}"
 }
 
 setup_configs() {
-    info "Creating required data directories"
-    mkdir -p \
-        "${REPO_ROOT}/data/caddy/data" \
-        "${REPO_ROOT}/data/caddy/config" \
-        "${REPO_ROOT}/data/cloudflared" \
-        "${REPO_ROOT}/data/cloudflared/credentials" \
-        "${REPO_ROOT}/data/dashy"
+    mkdir -p data/caddy/data data/caddy/config data/cloudflared data/dashy
+    info "Ensured required data directories exist"
 
-    copy_template_if_missing \
-        "${REPO_ROOT}/config/dashy/conf.yml.example" \
-        "${REPO_ROOT}/data/dashy/conf.yml"
-    copy_template_if_missing \
-        "${REPO_ROOT}/config/cloudflared/config.yml.example" \
-        "${REPO_ROOT}/data/cloudflared/config.yml"
+    local dashy_template cloudflared_template dashy_path cloudflared_path
+    dashy_template="$(get_env_value "DASHY_CONFIG_TEMPLATE" ".env")"
+    cloudflared_template="$(get_env_value "CLOUDFLARED_CONFIG_TEMPLATE" ".env")"
+    dashy_path="$(get_env_value "DASHY_CONFIG_PATH" ".env")"
+    cloudflared_path="$(get_env_value "CLOUDFLARED_CONFIG_PATH" ".env")"
+
+    dashy_template="${dashy_template:-./config/dashy/conf.yml.example}"
+    cloudflared_template="${cloudflared_template:-./config/cloudflared/config.yml.example}"
+    dashy_path="${dashy_path:-./data/dashy/conf.yml}"
+    cloudflared_path="${cloudflared_path:-./data/cloudflared/config.yml}"
+
+    copy_template_if_missing "$dashy_template" "$dashy_path"
+    copy_template_if_missing "$cloudflared_template" "$cloudflared_path"
 }
+
+GPU_ENABLED=0
 
 setup_gpu() {
     if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
         info "NVIDIA GPU detected"
         if [[ -t 0 ]] && confirm "Enable GPU acceleration for Plex, Jellyfin, and Ollama?"; then
-            if [[ -f "$GPU_OVERLAY_FILE" ]]; then
-                info "Keeping existing GPU overlay: ${GPU_OVERLAY_FILE}"
-            else
-                cp "${REPO_ROOT}/config/gpu/docker-compose.gpu.yml" "$GPU_OVERLAY_FILE"
-                info "Created GPU overlay: docker-compose.gpu.yml"
-            fi
-            GPU_OVERLAY_ENABLED=1
+            cp config/gpu/docker-compose.gpu.yml docker-compose.gpu.yml
+            GPU_ENABLED=1
+            info "GPU overlay enabled at docker-compose.gpu.yml"
         else
+            rm -f docker-compose.gpu.yml
             info "GPU overlay not enabled"
-            rm -f "$GPU_OVERLAY_FILE"
         fi
     else
         warn "No NVIDIA GPU detected, skipping GPU configuration"
-        rm -f "$GPU_OVERLAY_FILE"
+        rm -f docker-compose.gpu.yml
     fi
 }
 
 setup_network() {
-    info "Ensuring docker network homelab_net exists"
+    if ! command -v docker &>/dev/null; then
+        warn "Docker not found; skipping homelab_net creation"
+        return
+    fi
     if docker network inspect homelab_net >/dev/null 2>&1; then
-        info "Docker network already present: homelab_net"
+        info "Docker network homelab_net already exists"
     else
         docker network create homelab_net >/dev/null
-        info "Created docker network: homelab_net"
+        info "Created Docker network homelab_net"
     fi
 }
 
-validate_compose_file() {
-    local compose_file="$1"
-    if docker compose -f "$compose_file" config --quiet >/dev/null 2>&1; then
-        info "Validation passed: ${compose_file}"
+validate_compose() {
+    if ! command -v docker &>/dev/null; then
+        warn "Docker not found; skipping compose validation"
         return 0
     fi
 
-    error "Validation failed: ${compose_file}"
-    return 1
-}
+    local files=(
+        "docker-compose.network.yml"
+        "docker-compose.media.yml"
+        "docker-compose.llm.yml"
+    )
+    local file failed=0
 
-validate_workflow() {
-    local failures=0
-
-    info "Validating compose files"
-    validate_compose_file "${REPO_ROOT}/docker-compose.network.yml" || failures=$((failures + 1))
-    validate_compose_file "${REPO_ROOT}/docker-compose.media.yml" || failures=$((failures + 1))
-    validate_compose_file "${REPO_ROOT}/docker-compose.llm.yml" || failures=$((failures + 1))
-
-    if [[ -f "$GPU_OVERLAY_FILE" ]]; then
-        if docker compose \
-            -f "${REPO_ROOT}/docker-compose.media.yml" \
-            -f "$GPU_OVERLAY_FILE" \
-            config --quiet >/dev/null 2>&1; then
-            info "Validation passed: media + gpu overlay"
-            GPU_OVERLAY_ENABLED=1
-        else
-            error "Validation failed: media + gpu overlay"
-            failures=$((failures + 1))
+    for file in "${files[@]}"; do
+        if [[ ! -f "$file" ]]; then
+            warn "Missing compose file: ${file}"
+            continue
         fi
-
-        if docker compose \
-            -f "${REPO_ROOT}/docker-compose.llm.yml" \
-            -f "$GPU_OVERLAY_FILE" \
-            config --quiet >/dev/null 2>&1; then
-            info "Validation passed: llm + gpu overlay"
-            GPU_OVERLAY_ENABLED=1
+        if docker compose -f "$file" config --quiet >/dev/null 2>&1; then
+            info "Compose validation passed: ${file}"
         else
-            error "Validation failed: llm + gpu overlay"
-            failures=$((failures + 1))
+            error "Compose validation failed: ${file}"
+            failed=1
+        fi
+    done
+
+    if [[ -f docker-compose.gpu.yml ]]; then
+        if docker compose \
+            -f docker-compose.network.yml \
+            -f docker-compose.media.yml \
+            -f docker-compose.llm.yml \
+            -f docker-compose.gpu.yml \
+            config --quiet >/dev/null 2>&1; then
+            info "Compose validation passed: docker-compose.gpu.yml (overlay stack)"
+        else
+            error "Compose validation failed: docker-compose.gpu.yml (overlay stack)"
+            failed=1
         fi
     fi
 
-    if [[ "$failures" -gt 0 ]]; then
-        error "Compose validation failed (${failures} checks)"
-        exit 1
-    fi
+    return "$failed"
 }
 
 print_next_steps() {
-    echo
-    info "Next steps"
-    if [[ "$GPU_OVERLAY_ENABLED" -eq 1 && -f "$GPU_OVERLAY_FILE" ]]; then
-        echo "docker compose -f docker-compose.network.yml up -d"
-        echo "docker compose -f docker-compose.media.yml -f docker-compose.gpu.yml up -d"
-        echo "docker compose -f docker-compose.llm.yml -f docker-compose.gpu.yml up -d"
-    else
-        echo "docker compose -f docker-compose.network.yml up -d"
-        echo "docker compose -f docker-compose.media.yml up -d"
-        echo "docker compose -f docker-compose.llm.yml up -d"
+    local media_cmd llm_cmd
+    media_cmd="docker compose -f docker-compose.media.yml"
+    llm_cmd="docker compose -f docker-compose.llm.yml"
+    if [[ "$GPU_ENABLED" -eq 1 && -f docker-compose.gpu.yml ]]; then
+        media_cmd="${media_cmd} -f docker-compose.gpu.yml"
+        llm_cmd="${llm_cmd} -f docker-compose.gpu.yml"
     fi
+
+    echo
+    info "Next steps:"
+    echo "  docker compose -f docker-compose.network.yml up -d"
+    echo "  ${media_cmd} up -d"
+    echo "  ${llm_cmd} up -d  # optional"
+    echo
+}
+
+run_hardening() {
+    info "Running hardening steps"
+
+    local perms_script="${REPO_ROOT}/hardening/secure-secret-file-permissions.sh"
+    if [[ -f "$perms_script" ]]; then
+        bash "$perms_script"
+        info "Secret file permissions tightened"
+    else
+        warn "Missing ${perms_script}; skipping permission hardening"
+    fi
+
+    local nft_rules="${REPO_ROOT}/hardening/nftables-arr-stack.nft"
+    if [[ -f "$nft_rules" ]]; then
+        if command -v nft &>/dev/null; then
+            sudo nft -f "$nft_rules"
+            info "nftables rules loaded from ${nft_rules}"
+        else
+            warn "nft not found; skipping firewall rules"
+        fi
+    else
+        warn "Missing ${nft_rules}; skipping firewall rules"
+    fi
+
+    echo
+    info "Next steps:"
+    echo "  docker compose -f docker-compose.network.yml up -d"
+    echo "  ${media_cmd} up -d"
+    echo "  ${llm_cmd} up -d  # optional"
+    echo
 }
 
 main() {
-    require_command "docker" "Install Docker Engine and ensure docker is on PATH."
-    if ! docker compose version >/dev/null 2>&1; then
-        error "docker compose plugin is required"
-        exit 1
-    fi
+    local harden=0
+    for arg in "$@"; do
+        case "$arg" in
+            --harden) harden=1 ;;
+            *) warn "Unknown argument: $arg" ;;
+        esac
+    done
 
+    info "Starting homelab setup in ${REPO_ROOT}"
     setup_env
     setup_configs
     setup_gpu
     setup_network
-    validate_workflow
+    validate_compose
+
+    if [[ "$harden" -eq 1 ]]; then
+        run_hardening
+    fi
+
     print_next_steps
+    info "Setup complete"
 }
 
 main "$@"

@@ -1,89 +1,134 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
-  caddy:
-    image: lucaslorentz/caddy-docker-proxy:latest
-    container_name: caddy
-    security_opt: ["no-new-privileges:true"]
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      - CONTAINERS=1
+      - NETWORKS=1
+      - SERVICES=0
+      - TASKS=0
+      - POST=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - homelab_net
+    logging: *default-logging
+
+  caddy:
+    image: ${CADDY_IMAGE:-local/caddy-cf:latest}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    depends_on:
+      - docker-socket-proxy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
     environment:
-      - CADDY_INGRESS_NETWORKS=homelab_net
+      - CADDY_INGRESS_NETWORKS=${CADDY_INGRESS_NETWORKS:-homelab_net}
+      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     networks:
       - homelab_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
 
   pihole:
-    image: pihole/pihole:latest
-    container_name: pihole
-    # Pi-hole needs to listen on DNS ports (53/tcp+udp). Host networking avoids
-    # Docker port publishing edge-cases, but requires freeing port 53 on host.
+    image: pihole/pihole@sha256:1c32c36b862a12762656b6471c854cebc01fe945639ba3a893611337c2c95e99
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     environment:
       - TZ=${TZ}
-      # Pi-hole v6+: use FTLCONF_* variable names.
       - FTLCONF_webserver_api_password=${PIHOLE_WEBPASSWORD:-}
       - FTLCONF_dns_upstreams=${PIHOLE_DNS_:-1.1.1.1;1.0.0.1}
-      # Caddy already owns :80 on this host, so run the admin UI on a high port.
       - FTLCONF_webserver_port=${PIHOLE_WEB_PORT:-8083}
       - FTLCONF_dns_listeningMode=all
     volumes:
       - ./data/pihole/etc-pihole:/etc/pihole
       - ./data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d
-    # Needed to bind to :53 when running as non-root.
     cap_add:
       - NET_BIND_SERVICE
-      - NET_RAW
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:${PIHOLE_WEB_PORT:-8083}/admin/ >/dev/null || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
       start_period: 45s
-    restart: unless-stopped
     labels:
-      caddy: "pihole.${BASE_DOMAIN:-homelab.local}"
+      caddy: "pihole.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:${PIHOLE_WEB_PORT:-8083}"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+    logging: *default-logging
+    restart: unless-stopped
 
   dashy:
-    image: lissy93/dashy:latest
-    container_name: dashy
+    image: lissy93/dashy@sha256:8c04ab116bb52bd784137d3922acaa945b5559de49a14f163dbbcf0605adf3e6
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=8082
     volumes:
-      - ./data/dashy/conf.yml:/app/user-data/conf.yml
+      - ${DASHY_CONFIG_PATH:-./data/dashy/conf.yml}:/app/user-data/conf.yml
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/dashy*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8082}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+      caddy.reverse_proxy: "{{upstreams 8082}}"
+      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
     restart: unless-stopped
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
+    image: cloudflare/cloudflared@sha256:6b599ca3e974349ead3286d178da61d291961182ec3fe9c505e1dd02c8ac31b0
     network_mode: host
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: tunnel --no-autoupdate run
     volumes:
-      - ./data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CONFIG_PATH:-./data/cloudflared/config.yml}:/etc/cloudflared/config.yml:ro
       - ./data/cloudflared/credentials:/etc/cloudflared/credentials
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "info", "--output", "json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
     restart: unless-stopped
 
   tailscale:
-    image: tailscale/tailscale:stable
-    container_name: tailscale
+    image: tailscale/tailscale:stable@sha256:dbeff02d2337344b351afac203427218c4d0a06c43fc10a865184063498472a6
     hostname: jon-server
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -96,9 +141,10 @@ services:
       --state=/var/lib/tailscale/tailscaled.state
       --statedir=/var/lib/tailscale
       --socket=/tmp/tailscaled.sock
+    logging: *default-logging
     restart: unless-stopped
 
 networks:
   homelab_net:
-    driver: bridge
+    external: true
     name: homelab_net

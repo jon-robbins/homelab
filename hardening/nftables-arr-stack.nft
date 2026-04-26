@@ -3,10 +3,15 @@
 #
 # Review and edit `elements` in set `local_v4` if you need admin from VPN or non-RFC1918 ranges.
 # From repo root:  sudo nft -f ./hardening/nftables-arr-stack.nft
-# Reload:          sudo nft delete table inet arr_stack_mgmt && sudo nft -f ./hardening/nftables-arr-stack.nft
-# List:        sudo nft list table inet arr_stack_mgmt
+# List:            sudo nft list table inet arr_stack_mgmt
 #
-# Does not replace Docker’s iptables/nft FORWARD rules; only filters traffic destined to the host.
+# Safe to reload: the file deletes the table first to prevent duplicate rules.
+# Does not replace Docker's iptables/nft FORWARD rules; only filters traffic destined to the host.
+
+# Flush any previous instance to prevent duplicate rules on reload.
+# The empty table declaration ensures the name exists before delete (idempotent).
+table inet arr_stack_mgmt {}
+delete table inet arr_stack_mgmt
 
 table inet arr_stack_mgmt {
   set local_v4 {

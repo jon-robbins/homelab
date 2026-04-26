@@ -18,6 +18,7 @@ BEGIN {
   in_homelab = 0
   found_homelab = 0
   external_true = 0
+  explicit_name = 0
 }
 
 /^[^[:space:]].*:$/ {
@@ -45,15 +46,23 @@ in_networks == 1 && in_homelab == 1 && /^[[:space:]]{4}external:[[:space:]]*true
   external_true = 1
 }
 
+in_networks == 1 && in_homelab == 1 && /^[[:space:]]{4}name:[[:space:]]*homelab_net([[:space:]]*|$)/ {
+  explicit_name = 1
+}
+
 END {
   if (found_homelab == 0) {
     print "FAIL: homelab_net is not defined under networks"
     exit 1
   }
-  if (external_true == 1) {
-    print "FAIL: homelab_net must be managed (external: true is not allowed)"
+  if (external_true == 0) {
+    print "FAIL: homelab_net must be external and setup-created"
     exit 1
   }
-  print "PASS: homelab_net is defined and managed (not external)"
+  if (explicit_name == 0) {
+    print "FAIL: homelab_net must explicitly name the shared Docker network"
+    exit 1
+  }
+  print "PASS: homelab_net is defined as explicit setup-created external network"
 }
 ' "$TARGET_FILE"

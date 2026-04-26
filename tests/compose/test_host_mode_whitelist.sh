@@ -34,11 +34,7 @@ mapfile -t host_mode_services < <(
       return
     }
     if (network_mode_host == 1) {
-      if (container_name != "") {
-        print container_name
-      } else {
-        print current_service
-      }
+      print current_service
     }
   }
 
@@ -71,17 +67,11 @@ mapfile -t host_mode_services < <(
     current_service = $0
     gsub(/^[[:space:]]{2}/, "", current_service)
     sub(/:[[:space:]]*$/, "", current_service)
-    container_name = ""
     network_mode_host = 0
     next
   }
 
   in_services == 1 && current_service != "" {
-    if ($0 ~ /^[[:space:]]{4}container_name:[[:space:]]*/) {
-      container_name = $0
-      sub(/^[[:space:]]{4}container_name:[[:space:]]*/, "", container_name)
-      gsub(/[[:space:]]+$/, "", container_name)
-    }
     if ($0 ~ /^[[:space:]]{4}network_mode:[[:space:]]*host([[:space:]]*|$)/) {
       network_mode_host = 1
     }

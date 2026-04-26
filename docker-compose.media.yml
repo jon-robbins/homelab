@@ -1,26 +1,37 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
+    image: ghcr.io/flaresolverr/flaresolverr@sha256:7962759d99d7e125e108e0f5e7f3cdbcd36161776d058d1d9b7153b92ef1af9e
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     shm_size: "2gb"
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
-    labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/flaresolverr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8191}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8191/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 2g
+    pids_limit: 500
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
-    container_name: prowlarr
+    image: lscr.io/linuxserver/prowlarr@sha256:c5de2a8758a05594319263e7691c1dce56899442ed1720d6eca216c0958f4caf
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -28,17 +39,25 @@ services:
     volumes:
       - ./data/prowlarr:/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/prowlarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9696}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/prowlarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 9696}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9696/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   jackett:
-    image: lscr.io/linuxserver/jackett:latest
-    container_name: jackett
+    image: lscr.io/linuxserver/jackett@sha256:85452fc35f8b446324df6129e5299794602d211f0aeb6418b339cf37ec43bd7c
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -46,17 +65,25 @@ services:
     volumes:
       - ./data/jackett:/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/jackett*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9117}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/jackett*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 9117}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9117/jackett/api/v2.0/server/config || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
-    container_name: sonarr
+    image: lscr.io/linuxserver/sonarr@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -66,17 +93,25 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/sonarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8989}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/sonarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 8989}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8989/sonarr/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
-    container_name: radarr
+    image: lscr.io/linuxserver/radarr@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -86,17 +121,25 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/radarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 7878}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/radarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 7878}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7878/radarr/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   readarr:
-    image: lscr.io/linuxserver/readarr:0.4.19-nightly
-    container_name: readarr
+    image: lscr.io/linuxserver/readarr:0.4.19-nightly@sha256:4f291128d1a5538be73c2a30473d7cdd0820e223dc8b8533b0cbc5659000dcbe
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -106,18 +149,26 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/readarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8787}}"
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle: "/readarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 8787}}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8787/readarr/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   overseerr:
-    image: ghcr.io/seerr-team/seerr:latest
-    container_name: overseerr
+    image: ghcr.io/seerr-team/seerr@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad
     init: true
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
@@ -127,7 +178,7 @@ services:
     volumes:
       - ./data/overseerr:/app/config
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/overseerr*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"
     healthcheck:
@@ -137,10 +188,11 @@ services:
       interval: 20s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
   plex:
-    image: lscr.io/linuxserver/plex:latest
-    container_name: plex
+    image: lscr.io/linuxserver/plex@sha256:e5c7c283b242966416a4bed2d666acf6f3fb8f957c704be8333f8dc987364825
     # Intentional exception: keep host mode for discovery/casting compatibility.
     network_mode: host
     security_opt: ["no-new-privileges:true"]
@@ -151,23 +203,33 @@ services:
       - VERSION=docker
     volumes:
       - ./data/plex:/config
-      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd
-      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
       - ${PLEX_DATA_PATH:-/srv/plex}:/srv/plex
-      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
-      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     labels:
-      caddy: "plex.${BASE_DOMAIN:-homelab.local}"
+      caddy: "plex.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:32400"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     group_add:
       - video
       - render
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:32400/identity || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 8g
+    pids_limit: 500
 
   jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
-    container_name: jellyfin
+    image: lscr.io/linuxserver/jellyfin@sha256:ae1ac3d89b8598f31f5e1dc5aff898e13eab617303db58f84956e26f7b78c198
     # Intentional exception: keep host mode for discovery/casting compatibility.
     network_mode: host
     security_opt: ["no-new-privileges:true"]
@@ -175,7 +237,7 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
-      - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN:-homelab.local}
+      - JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN}
     volumes:
       - ./data/jellyfin:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
@@ -184,49 +246,96 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
     labels:
-      caddy: "jellyfin.${BASE_DOMAIN:-homelab.local}"
+      caddy: "jellyfin.${BASE_DOMAIN}"
       caddy.reverse_proxy: "host.docker.internal:8096"
+      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
+      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     devices:
       - /dev/dri:/dev/dri
     group_add:
       - video
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
 
-  # qBittorrent on bridge network; ingress is via Caddy path routing.
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: qbittorrent
+  # VPN sidecar: all qBittorrent traffic exits through gluetun's WireGuard tunnel.
+  # Fill VPN_SERVICE_PROVIDER, WIREGUARD_PRIVATE_KEY, etc. in .env before starting.
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
     networks:
       - homelab_net
+    ports:
+      - "51423:51423/tcp"
+      - "51423:51423/udp"
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-}
+      - VPN_TYPE=${VPN_TYPE:-wireguard}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
+    labels:
+      caddy: "${BASE_DOMAIN}"
+      caddy.redir_0: "/qbittorrent /qbittorrent/"
+      caddy.handle_path: "/qbittorrent/*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    pids_limit: 200
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2
+    network_mode: "service:gluetun"
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    depends_on:
+      - gluetun
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
       - WEBUI_PORT=8080
-    ports:
-      # Incoming peer connections (must match qBittorrent listening port).
-      - "51423:51423/tcp"
-      - "51423:51423/udp"
     volumes:
       - ./data/qbittorrent/config:/config
       - ./data/qbittorrent/torrent-trackers:/torrent-trackers
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
-    labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
-      caddy.handle_path: "/qbittorrent*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/v2/app/version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 200
 
   arr-retry-worker:
-    image: python:3.12-alpine
-    container_name: arr-retry-worker
+    build:
+      context: ./src/homelab_workers
+      # Pip during build needs working DNS; some runners break default bridge DNS.
+      network: host
+    image: local/homelab-workers:latest
     working_dir: /workspace
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - TZ=${TZ}
       - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
@@ -237,15 +346,13 @@ services:
       - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - ARR_HEALTH_STATE_FILE=${ARR_HEALTH_STATE_FILE:-/workspace/data/arr-retry/health_state.json}
-      # Stalled qBittorrent torrents in Sonarr category with no Sonarr queue row -> EpisodeSearch + remove torrent
       - ARR_RETRY_QBT_ORPHAN_STALLS=${ARR_RETRY_QBT_ORPHAN_STALLS:-true}
       - SONARR_QBT_CATEGORY=${SONARR_QBT_CATEGORY:-tv-sonarr}
       - ARR_RETRY_MAX_QB_ORPHANS=${ARR_RETRY_MAX_QB_ORPHANS:-10}
       - ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS=${ARR_RETRY_QBT_ORPHAN_MIN_AGE_SECONDS:-3600}
-      # Missing monitored items with empty /release cache still get a search (Sonarr/Radarr)
       - ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH=${ARR_RETRY_MISSING_EMPTY_RELEASE_SEARCH:-true}
     volumes:
-      - ./scripts:/workspace/scripts:ro
+      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
       - ./data/arr-retry:/workspace/data/arr-retry
@@ -253,7 +360,7 @@ services:
       sh -c '
         set -eu
         mkdir -p /workspace/data/arr-retry
-        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/scripts/workers python -u /workspace/scripts/workers/retry-sonarr-stalled-downloads.py --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
+        RETRY_CMD="cd /workspace && PYTHONPATH=/workspace/src/homelab_workers/src python -u -m homelab_workers.arr_retry.main --apply --max-missing-checks 40 --max-searches 40 --http-timeout-seconds 30 --allow-force-grab-fallback --sonarr-config-path /workspace/data/sonarr/config.xml --radarr-config-path /workspace/data/radarr/config.xml"
         echo "[arr-retry-worker] $(date -Iseconds) running immediate startup sweep"
         sh -c "$$RETRY_CMD" 2>&1 | tee /workspace/data/arr-retry/health-last-run.log >> /proc/1/fd/1 &
         echo "[arr-retry-worker] $(date -Iseconds) startup sweep launched"
@@ -261,15 +368,27 @@ services:
         echo "[arr-retry-worker] $(date -Iseconds) installed cron schedule: */15 * * * *"
         exec crond -f -l 8
       '
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "crond"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 200
 
+  # Reuses image from arr-retry-worker (same Dockerfile); do not duplicate `build`
+  # or BuildKit can fail exporting: image "local/homelab-workers:latest" already exists.
   torrent-health-ui:
-    image: python:3.12-alpine
-    container_name: torrent-health-ui
+    image: local/homelab-workers:latest
+    depends_on:
+      - arr-retry-worker
     working_dir: /workspace
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       - TZ=${TZ}
       - ARR_HEALTH_UI_HOST=0.0.0.0
@@ -283,21 +402,68 @@ services:
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
       - ARR_HEALTH_LOG_FILE=${ARR_HEALTH_LOG_FILE:-/workspace/data/arr-retry/health-last-run.log}
     volumes:
-      - ./scripts:/workspace/scripts:ro
+      - ./src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
       - ./data/sonarr:/workspace/data/sonarr:ro
       - ./data/radarr:/workspace/data/radarr:ro
       - ./data/arr-retry:/workspace/data/arr-retry:ro
     command: >
       sh -c '
-      PYTHONPATH=/workspace/scripts/workers python /workspace/scripts/workers/torrent_health_ui/app.py
+      PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
       '
     labels:
-      caddy: "${BASE_DOMAIN:-homelab.local}"
+      caddy: "${BASE_DOMAIN}"
       caddy.handle_path: "/torrent-health*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 8091}}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8091/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 200
+
+  # Thin API for OpenClaw: TV/movie metadata lookup (Sonarr/Radarr) with a stable JSON contract.
+  media-agent:
+    build:
+      context: ./media-agent
+      network: host
+    image: local/media-agent:latest
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      - TZ=${TZ}
+      - MEDIA_AGENT_TOKEN=${MEDIA_AGENT_TOKEN:-}
+      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - MEDIA_AGENT_ROUTER_MODEL=${MEDIA_AGENT_ROUTER_MODEL:-qwen2.5-coder:7b-instruct-q8_0}
+      - MEDIA_AGENT_ROUTER_MAX_RETRIES=${MEDIA_AGENT_ROUTER_MAX_RETRIES:-3}
+      # Direct Prowlarr (GET/POST /api/v1/search) — optional; enables indexer-search / indexer-grab
+      - PROWLARR_URL=${PROWLARR_INTERNAL_URL:-http://prowlarr:9696}
+      - PROWLARR_API_KEY=${PROWLARR_API_KEY:-}
+      - QBITTORRENT_INTERNAL_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import os,urllib.request; t=os.environ.get(\"MEDIA_AGENT_TOKEN\",\"\"); assert t; r=urllib.request.Request(\"http://127.0.0.1:8000/internal/media-agent/v1/health\", headers={\"Authorization\":\"Bearer \"+t}); urllib.request.urlopen(r, timeout=4).read()"',
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+    pids_limit: 200
 
 networks:
   homelab_net:
     external: true
-    name: homelab_net

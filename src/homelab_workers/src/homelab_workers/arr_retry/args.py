@@ -4,32 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-
-def _load_dotenv_file(path: Path) -> None:
-    if not path.exists() or not path.is_file():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-            if "=" not in line:
-                continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key:
-            continue
-
-        value = value.strip()
-        if (value.startswith('"') and value.endswith('"')) or (
-            value.startswith("'") and value.endswith("'")
-        ):
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
-
+from homelab_workers.shared.dotenv import load_dotenv_into_environ
 
 def _load_project_dotenv() -> None:
     # Prefer current working directory for local runs; also try repo root relative
@@ -39,7 +14,7 @@ def _load_project_dotenv() -> None:
         Path(__file__).resolve().parents[2] / ".env",
     )
     for path in candidate_paths:
-        _load_dotenv_file(path)
+        load_dotenv_into_environ(path)
 
 
 def build_parser() -> argparse.ArgumentParser:
