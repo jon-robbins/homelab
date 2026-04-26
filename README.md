@@ -15,80 +15,78 @@ Practical Docker Compose homelab with path-based ingress, media automation, and 
 <summary>diagram source</summary>
 
 ```mermaid
-flowchart TB
-    user[User Devices]
+flowchart LR
+    %% Styling Classes
+    classDef external fill:#f8f9fa,stroke:#ced4da,stroke-width:2px;
+    classDef ingress fill:#d1e7dd,stroke:#0f5132,stroke-width:2px;
+    classDef core fill:#cfe2ff,stroke:#084298,stroke-width:2px;
+    classDef media fill:#e2e3e5,stroke:#41464b,stroke-width:2px;
+    classDef storage fill:#fff3cd,stroke:#856404,stroke-width:2px;
 
-    subgraph host["Host Network Services (intentional exceptions)"]
-        pihole[Pi-hole\nDNS on :53]
-        tailscale[Tailscale\nprivate remote access]
-        cloudflared[cloudflared\nCloudflare Tunnel agent]
-        plex[Plex\nLAN discovery + casting]
-        jellyfin[Jellyfin\nLAN discovery + casting]
+    %% External / Entry Points
+    User([User Devices]):::external
+    Tailscale(Tailscale VPN):::ingress
+    Cloudflare(Cloudflare Tunnel):::ingress
+
+    subgraph Front ["Ingress & Core Routing"]
+        Caddy{Caddy Proxy}:::ingress
+        Pihole(Pi-hole DNS):::ingress
+        Dashy(Dashy / Dashboard):::core
     end
 
-    subgraph homelab["homelab_net bridge (shared service mesh)"]
-        caddy[caddy-docker-proxy\ningress on :80/:443]
-        dashy[Dashy]
-        overseerr[Overseerr]
-        mediaagent[media-agent]
-        ollama[Ollama]
-        openclaw[openclaw-gateway]
-        dashboard[internal-dashboard]
+    subgraph Services ["Service Mesh (homelab_net)"]
+        direction TB
+        subgraph MediaStack ["Media Management"]
+            Overseerr(Overseerr):::media
+            Sonarr(Sonarr):::media
+            Radarr(Radarr):::media
+            Readarr(Readarr):::media
+            Qbit(qBittorrent):::media
+            Prowlarr(Prowlarr):::media
+            FlareSolverr(FlareSolverr):::media
+        end
+
+        subgraph AI_Tools ["AI & Tooling"]
+            Ollama(Ollama):::core
+            Openclaw(Openclaw Gateway):::core
+            MediaAgent(Media Agent):::core
+            ArrRetry(Arr Retry Worker):::core
+        end
     end
 
-    subgraph media["media_internal group (logical; implemented on homelab_net)"]
-        sonarr[Sonarr]
-        radarr[Radarr]
-        readarr[Readarr]
-        prowlarr[Prowlarr]
-        jackett[Jackett]
-        qb[qBittorrent]
-        flaresolverr[FlareSolverr]
-        arrretry[arr-retry-worker]
-        thui[torrent-health-ui]
+    subgraph HostServices ["Host Networking / Casting"]
+        Plex(Plex):::media
+        Jellyfin(Jellyfin):::media
     end
 
-    subgraph storage["Host Storage Mounts"]
-        data[(./data/* runtime state)]
-        mediahdd["MEDIA_HDD_PATH"]
-        medianvme["MEDIA_NVME_PATH"]
-        plexdata["PLEX_DATA_PATH"]
+    subgraph Storage ["Persistent Storage"]
+        Data[(./data/* State)]:::storage
+        MediaHDD[(Media HDD)]:::storage
+        MediaNVMe[(Media NVMe)]:::storage
+        PlexData[(Plex Data)]:::storage
     end
 
-    user -->|HTTPS| caddy
-    user -->|DNS queries| pihole
-    user -->|Private mesh access| tailscale
-    cloudflared -->|Tunnel ingress| caddy
-    caddy -->|Path routing labels| dashy
-    caddy -->|/overseerr| overseerr
-    caddy -->|/sonarr /radarr /readarr| sonarr
-    caddy -->|/qbittorrent| qb
-    caddy -->|openclaw.<domain>| openclaw
-    caddy -->|/ollama| ollama
-    arrretry -->|API retries| sonarr
-    arrretry -->|API retries| radarr
-    arrretry -->|Torrent health checks| qb
-    sonarr -->|Indexer queries| prowlarr
-    radarr -->|Indexer queries| prowlarr
-    readarr -->|Indexer queries| prowlarr
-    prowlarr -->|Bypass anti-bot flows| flaresolverr
-    mediaagent -->|Reads Arr metadata| sonarr
-    mediaagent -->|Reads Arr metadata| radarr
-    openclaw -->|Tooling calls| mediaagent
+    %% Network Routing
+    User -->|HTTPS| Caddy
+    User -.->|DNS| Pihole
+    User -.->|Private IP| Tailscale
+    Cloudflare -->|Tunnel| Caddy
 
-    dashy --- data
-    sonarr --- data
-    radarr --- data
-    readarr --- data
-    prowlarr --- data
-    qb --- data
-    ollama --- data
-    cloudflared --- data
-    plex --- mediahdd
-    plex --- medianvme
-    plex --- plexdata
-    jellyfin --- mediahdd
-    jellyfin --- medianvme
+    %% Proxy to Services
+    Caddy --> Dashy & Overseerr & Sonarr & Qbit
+    Caddy --> Ollama & Openclaw
+
+    %% Backend Communication
+    Sonarr & Radarr & Readarr --> Prowlarr
+    Prowlarr --> FlareSolverr
+    Openclaw --> MediaAgent
+    MediaAgent --> Sonarr & Radarr
+    ArrRetry -.->|Health checks| Qbit & Sonarr & Radarr
+
+    %% Storage Mapping (Kept clean)
+    Plex & Jellyfin ==> MediaHDD & MediaNVMe
+    Plex ==> PlexData
+    Services -.->|Runtime State| Data
 ```
 
 </details>
@@ -354,31 +352,62 @@ Bridge networking is the default because it limits exposure and keeps service-to
 
 ```mermaid
 flowchart LR
-    user[User]
-    overseerr[Overseerr]
-    sonarr[Sonarr]
-    radarr[Radarr]
-    prowlarr[Prowlarr]
-    qbit[qBittorrent]
-    plex[Plex]
-    jellyfin[Jellyfin]
-    arrretry[arr-retry-worker]
+    %% -- Styling --
+    classDef user fill:#f8f9fa,stroke:#ced4da,stroke-width:2px;
+    classDef request fill:#cfe2ff,stroke:#084298,stroke-width:2px;
+    classDef arr fill:#e2e3e5,stroke:#41464b,stroke-width:2px;
+    classDef download fill:#fff3cd,stroke:#856404,stroke-width:2px;
+    classDef player fill:#d1e7dd,stroke:#0f5132,stroke-width:2px;
+    classDef worker fill:#f8d7da,stroke:#842029,stroke-width:2px,stroke-dasharray: 5 5;
 
-    user -->|Request movie/series| overseerr
-    overseerr -->|Approved request| sonarr
-    overseerr -->|Approved request| radarr
-    sonarr -->|Searches indexers| prowlarr
-    radarr -->|Searches indexers| prowlarr
-    prowlarr -->|Sends release| qbit
-    qbit -->|Completed download| sonarr
-    qbit -->|Completed download| radarr
-    sonarr -->|Library refresh| plex
-    sonarr -->|Library refresh| jellyfin
-    radarr -->|Library refresh| plex
-    radarr -->|Library refresh| jellyfin
-    arrretry -->|Retries stalled/missing items| sonarr
-    arrretry -->|Retries stalled/missing items| radarr
-    arrretry -->|Checks torrent state| qbit
+    %% -- User Entry --
+    User([User]):::user
+
+    %% -- Lifecycle Stages --
+    subgraph Phase1 ["1. Discovery"]
+        Overseerr(Overseerr):::request
+    end
+
+    subgraph Phase2 ["2. Management"]
+        Sonarr(Sonarr):::arr
+        Radarr(Radarr):::arr
+        ArrRetry{{Arr Retry Worker}}:::worker
+    end
+
+    subgraph Phase3 ["3. Acquisition"]
+        Prowlarr(Prowlarr):::download
+        Qbit(qBittorrent):::download
+    end
+
+    subgraph Phase4 ["4. Playback"]
+        Plex(Plex):::player
+        Jellyfin(Jellyfin):::player
+    end
+
+    %% -- Main Request Flow --
+    User -->|Requests Media| Overseerr
+    Overseerr -->|Approves| Sonarr
+    Overseerr -->|Approves| Radarr
+    
+    %% -- Search & Download --
+    Sonarr -->|Search Indexers| Prowlarr
+    Radarr -->|Search Indexers| Prowlarr
+    Prowlarr -->|Sends Release| Qbit
+
+    %% -- Feedback Loop (Dotted to reduce visual weight) --
+    Qbit -.->|Import Complete| Sonarr
+    Qbit -.->|Import Complete| Radarr
+
+    %% -- Final Media Refresh (Heavy lines for state change) --
+    Sonarr ==>|Webhook: Update Library| Plex
+    Sonarr ==>|Webhook: Update Library| Jellyfin
+    Radarr ==>|Webhook: Update Library| Plex
+    Radarr ==>|Webhook: Update Library| Jellyfin
+
+    %% -- Background Automation --
+    ArrRetry -.->|Polls Stalled| Sonarr
+    ArrRetry -.->|Polls Stalled| Radarr
+    ArrRetry -.->|Health Check| Qbit
 ```
 
 </details>

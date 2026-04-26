@@ -112,6 +112,7 @@ jobs:
             "${GITHUB_WORKSPACE}/scripts/gh-actions-local.sh"
             "${GITHUB_WORKSPACE}/scripts/fix-media-permissions.sh"
             "${GITHUB_WORKSPACE}/scripts/backup-data.sh"
+            "${GITHUB_WORKSPACE}/scripts/render-readme-mermaid.sh"
             "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
             "${GITHUB_WORKSPACE}/tests/runtime/run_tests.sh"
             "${GITHUB_WORKSPACE}"/tests/integration/*.sh
