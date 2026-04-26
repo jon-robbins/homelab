@@ -24,5 +24,6 @@ jobs:
       - name: Commit rendered SVG and PNG files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          file_pattern: "docs/images/*.svg docs/images/*.png"
+          # PNG optional; git add fails if a pathspec matches nothing (no .png today).
+          file_pattern: "docs/images/*.svg"
           commit_message: "chore(docs): render Mermaid diagrams"
