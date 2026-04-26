@@ -26,6 +26,12 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: Configure git identity (for rollback commits)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Check for new commits
         id: check
         run: |
@@ -82,6 +88,27 @@ jobs:
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
+          # Ensure backup destination exists and is writable (MEDIA_HDD_PATH/backups).
+          if [[ -f .env ]]; then
+            set -a
+            # shellcheck source=/dev/null
+            source .env
+            set +a
+          fi
+          DEST_DRIVE="${MEDIA_HDD_PATH:-/mnt/media-hdd}"
+          BACKUP_DIR="${DEST_DRIVE}/backups/homelab-data"
+          if [[ ! -d "${BACKUP_DIR}" ]]; then
+            if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+              sudo mkdir -p "${BACKUP_DIR}"
+              sudo chown "$(id -u):$(id -g)" "${DEST_DRIVE}/backups" "${BACKUP_DIR}" || true
+            else
+              mkdir -p "${BACKUP_DIR}" || true
+            fi
+          fi
+          if [[ ! -w "${BACKUP_DIR}" ]]; then
+            echo "::error::Backup dir is not writable: ${BACKUP_DIR}. Fix ownership/permissions on ${DEST_DRIVE}/backups."
+            exit 1
+          fi
           bash scripts/backup-data.sh
 
       - name: Deploy
