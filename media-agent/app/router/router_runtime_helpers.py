@@ -43,9 +43,7 @@ def _season_range_includes(name: str, season: int) -> bool:
             if start <= season <= end or end <= season <= start:
                 return True
     norm = re.sub(r"[._-]+", " ", low)
-    if "complete series" in norm or "complete collection" in norm:
-        return True
-    return False
+    return "complete series" in norm or "complete collection" in norm
 
 
 def _is_multi_season_pack(name: str) -> bool:

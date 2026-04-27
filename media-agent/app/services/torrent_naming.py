@@ -33,9 +33,7 @@ def season_range_includes(name: str, season: int) -> bool:
             if start <= season <= end or end <= season <= start:
                 return True
     norm = re.sub(r"[._-]+", " ", low)
-    if "complete series" in norm or "complete collection" in norm:
-        return True
-    return False
+    return "complete series" in norm or "complete collection" in norm
 
 
 def is_multi_season_pack(name: str) -> bool:
@@ -44,18 +42,14 @@ def is_multi_season_pack(name: str) -> bool:
         return True
     if re.search(r"\bseasons?\s*\d{1,2}\s*(?:-|to|through)\s*\d{1,2}\b", low):
         return True
-    if "complete series" in low or "complete collection" in low:
-        return True
-    return False
+    return "complete series" in low or "complete collection" in low
 
 
 def is_episode_specific_release(name: str) -> bool:
     low = (name or "").casefold()
     if re.search(r"\bs\d{1,2}\s*e\d{1,3}\b", low):
         return True
-    if re.search(r"\b\d{1,2}x\d{1,3}\b", low):
-        return True
-    return False
+    return bool(re.search(r"\b\d{1,2}x\d{1,3}\b", low))
 
 
 def season_request_matches_release(name: str, season: int) -> bool:
@@ -64,9 +58,7 @@ def season_request_matches_release(name: str, season: int) -> bool:
         return season_range_includes(low, season)
     if is_episode_specific_release(low):
         return False
-    if has_season_hint(low, season):
-        return True
-    return False
+    return has_season_hint(low, season)
 
 
 def season_path_matches(name: str, season: int) -> bool:
@@ -115,9 +107,7 @@ def query_matches_torrent_name(query: str, torrent_name: str, season: int | None
     q_tokens = [t for t in q.split() if len(t) >= 3]
     if len(q_tokens) < 2:
         return False
-    if all(t in n for t in q_tokens) and season_ok:
-        return True
-    return False
+    return all(t in n for t in q_tokens) and season_ok
 
 
 __all__ = [
