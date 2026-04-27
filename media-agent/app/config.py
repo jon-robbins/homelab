@@ -62,8 +62,10 @@ class Settings(BaseSettings):
     )
 
     ollama_base: str = Field(default="http://ollama:11434", validation_alias="OLLAMA_URL")
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    llm_provider: str = Field(default="gemini", validation_alias="MEDIA_AGENT_LLM_PROVIDER")
     router_model: str = Field(
-        default="qwen2.5-coder:7b-instruct-q8_0",
+        default="gemini-2.5-flash",
         validation_alias="MEDIA_AGENT_ROUTER_MODEL",
     )
     router_max_retries: int = Field(
@@ -90,6 +92,8 @@ class Settings(BaseSettings):
         self.qbittorrent_username = (self.qbittorrent_username or "").strip()
         self.qbittorrent_password = (self.qbittorrent_password or "").strip()
         self.ollama_base = (self.ollama_base or "").strip().rstrip("/")
+        self.gemini_api_key = (self.gemini_api_key or "").strip()
+        self.llm_provider = (self.llm_provider or "gemini").strip().lower()
         self.router_model = (self.router_model or "").strip()
         self.router_state_path = (self.router_state_path or "").strip()
 
@@ -102,6 +106,10 @@ class Settings(BaseSettings):
         if not self.radarr_base or not self.radarr_api_key:
             raise ValueError(
                 "RADARR_BASE_URL/RADARR_URL and RADARR_API_KEY are required"
+            )
+        if self.llm_provider == "gemini" and not self.gemini_api_key:
+            raise ValueError(
+                "GEMINI_API_KEY is required when MEDIA_AGENT_LLM_PROVIDER=gemini"
             )
         return self
 
