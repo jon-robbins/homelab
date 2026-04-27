@@ -187,7 +187,9 @@ def dispatch(
         if season_prompt_needed(request.message):
             return _season_prompt_body(decision, request_id)
         parsed_action = parse_router_action(ctx.http, ctx.settings, request.message)
-        action_payload = prefer_indexer_for_title_request(parsed_action)
+        action_payload = prefer_indexer_for_title_request(
+            parsed_action, original_message=request.message
+        )
         _decision_log(
             ctx.logger,
             correlation_id,

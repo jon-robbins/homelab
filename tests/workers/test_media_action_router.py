@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import urllib.request
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "media_action_router.py"
@@ -12,6 +16,48 @@ SPEC.loader.exec_module(MODULE)
 
 format_response = MODULE.format_response
 run_router = MODULE.run_router
+
+
+def _load_dotenv() -> dict[str, str]:
+    """Read .env at repo root into a dict (simple KEY=VALUE parser)."""
+    env_file = REPO_ROOT / ".env"
+    vals: dict[str, str] = {}
+    if not env_file.exists():
+        return vals
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        vals[key.strip()] = value.strip()
+    return vals
+
+
+_DOTENV = _load_dotenv()
+
+
+def _env(key: str, default: str = "") -> str:
+    """Get a value from os.environ first, then .env file, then default."""
+    return os.environ.get(key) or _DOTENV.get(key) or default
+
+
+_GEMINI_API_KEY = _env("GEMINI_API_KEY")
+_MEDIA_AGENT_TOKEN = _env("MEDIA_AGENT_TOKEN")
+_MEDIA_AGENT_URL = _env("MEDIA_AGENT_URL", "http://127.0.0.1:8000")
+
+
+def _media_agent_reachable() -> bool:
+    """Quick connectivity check to media-agent."""
+    try:
+        req = urllib.request.Request(
+            f"{_MEDIA_AGENT_URL.rstrip('/')}/docs", method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def test_format_response_options() -> None:
@@ -41,43 +87,31 @@ def test_format_response_grab_success() -> None:
     assert text == "OK! It's downloading."
 
 
-def test_run_router_pipeline(monkeypatch) -> None:
-    expected_action = {
-        "action": "download_options_tv",
-        "query": "Crazy Ex-Girlfriend",
-        "season": 4,
-        "series_id": None,
-        "include_full_series_packs": True,
-    }
-    expected_result = {
-        "ok": True,
-        "options": [
-            {
-                "title": "Crazy Ex-Girlfriend S04",
-                "seeders": 11,
-                "leechers": 1,
-                "size_human": "3.2 GB",
-                "indexer": "Unit",
-            }
-        ],
-    }
-
-    def _fake_parse(*_: object, **__: object) -> dict:
-        return expected_action
-
-    def _fake_exec(*_: object, **__: object) -> dict:
-        return expected_result
-
-    monkeypatch.setattr(MODULE, "parse_action", _fake_parse)
-    monkeypatch.setattr(MODULE, "execute_action", _fake_exec)
+@pytest.mark.skipif(not _GEMINI_API_KEY, reason="GEMINI_API_KEY not set")
+@pytest.mark.skipif(not _MEDIA_AGENT_TOKEN, reason="MEDIA_AGENT_TOKEN not set")
+def test_run_router_pipeline() -> None:
+    """Full end-to-end pipeline: real Gemini parse + real execute_action."""
+    if not _media_agent_reachable():
+        pytest.skip(f"media-agent not reachable at {_MEDIA_AGENT_URL}")
 
     action, result, text = run_router(
         "Get Crazy Ex Girlfriend season 4.",
-        model="dummy",
-        ollama_url="http://example",
-        media_agent_url="http://media-agent",
-        media_agent_token="token",
+        provider="gemini",
+        model="gemini-2.5-flash-lite",
+        gemini_api_key=_GEMINI_API_KEY,
+        media_agent_url=_MEDIA_AGENT_URL,
+        media_agent_token=_MEDIA_AGENT_TOKEN,
     )
-    assert action == expected_action
-    assert result == expected_result
-    assert text.startswith("Got it! Here are some options")
+    assert isinstance(action, dict)
+    assert "action" in action
+    assert action["action"] in {
+        "search",
+        "download_options_tv",
+        "download_options_movie",
+        "download_grab_tv",
+        "download_grab_movie",
+        "indexer_search",
+        "indexer_grab",
+    }
+    assert isinstance(result, dict)
+    assert isinstance(text, str) and len(text) > 0

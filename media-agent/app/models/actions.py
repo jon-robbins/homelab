@@ -56,12 +56,14 @@ class ActionDownloadGrabMovie(BaseModel):
 
 
 class ActionIndexerSearch(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     action: Literal["indexer_search"]
     query: str = Field(min_length=2, max_length=200)
     limit: int = Field(default=10, ge=1, le=100)
     search_type: str = Field(default="search", min_length=1, max_length=32)
+    type: Literal["tv", "movie"] | None = None
+    season: int | None = None
 
 
 class ActionIndexerGrab(BaseModel):

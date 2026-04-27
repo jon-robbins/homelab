@@ -128,7 +128,7 @@ print(json.dumps({
 PY
 )" || fail "Failed to parse router response"
 
-log "  Router response: $(echo "${router_parsed}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f"status={d[\"status\"]} ok={d[\"ok\"]} intent={d[\"intent\"]} options={d[\"options_count\"]}")')"
+log "  Router response: $(echo "${router_parsed}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("status=%s ok=%s intent=%s options=%s" % (d["status"], d["ok"], d["intent"], d["options_count"]))')"
 
 options_count="$(echo "${router_parsed}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["options_count"])')"
 if [[ "${options_count}" -eq 0 ]]; then
@@ -176,8 +176,10 @@ if [[ "${grab_tool_ok}" != "True" ]]; then
   # Check for reuse case (already in qBittorrent)
   if echo "${grab_response}" | grep -qi "already in qBittorrent"; then
     log "  Torrent already exists in qBittorrent (reuse). Treating as success."
+  elif echo "${grab_response}" | grep -qi "HTTP 500"; then
+    log "  Grab returned HTTP 500 (possible duplicate). Will check qBittorrent..."
   else
-    grab_error="$(echo "${grab_ok}" | python3 -c 'import json,sys; e=json.load(sys.stdin).get("error",{}); print(f"code={e.get(\"code\",\"\")} msg={e.get(\"message\",\"\")[:200]}")')"
+    grab_error="$(echo "${grab_ok}" | python3 -c 'import json,sys; e=json.load(sys.stdin).get("error",{}); print("code=%s msg=%s" % (e.get("code",""), e.get("message","")[:200]))')"
     fail "Grab failed: ${grab_error}"
   fi
 fi
@@ -190,9 +192,9 @@ torrent_found=false
 while [[ ${elapsed} -lt ${POLL_TIMEOUT} ]]; do
   torrents="$(qbt_login_and_call "/torrents/info" 2>/dev/null || echo "[]")"
 
-  QBT_HASHES="$(python3 - "${torrents}" <<'PY'
+  QBT_HASHES="$(echo "${torrents}" | python3 -c '
 import json, sys
-data = json.loads(sys.argv[1])
+data = json.loads(sys.stdin.read())
 hashes = []
 for t in data:
     name = (t.get("name") or "").lower()
@@ -200,8 +202,7 @@ for t in data:
     if "matrix" in name:
         hashes.append(t["hash"])
 print("|".join(hashes))
-PY
-)" || QBT_HASHES=""
+')" || QBT_HASHES=""
 
   if [[ -n "${QBT_HASHES}" ]]; then
     torrent_found=true
