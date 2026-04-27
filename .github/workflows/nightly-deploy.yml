@@ -77,13 +77,14 @@ jobs:
           git fetch origin main dev
           git checkout -B main origin/main
 
-          # Always --no-ff so each deploy is a single merge commit. Rollback uses
-          # `git revert -m 1` (works on protected main); force-push is often blocked.
-          git merge origin/dev --no-ff -m "chore(deploy): merge dev into main (nightly)"
-          parent_count="$(git rev-list --parents -n 1 HEAD | awk '{print NF}')"
-          if [[ "${parent_count}" -lt 3 ]]; then
-            echo "::error::Merge did not produce a merge commit (parents=${parent_count}). Refusing push."
-            exit 1
+          # Fast-forward when dev strictly extends main; otherwise histories diverged
+          # (e.g. merge commits on dev, or main-only commits) and --ff-only would fail.
+          if git merge-base --is-ancestor origin/main origin/dev; then
+            git merge origin/dev --ff-only
+            echo "Fast-forwarded main to origin/dev"
+          else
+            git merge origin/dev --no-ff -m "chore(deploy): merge dev into main (nightly)"
+            echo "Merged origin/dev into main with a merge commit (branches had diverged)"
           fi
 
           git push origin main
@@ -184,22 +185,25 @@ jobs:
           python3 tests/integration/llm_behavior_check.py
 
       - name: Rollback on failure
-        if: failure() && steps.merge.outputs.merged_sha != ''
+        if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
           set -euo pipefail
-          MERGED="${{ steps.merge.outputs.merged_sha }}"
-          echo "Deploy or E2E failed. Reverting merge ${MERGED} on main (revert -m 1; no force-push)..."
+          PREV="${{ steps.merge.outputs.prev_sha }}"
+          echo "Deploy or E2E failed. Resetting main to pre-merge SHA ${PREV}..."
 
+          # Do not use `git revert HEAD` after a fast-forward merge: HEAD may not be the
+          # deploy merge, so revert can undo the wrong commit. Reset main to the recorded SHA.
           git checkout main
           git fetch origin main
-          git checkout -B main origin/main
-          git revert -m 1 "${MERGED}" --no-edit
-          git push origin main
+          git reset --hard "${PREV}"
+          git push origin main --force-with-lease
 
+          # Update production directory to the reverted state
           cd "$DEPLOY_DIR"
           git fetch "https://x-access-token:${GH_TOKEN}@github.com/jon-robbins/homelab.git" main
           git reset --hard FETCH_HEAD
 
+          # Redeploy the previous (working) version
           source .env 2>/dev/null || true
           docker compose up -d --build
 
@@ -218,8 +222,8 @@ jobs:
             --body "$(cat <<EOF
           The nightly deploy at $(date -u +%Y-%m-%dT%H:%M:%SZ) failed and was automatically rolled back.
 
-          **Failed revision (merge commit):** \`${FAILED_SHA}\`
-          **Pre-merge main tip:** \`${{ steps.merge.outputs.prev_sha }}\` (rollback is \`git revert -m 1\` of the merge; no force-push)
+          **Failed revision:** \`${FAILED_SHA}\`
+          **Rolled back to:** \`${{ steps.merge.outputs.prev_sha }}\`
           **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
           Check the workflow logs above for details on which step failed (healthcheck or E2E).
