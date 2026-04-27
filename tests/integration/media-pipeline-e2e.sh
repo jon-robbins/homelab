@@ -38,12 +38,26 @@ log()  { echo "[media-e2e] $*"; }
 fail() { echo "[media-e2e] FAIL: $*" >&2; cleanup; exit 1; }
 
 seerr_api() {
-  # Call Overseerr via docker compose exec to avoid host port dependency.
-  local method="$1" path="$2"; shift 2
-  local api_key
-  api_key="$(cexec overseerr sh -c 'node -e "const f=require(\"fs\");const c=JSON.parse(f.readFileSync(\"/app/config/settings.json\",\"utf8\"));console.log(c.main.apiKey);"' 2>/dev/null)"
-  cexec overseerr sh -c \
-    "curl -sf -X '${method}' -H 'X-Api-Key: ${api_key}' -H 'Content-Type: application/json' 'http://localhost:5055${path}' $*"
+  # Call Overseerr via docker compose exec, using Node.js fetch (image has no curl).
+  # Usage: seerr_api METHOD PATH [JSON_BODY]
+  local method="$1" path="$2" body="${3:-}"
+  printf '%s' "${body}" | cexec \
+    -e "SEERR_METHOD=${method}" \
+    -e "SEERR_PATH=${path}" \
+    overseerr node -e '
+      const fs = require("fs");
+      const s = JSON.parse(fs.readFileSync("/app/config/settings.json", "utf8"));
+      const body = fs.readFileSync(0, "utf8");
+      const opts = {
+        method: process.env.SEERR_METHOD,
+        headers: {"X-Api-Key": s.main.apiKey, "Content-Type": "application/json"},
+      };
+      if (body) opts.body = body;
+      fetch("http://localhost:5055" + process.env.SEERR_PATH, opts)
+        .then(r => { if (!r.ok) process.exit(1); return r.text(); })
+        .then(t => { if (t) process.stdout.write(t); })
+        .catch(() => process.exit(1));
+    '
 }
 
 radarr_api() {
@@ -148,7 +162,7 @@ log "All services reachable."
 # ── Step 1: Request movie via Overseerr ──────────────────────────────────────
 log "Requesting movie: ${MOVIE_TITLE} (tmdb=${MOVIE_TMDB_ID})..."
 movie_resp="$(seerr_api POST "/api/v1/request" \
-  -d "{\"mediaType\":\"movie\",\"mediaId\":${MOVIE_TMDB_ID}}")" \
+  "{\"mediaType\":\"movie\",\"mediaId\":${MOVIE_TMDB_ID}}")" \
   || fail "Movie request failed"
 
 SEERR_MOVIE_REQUEST_ID="$(echo "${movie_resp}" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")"
@@ -158,7 +172,7 @@ log "  Overseerr request id=${SEERR_MOVIE_REQUEST_ID}, media id=${SEERR_MOVIE_ME
 # ── Step 2: Request TV show via Overseerr ────────────────────────────────────
 log "Requesting TV: ${TV_TITLE} S01 (tmdb=${TV_TMDB_ID})..."
 tv_resp="$(seerr_api POST "/api/v1/request" \
-  -d "{\"mediaType\":\"tv\",\"mediaId\":${TV_TMDB_ID},\"seasons\":${TV_SEASONS}}")" \
+  "{\"mediaType\":\"tv\",\"mediaId\":${TV_TMDB_ID},\"seasons\":${TV_SEASONS}}")" \
   || fail "TV request failed"
 
 SEERR_TV_REQUEST_ID="$(echo "${tv_resp}" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")"

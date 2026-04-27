@@ -1,6 +1,7 @@
 """Direct Prowlarr indexer search + grab (no Sonarr/Radarr library required)."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -8,6 +9,10 @@ import httpx
 from ..config import Settings
 from ..integrations.prowlarr import prowlarr_get, prowlarr_post_json
 from .release_formatting import human_size, indexer_name, int_field
+from .torrent_naming import season_request_matches_release
+
+_TRAILING_YEAR_RE = re.compile(r"\s+\d{4}$")
+_TRAILING_SEASON_RE = re.compile(r"\s+(?:season|s)\s*\d+$", re.IGNORECASE)
 
 
 def _int(v: Any) -> int:
@@ -20,6 +25,7 @@ def run_indexer_search(
     query: str,
     search_type: str,
     result_limit: int,
+    season: int | None = None,
 ) -> dict:
     if not s.prowlarr_configured:
         return {
@@ -51,6 +57,48 @@ def run_indexer_search(
             },
         }
     rows: list[dict[str, Any]] = [x for x in data if isinstance(x, dict)]
+
+    # Fallback: if 0 results and query ends with a 4-digit year, retry without it.
+    # Many indexers don't match when the year is appended to the title.
+    if not rows and _TRAILING_YEAR_RE.search(q):
+        q_no_year = _TRAILING_YEAR_RE.sub("", q).strip()
+        r2 = prowlarr_get(
+            client,
+            s,
+            "api/v1/search",
+            {"query": q_no_year, "type": st, "limit": min(result_limit, 100)},
+        )
+        r2.raise_for_status()
+        data2 = r2.json()
+        if isinstance(data2, list):
+            rows = [x for x in data2 if isinstance(x, dict)]
+            q = q_no_year  # report the effective query
+
+    # Fallback: if 0 results and query ends with "season N" / "sN", retry without it.
+    # Indexers typically use "S04" notation inside release titles, not "season 4".
+    if not rows and _TRAILING_SEASON_RE.search(q):
+        q_no_season = _TRAILING_SEASON_RE.sub("", q).strip()
+        r3 = prowlarr_get(
+            client,
+            s,
+            "api/v1/search",
+            {"query": q_no_season, "type": st, "limit": min(result_limit, 100)},
+        )
+        r3.raise_for_status()
+        data3 = r3.json()
+        if isinstance(data3, list):
+            rows = [x for x in data3 if isinstance(x, dict)]
+            q = q_no_season
+
+    # Post-filter by season so only matching releases survive.
+    if season is not None and rows:
+        rows = [
+            r for r in rows
+            if season_request_matches_release(
+                str(r.get("title") or ""), season
+            )
+        ]
+
     rows.sort(
         key=lambda d: (
             -_int(d.get("seeders")),

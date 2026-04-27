@@ -31,7 +31,7 @@ def _season_range_includes(name: str, season: int) -> bool:
     low = (name or "").casefold()
     range_patterns = (
         r"\bs(?P<start>\d{1,2})\s*(?:-|to|through)\s*s?(?P<end>\d{1,2})\b",
-        r"\bseasons?\s*(?P<start>\d{1,2})\s*(?:-|to|through)\s*(?P<end>\d{1,2})\b",
+        r"\bseasons?[\s._-]*(?P<start>\d{1,2})\s*(?:-|to|through)\s*(?P<end>\d{1,2})\b",
     )
     for pattern in range_patterns:
         for match in re.finditer(pattern, low):
@@ -42,7 +42,8 @@ def _season_range_includes(name: str, season: int) -> bool:
                 continue
             if start <= season <= end or end <= season <= start:
                 return True
-    return False
+    norm = re.sub(r"[._-]+", " ", low)
+    return "complete series" in norm or "complete collection" in norm
 
 
 def _is_multi_season_pack(name: str) -> bool:
@@ -64,7 +65,7 @@ def _is_episode_specific_release(name: str) -> bool:
 def _season_request_matches_release(name: str, season: int) -> bool:
     low = (name or "").casefold()
     if _is_multi_season_pack(low):
-        return False
+        return _season_range_includes(low, season)
     if _is_episode_specific_release(low):
         return False
     return bool(_has_season_hint(low, season))

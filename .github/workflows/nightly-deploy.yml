@@ -52,7 +52,31 @@ jobs:
       - name: Check validate status on dev
         if: steps.check.outputs.skip != 'true'
         run: |
-          RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion')
+          # Poll for up to 10 minutes until the latest CI run on dev has a non-empty conclusion.
+          # This avoids a race where the latest run is still in_progress, yielding an empty result.
+          timeout=$(( SECONDS + 600 ))
+          RESULT=""
+          while (( SECONDS < timeout )); do
+            RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion')
+            if [[ -n "$RESULT" && "$RESULT" != "null" ]]; then
+              break
+            fi
+            echo "Latest CI run on dev still in progress; waiting 30s... ($(( timeout - SECONDS ))s left)"
+            sleep 30
+          done
+
+          if [[ -z "$RESULT" || "$RESULT" == "null" ]]; then
+            echo "::error::Timed out waiting for the latest CI run on dev to complete."
+            gh issue create \
+              --title "Nightly deploy skipped: CI still running on dev" \
+              --body "$(cat <<EOF
+          The latest CI validate run on \`dev\` did not finish within 10 minutes.
+          Check whether CI is stuck or unexpectedly slow.
+          EOF
+          )" || echo "::warning::Could not create GitHub issue (network or API)."
+            exit 1
+          fi
+
           if [ "$RESULT" != "success" ]; then
             echo "::error::Latest CI validate on dev has status '$RESULT'. Skipping deploy."
             gh issue create \
@@ -144,18 +168,30 @@ jobs:
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
-          echo "Waiting up to 300s for all services to become healthy..."
+          # Only these services can fail the health gate.
+          # Names match the container suffix after stripping homelab- prefix and -1 suffix.
+          REQUIRED_SERVICES=(caddy media-agent flaresolverr jellyfin plex overseerr internal-dashboard cloudflared dashy openclaw-gateway qbittorrent prowlarr sonarr radarr readarr)
+
+          is_required() {
+            local name="$1"
+            for svc in "${REQUIRED_SERVICES[@]}"; do
+              if [[ "$name" == *"$svc"* ]]; then return 0; fi
+            done
+            return 1
+          }
+
+          echo "Waiting up to 300s for required services to settle..."
           deadline=$(( SECONDS + 300 ))
           while (( SECONDS < deadline )); do
-            all_ready=true
+            any_starting=false
             for c in $(docker compose ps --format '{{.Name}}'); do
               status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
-              case "$status" in
-                healthy|none) ;;
-                *) all_ready=false ;;
-              esac
+              if [[ "$status" == "starting" ]] && is_required "$c"; then
+                any_starting=true
+                break
+              fi
             done
-            $all_ready && break
+            $any_starting || break
             echo "  waiting... ($((deadline - SECONDS))s left)"
             sleep 10
           done
@@ -163,10 +199,15 @@ jobs:
           failed=0
           for c in $(docker compose ps --format '{{.Name}}'); do
             status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
-            if [[ "$status" == "unhealthy" ]]; then
-              echo "FAIL: $c ($status)"
-              docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
-              failed=$(( failed + 1 ))
+            if [[ "$status" == "unhealthy" || "$status" == "starting" ]]; then
+              if is_required "$c"; then
+                echo "FAIL: $c ($status) — required service"
+                docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
+                failed=$(( failed + 1 ))
+              else
+                echo "WARN: $c ($status) — non-required service"
+                docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
+              fi
             else
               echo "OK: $c ($status)"
             fi
@@ -188,12 +229,18 @@ jobs:
         run: |
           set -euo pipefail
           MERGED="${{ steps.merge.outputs.merged_sha }}"
+          PREV_SHA="${{ steps.merge.outputs.prev_sha }}"
           echo "Deploy or E2E failed. Reverting merge ${MERGED} on main (revert -m 1; no force-push)..."
 
           git checkout main
           git fetch origin main
           git checkout -B main origin/main
-          git revert -m 1 "${MERGED}" --no-edit
+          git revert -m 1 "${MERGED}" --no-edit || {
+            echo "Revert produced no change; restoring tree from pre-merge state..."
+            TREE=$(git rev-parse "${PREV_SHA}^{tree}")
+            RESTORE=$(git commit-tree "$TREE" -p HEAD -m "chore(rollback): restore tree to pre-merge state")
+            git update-ref refs/heads/main "$RESTORE"
+          }
           git push origin main
 
           cd "$DEPLOY_DIR"

@@ -117,6 +117,8 @@ def season_prompt_needed(message: str) -> bool:
 
 def prefer_indexer_for_title_request(
     action_payload: dict[str, Any],
+    *,
+    original_message: str = "",
 ) -> dict[str, Any]:
     """Conversational title requests should search Prowlarr first.
 
@@ -124,26 +126,53 @@ def prefer_indexer_for_title_request(
     ``download_options_movie`` for callers that want library semantics. The
     conversational router treats a title request as an acquisition request
     and rewrites the call to ``indexer_search`` directly.
+
+    Also catches the case where the LLM emits ``search`` (library lookup)
+    for a download-intent message -- since this function is only reached on
+    the download branch, ``search`` is always a misclassification here.
     """
+    from ..services.torrent_naming import extract_season_number
+
     action = str(action_payload.get("action") or "")
     if action == "download_options_tv":
         query = str(action_payload.get("query") or "").strip()
         season = action_payload.get("season")
         if isinstance(season, int):
             query = f"{query} season {season}".strip()
-        return {
+        result: dict[str, Any] = {
             "action": "indexer_search",
             "query": query,
             "limit": 10,
             "search_type": "search",
+            "type": "tv",
         }
-    if action == "download_options_movie":
+        if isinstance(season, int):
+            result["season"] = season
+        return result
+    if action in ("download_options_movie", "search"):
         query = str(action_payload.get("query") or "").strip()
+        # The LLM may drop season info when it misclassifies a TV request
+        # as "search". Recover season from the original user message.
+        season = action_payload.get("season")
+        if not isinstance(season, int) and original_message:
+            season = extract_season_number(original_message)
+        if isinstance(season, int):
+            inferred_query = f"{query} season {season}".strip()
+            result = {
+                "action": "indexer_search",
+                "query": inferred_query,
+                "limit": 10,
+                "search_type": "search",
+                "type": "tv",
+                "season": season,
+            }
+            return result
         return {
             "action": "indexer_search",
             "query": query,
             "limit": 10,
             "search_type": "search",
+            "type": "movie",
         }
     return action_payload
 
