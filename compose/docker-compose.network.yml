@@ -5,40 +5,21 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
-    restart: unless-stopped
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    environment:
-      - CONTAINERS=1
-      - NETWORKS=1
-      - SERVICES=0
-      - TASKS=0
-      - POST=0
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - homelab_net
-    logging: *default-logging
-
   caddy:
     image: ${CADDY_IMAGE:-local/caddy-cf:latest}
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     restart: unless-stopped
-    depends_on:
-      - docker-socket-proxy
     ports:
       - "80:80"
       - "443:443"
     volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ../data/caddy/data:/data
       - ../data/caddy/config:/config
     environment:
-      - CADDY_INGRESS_NETWORKS=${CADDY_INGRESS_NETWORKS:-homelab_net}
+      - BASE_DOMAIN=${BASE_DOMAIN}
       - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
-      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     networks:
       - homelab_net
     extra_hosts:
@@ -63,11 +44,6 @@ services:
       - PORT=8082
     volumes:
       - ${DASHY_CONFIG_PATH:-../data/dashy/conf.yml}:/app/user-data/conf.yml
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
-      caddy.reverse_proxy: "{{upstreams 8082}}"
-      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8082/ || exit 1"]
       interval: 30s

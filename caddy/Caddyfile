@@ -1,0 +1,155 @@
+# Consolidated Caddyfile — single source of truth for all routing.
+# Replaces caddy-docker-proxy label-driven config.
+# Env vars: BASE_DOMAIN and CLOUDFLARE_TOKEN must be passed to the Caddy container.
+
+{
+	admin :2019
+}
+
+# ── HTTPS: Primary domain (subpath routes) ──────────────────
+
+{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_TOKEN}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	encode gzip zstd
+
+	# Arr stack — path-preserving (services have UrlBase set)
+	handle /sonarr* {
+		reverse_proxy sonarr:8989
+	}
+	handle /radarr* {
+		reverse_proxy radarr:7878
+	}
+	handle /prowlarr* {
+		reverse_proxy prowlarr:9696
+	}
+	handle /readarr* {
+		reverse_proxy readarr:8787
+	}
+
+	# Path-stripping services (no UrlBase configured)
+	handle_path /overseerr* {
+		reverse_proxy overseerr:5055
+	}
+
+	redir /qbittorrent /qbittorrent/ 301
+	handle_path /qbittorrent/* {
+		reverse_proxy qbittorrent:8080 {
+			header_up Host {host}
+		}
+	}
+
+	handle_path /dashboard* {
+		reverse_proxy internal-dashboard:8080
+	}
+
+	# Catch-all: Dashy dashboard
+	handle {
+		reverse_proxy dashy:8082
+	}
+}
+
+# ── HTTPS: Subdomain routes ─────────────────────────────────
+
+plex.{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_TOKEN}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy host.docker.internal:32400
+}
+
+jellyfin.{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_TOKEN}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy host.docker.internal:8096
+}
+
+pihole.{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_TOKEN}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy host.docker.internal:8083
+}
+
+openclaw.{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_TOKEN}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy openclaw-gateway:18789
+}
+
+# ── HTTP: LAN / Tailscale / IP access (no TLS) ──────────────
+# Accepts any Host on :80 so paths work via LAN IP, Tailscale 100.x,
+# jon-server, *.ts.net, etc. Domain-based requests auto-redirect to HTTPS.
+
+:80 {
+	encode gzip zstd
+
+	handle /sonarr* {
+		reverse_proxy sonarr:8989 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /radarr* {
+		reverse_proxy radarr:7878 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /prowlarr* {
+		reverse_proxy prowlarr:9696 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /readarr* {
+		reverse_proxy readarr:8787 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle_path /overseerr* {
+		reverse_proxy overseerr:5055 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /jellyfin* {
+		reverse_proxy host.docker.internal:8096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle_path /qbittorrent* {
+		reverse_proxy qbittorrent:8080 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle_path /dashboard* {
+		reverse_proxy internal-dashboard:8080 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /flaresolverr* {
+		reverse_proxy flaresolverr:8191 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle {
+		reverse_proxy dashy:8082 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+}
