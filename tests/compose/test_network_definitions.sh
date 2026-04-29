@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 cd "$REPO_ROOT"
 
-TARGET_FILE="docker-compose.homelab-net.yml"
+TARGET_FILE="docker-compose.yml"
 
 if [[ ! -f "$TARGET_FILE" ]]; then
   echo "FAIL: ${TARGET_FILE} not found"

@@ -211,7 +211,6 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | plex | (root) | **host** | **yes** | -- | -- |
 | jellyfin | (root) | **host** | **yes** | -- | -- |
 | qbittorrent | (root) | bridge | **yes** | -- | -- |
-| torrent-health-ui | **root** | bridge | **yes** | -- | -- |
 | media-agent | **root** | bridge | **yes** | -- | -- |
 | ollama | **root** | bridge | **yes** | -- | -- |
 | internal-dashboard | **root** | bridge | **yes** | -- | -- |
@@ -266,7 +265,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Impact** | `torrent-health-ui`, `media-agent`, `ollama`, `internal-dashboard`, and `pihole` all confirmed running as UID 0. A container breakout from any of these grants host root |
+| **Impact** | `media-agent`, `ollama`, `internal-dashboard`, and `pihole` all confirmed running as UID 0. A container breakout from any of these grants host root |
 | **Recommendation** | For `python:3.12-alpine` workers: add `USER nobody` or create a dedicated user. For `media-agent`: add `USER` in Dockerfile. For `ollama`: set `user: "1000:1000"` in compose. For `internal-dashboard` (nginx): use `nginxinc/nginx-unprivileged` |
 
 ---
@@ -299,7 +298,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Medium |
-| **Files** | `compose/docker-compose.media.yml` (torrent-health-ui) |
+| **Files** | `compose/docker-compose.media.yml` |
 | **Impact** | `pip install --quiet httpx` runs at every container start with no version pin and no hash verification. A PyPI supply-chain attack would be automatically deployed |
 | **Recommendation** | Build a small Dockerfile from `python:3.12-alpine` that bakes in `httpx` with pinned version. The workspace already has `src/homelab_workers/pyproject.toml` with version constraints |
 
@@ -317,7 +316,6 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | `/prowlarr/` | 401 | Yes | Same as Sonarr |
 | `/qbittorrent/` | **200** | **Login page served** | Login page accessible; weak password `dinosaurpoop` |
 | `/flaresolverr/` | **200** | **No** | Returns JSON status; no auth at all |
-| `/torrent-health/` | 501 | N/A | Worker not ready (pip still installing) |
 | `/overseerr/` | 307 -> `/login` | Yes (first-party auth) | Good |
 | `/ollama/` | **200** | **No** | **Full API exposed: model list, pull, generate, delete** |
 | `/dashboard/` | **200** | **No** | Static HTML dashboard; informational only |
@@ -369,7 +367,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 
 | Has healthcheck | Missing healthcheck |
 |---|---|
-| pihole, overseerr, openclaw-gateway, media-agent | caddy, sonarr, radarr, readarr, prowlarr, qbittorrent, plex, jellyfin, ollama, flaresolverr, torrent-health-ui, internal-dashboard, dashy, tailscale, cloudflared |
+| pihole, overseerr, openclaw-gateway, media-agent | caddy, sonarr, radarr, readarr, prowlarr, qbittorrent, plex, jellyfin, ollama, flaresolverr, internal-dashboard, dashy, tailscale, cloudflared |
 
 ### Finding: F-9.1 -- Most services lack healthchecks
 

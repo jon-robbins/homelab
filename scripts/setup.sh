@@ -167,9 +167,9 @@ validate_compose() {
     }
 
     _compose_ok -f docker-compose.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.network.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.media.yml
-    _compose_ok -f docker-compose.homelab-net.yml -f compose/docker-compose.llm.yml
+    _compose_ok -f docker-compose.yml -f compose/docker-compose.network.yml
+    _compose_ok -f docker-compose.yml -f compose/docker-compose.media.yml
+    _compose_ok -f docker-compose.yml -f compose/docker-compose.llm.yml
 
     return "$failed"
 }

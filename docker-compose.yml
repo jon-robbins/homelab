@@ -1,6 +1,12 @@
 # Root orchestration: run `docker compose up -d` from the repo root.
 include:
-  - path: docker-compose.homelab-net.yml
   - path: compose/docker-compose.network.yml
   - path: compose/docker-compose.media.yml
   - path: compose/docker-compose.llm.yml
+
+# Shared external Docker network declaration.
+# Create the network on the host first: `docker network create homelab_net`
+networks:
+  homelab_net:
+    name: homelab_net
+    external: true

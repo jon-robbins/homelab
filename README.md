@@ -167,9 +167,9 @@ flowchart LR
 
 ## Features
 
-- Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `docker-compose.homelab-net.yml` (shared external `homelab_net`), `compose/docker-compose.network.yml`, `compose/docker-compose.media.yml`, and `compose/docker-compose.llm.yml`. Comment out the LLM line in `docker-compose.yml` if you want edge + media only.
+- Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `compose/docker-compose.network.yml`, `compose/docker-compose.media.yml`, and `compose/docker-compose.llm.yml`, and defines the shared external `homelab_net` network directly. Comment out the LLM line in `docker-compose.yml` if you want edge + media only.
 - First-run bootstrap with `scripts/setup.sh` for `.env`, templates, Docker network, and compose validation.
-- Label-driven ingress with `lucaslorentz/caddy-docker-proxy` (routing stays next to each service).
+- Plain Caddyfile ingress (`caddy/Caddyfile`) — single source of truth for all routes.
 - Intentional host networking only for DNS, tunnel/VPN, and media discovery workloads.
 - NVIDIA GPU acceleration is enabled by default (Plex/Jellyfin/Ollama assume NVIDIA Container Toolkit).
 - Python workers ship from the [`src/homelab_workers`](src/homelab_workers/) package, mounted directly into the worker containers.
@@ -208,11 +208,10 @@ To run **without** the LLM stack, edit `docker-compose.yml` and comment out the 
 
 ```text
 .
-├── docker-compose.yml                # Root bundle (Compose `include` for default stack)
-├── docker-compose.homelab-net.yml    # Declares external `homelab_net` once (avoids include merge dupes)
+├── docker-compose.yml                # Root bundle (Compose `include` + homelab_net network)
 ├── compose/
 │   ├── docker-compose.network.yml    # Edge services (Caddy, DNS, remote access)
-│   ├── docker-compose.media.yml      # Arr stack, Plex/Jellyfin, qBittorrent, torrent-health-ui, media-agent
+│   ├── docker-compose.media.yml      # Arr stack, Plex/Jellyfin, qBittorrent, media-agent
 │   └── docker-compose.llm.yml        # Ollama, internal dashboard, OpenClaw gateway
 ├── .env.example                      # Baseline environment contract
 ├── config/
@@ -331,9 +330,8 @@ Compose reads variables from `.env`. `scripts/setup.sh` only updates `.env`; it 
 | `PUID` | Yes | UID used by LinuxServer containers | `1000` |
 | `PGID` | Yes | GID used by LinuxServer containers | `1000` |
 | `TZ` | Yes | Time zone for containers | `UTC` |
-| `BASE_DOMAIN` | Yes | Domain root used by Caddy labels | `home.ashorkqueen.xyz` |
+| `BASE_DOMAIN` | Yes | Domain root used by the Caddyfile for site addresses | `home.ashorkqueen.xyz` |
 | `CADDY_IMAGE` | Yes | Caddy image tag to run | `local/caddy-cf:latest` |
-| `CADDY_INGRESS_NETWORKS` | Yes | Docker network(s) Caddy watches for labels | `homelab_net` |
 | `PIHOLE_WEB_PORT` | Yes | Pi-hole web admin port on host | `8083` |
 | `DASHY_CONFIG_PATH` | Yes | Runtime Dashy config location | `./data/dashy/conf.yml` |
 | `DASHY_CONFIG_TEMPLATE` | Yes | Dashy template source path | `./config/dashy/conf.yml.example` |
@@ -352,43 +350,30 @@ Media, worker, and LLM services also read optional values (for example: Arr API 
 
 Set `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH`, and `PLEX_DATA_PATH` to real host mount points before first start. This is required for stable imports and consistent path mapping between Arr apps, download clients, and media servers.
 
-### Caddy label and path routing model
+### Caddy routing model
 
-This stack uses `caddy-docker-proxy`: labels define the route contract, and Caddy regenerates config when containers change.
+All routing is defined in `caddy/Caddyfile`. There are three top-level blocks:
 
-| Label | What it does | Example |
-|---|---|---|
-| `caddy` | Selects host/domain matcher | `caddy: "${BASE_DOMAIN}"` |
-| `caddy.handle_path` | Matches and strips a path prefix | `caddy.handle_path: "/overseerr*"` |
-| `caddy.handle_path.0_reverse_proxy` | Proxies stripped request to container port | `caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"` |
-| `caddy.reverse_proxy` | Direct host-level proxy (used for host-mode services) | `caddy.reverse_proxy: "host.docker.internal:32400"` |
+1. **HTTPS primary domain** (`{$BASE_DOMAIN}`) — subpath routes for Arr services, Overseerr, qBittorrent, dashboard, and a Dashy catch-all.
+2. **HTTPS subdomains** (`plex.{$BASE_DOMAIN}`, `jellyfin.{$BASE_DOMAIN}`, etc.) — one block per service that needs its own hostname.
+3. **HTTP `:80` LAN** — mirrors the subpath routes without TLS for direct LAN/IP/Tailscale access.
 
-Why this model: you keep ingress definitions next to each service, avoid static proxy drift, and make stack modules easier to reuse.
+Route directive choice:
+
+- **`handle /path*`** — keeps the path prefix intact. Use for services that have a `UrlBase` setting (Sonarr, Radarr, Prowlarr, Readarr).
+- **`handle_path /path*`** — strips the prefix before proxying. Use for services without `UrlBase` (Overseerr, qBittorrent, dashboard).
 
 ## Adding New Services
 
-Add the service to the right compose file, attach it to `homelab_net`, then define Caddy labels. Keep host port publishing off unless you have a protocol requirement.
+Add the service to the right compose file, attach it to `homelab_net`, then add a route block to `caddy/Caddyfile`. Keep host port publishing off unless you have a protocol requirement.
 
-```yaml
-services:
-  bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
-    container_name: bazarr
-    networks:
-      - homelab_net
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-    volumes:
-      - ./data/bazarr:/config
-      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/media
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle_path: "/bazarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 6767}}"
-    restart: unless-stopped
-```
+To add a new service behind Caddy:
+
+1. Add the service to the appropriate compose file.
+2. Add a route block to `caddy/Caddyfile`:
+   - Use `handle /path*` if the service has a UrlBase setting.
+   - Use `handle_path /path*` if it doesn't.
+3. Restart Caddy: `docker compose restart caddy`
 
 Validate before starting:
 
@@ -412,7 +397,7 @@ Bridge networking is the default because it limits exposure and keeps service-to
 | `cloudflared` | `host` | Tunnel agent sits on host ingress/egress boundary | Treat as edge component; protect tokens |
 | `plex` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
 | `jellyfin` | `host` | Improves LAN discovery and client compatibility | Media service directly reachable on host |
-| Most others (`caddy`, Arr apps, `torrent-health-ui`, LLM services, media-agent) | `bridge` on `homelab_net` | Internal-only mesh with Caddy ingress | Smaller attack surface and centralized routing |
+| Most others (`caddy`, Arr apps, LLM services, media-agent) | `bridge` on `homelab_net` | Internal-only mesh with Caddy ingress | Smaller attack surface and centralized routing |
 
 ## Data Flow Diagram
 
@@ -477,9 +462,7 @@ flowchart LR
 
 ## Python Workers
 
-The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). **Retries and cleanup are handled by Sonarr/Radarr “Failed Download Handling”** (no dedicated worker container).
-
-The **`torrent-health-ui`** service mounts `./src/homelab_workers/src` and runs the package with `PYTHONPATH=/workspace/src/homelab_workers/src` (see [compose/docker-compose.media.yml](compose/docker-compose.media.yml)).
+The source of truth for packaged workers is `src/homelab_workers` (`pyproject.toml`, package code, tests). **Retries and cleanup are handled by Sonarr/Radarr "Failed Download Handling"** (no dedicated worker container).
 
 Install for local development:
 
@@ -521,7 +504,7 @@ cd media-agent && ruff check app tests
 
 ## Security
 
-Security relies on network segmentation, explicit ingress labels, and low-privilege container defaults. The stack applies `no-new-privileges` and `cap_drop: [ALL]` broadly, and services are exposed through Caddy/Tailscale/Cloudflare intentionally rather than through extra host ports.
+Security relies on network segmentation, Caddyfile-defined routing, and low-privilege container defaults. The stack applies `no-new-privileges` and `cap_drop: [ALL]` broadly, and services are exposed through Caddy/Tailscale/Cloudflare intentionally rather than through extra host ports.
 
 ### Hardening scripts
 
@@ -573,7 +556,7 @@ Caddy does not mount `/var/run/docker.sock` directly. Instead, a `docker-socket-
 
 ### HSTS
 
-All TLS-enabled Caddy sites set `Strict-Transport-Security: max-age=31536000; includeSubDomains` via label. This instructs browsers to only connect over HTTPS for one year.
+All TLS-enabled Caddy sites set `Strict-Transport-Security: max-age=31536000; includeSubDomains` via the `header` directive in `caddy/Caddyfile`. This instructs browsers to only connect over HTTPS for one year.
 
 ### Authentication (planned)
 
