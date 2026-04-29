@@ -12,8 +12,6 @@ Tests live under [`tests/`](../tests/) at the repo root: `compose/`, `runtime/`,
 
 ### Worker runtime
 
-The **`torrent-health-ui`** service in [compose/docker-compose.media.yml](../compose/docker-compose.media.yml) mounts `./src/homelab_workers/src` and runs the package directly. Production retries use Sonarr/Radarr **Failed Download Handling** (no dedicated worker container).
+Production retries use Sonarr/Radarr **Failed Download Handling** (no dedicated worker container).
 
 ```bash
-PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
-```

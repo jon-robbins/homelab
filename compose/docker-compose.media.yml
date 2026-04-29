@@ -30,19 +30,20 @@ services:
     image: lscr.io/linuxserver/prowlarr@sha256:c5de2a8758a05594319263e7691c1dce56899442ed1720d6eca216c0958f4caf
     networks:
       - homelab_net
-    security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
       - ../data/prowlarr:/config
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle_path: "/prowlarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9696}}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9696/ping || exit 1"]
       interval: 30s
@@ -57,9 +58,14 @@ services:
     image: lscr.io/linuxserver/sonarr@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
     networks:
       - homelab_net
-    security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -68,10 +74,6 @@ services:
       - ../data/sonarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle: "/sonarr*"
-      caddy.handle.0_reverse_proxy: "{{upstreams 8989}}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8989/sonarr/ping || exit 1"]
       interval: 30s
@@ -86,9 +88,14 @@ services:
     image: lscr.io/linuxserver/radarr@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d
     networks:
       - homelab_net
-    security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -97,10 +104,6 @@ services:
       - ../data/radarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle: "/radarr*"
-      caddy.handle.0_reverse_proxy: "{{upstreams 7878}}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:7878/radarr/ping || exit 1"]
       interval: 30s
@@ -115,9 +118,14 @@ services:
     image: lscr.io/linuxserver/readarr:0.4.19-nightly@sha256:4f291128d1a5538be73c2a30473d7cdd0820e223dc8b8533b0cbc5659000dcbe
     networks:
       - homelab_net
-    security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -126,10 +134,6 @@ services:
       - ../data/readarr:/config
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle: "/readarr*"
-      caddy.handle.0_reverse_proxy: "{{upstreams 8787}}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8787/readarr/ping || exit 1"]
       interval: 30s
@@ -155,10 +159,6 @@ services:
       - "127.0.0.1:5055:5055"
     volumes:
       - ../data/overseerr:/app/config
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.handle_path: "/overseerr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 5055}}"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5055/api/v1/settings/public >/dev/null || exit 1"]
       start_period: 40s
@@ -189,11 +189,6 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies:ro
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
-    labels:
-      caddy: "plex.${BASE_DOMAIN}"
-      caddy.reverse_proxy: "host.docker.internal:32400"
-      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
-      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     group_add:
       - video
       - render
@@ -227,11 +222,6 @@ services:
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads:ro
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:/mnt/media-hdd:ro
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:/mnt/media-nvme:ro
-    labels:
-      caddy: "jellyfin.${BASE_DOMAIN}"
-      caddy.reverse_proxy: "host.docker.internal:8096"
-      caddy.tls.dns: cloudflare {env.CLOUDFLARE_TOKEN}
-      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
     devices:
       - /dev/dri:/dev/dri
     group_add:
@@ -246,40 +236,18 @@ services:
     logging: *default-logging
     pids_limit: 500
 
-  # VPN sidecar: optional WireGuard tunnel for qBittorrent traffic.
-  # To enable: docker compose --profile vpn up -d
-  # Then switch qbittorrent to network_mode: "service:gluetun" and remove its
-  # networks/ports/labels entries (they live on gluetun in VPN mode).
-  gluetun:
-    profiles: ["vpn"]
-    image: qmcgaw/gluetun:latest
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    networks:
-      - homelab_net
-    environment:
-      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-}
-      - VPN_TYPE=${VPN_TYPE:-wireguard}
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
-      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    logging: *default-logging
-    pids_limit: 200
-
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2
     networks:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     ports:
       - "51423:51423/tcp"
       - "51423:51423/udp"
@@ -294,11 +262,6 @@ services:
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.redir_0: "/qbittorrent /qbittorrent/"
-      caddy.handle_path: "/qbittorrent/*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
     mem_limit: 4g
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]

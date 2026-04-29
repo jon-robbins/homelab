@@ -1,6 +1,0 @@
-# Shared external Docker network declaration (included once by the root bundle).
-# Create the network on the host first: `docker network create homelab_net`
-networks:
-  homelab_net:
-    name: homelab_net
-    external: true

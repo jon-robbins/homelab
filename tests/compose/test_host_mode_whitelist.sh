@@ -7,7 +7,6 @@ cd "$REPO_ROOT"
 
 COMPOSE_FILES=(
   "docker-compose.yml"
-  "docker-compose.homelab-net.yml"
   "compose/docker-compose.network.yml"
   "compose/docker-compose.media.yml"
   "compose/docker-compose.llm.yml"

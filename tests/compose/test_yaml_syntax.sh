@@ -33,9 +33,6 @@ run_config() {
 }
 
 run_config "docker-compose.yml (root include bundle)" -f docker-compose.yml
-run_config "homelab-net + network" -f docker-compose.homelab-net.yml -f compose/docker-compose.network.yml
-run_config "homelab-net + media" -f docker-compose.homelab-net.yml -f compose/docker-compose.media.yml
-run_config "homelab-net + llm" -f docker-compose.homelab-net.yml -f compose/docker-compose.llm.yml
 
 if ((failures > 0)); then
   exit 1
