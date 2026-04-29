@@ -15,7 +15,6 @@ AUTH = {"Authorization": "Bearer test-bearer-secret"}
 
 
 def _ollama_env(monkeypatch) -> None:
-    monkeypatch.setenv("MEDIA_AGENT_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_URL", "http://ollama.test")
     monkeypatch.setenv("MEDIA_AGENT_ROUTER_MODEL", "unit-model")
     monkeypatch.setenv("MEDIA_AGENT_ROUTER_MAX_RETRIES", "1")

@@ -14,7 +14,6 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from ..integrations.gemini import chat as _gemini_chat
 from ..integrations.ollama import chat as _ollama_chat
 from ..models.actions import ACTION_CALL_ADAPTER
 from ..models.router import RouterIntentDecision  # noqa: F401  re-export-friendly
@@ -159,17 +158,11 @@ def parse_router_action(http: httpx.Client, s: Any, user_message: str) -> dict[s
     ]
     last_error = "unknown"
     last_content = ""
-    _chat = _gemini_chat if getattr(s, "llm_provider", "ollama") == "gemini" else _ollama_chat
-    _is_gemini = _chat is _gemini_chat
     for _ in range(max(1, int(s.router_max_retries))):
-        r = _chat(http, s, messages, _router_schema())
+        r = _ollama_chat(http, s, messages, _router_schema())
         r.raise_for_status()
         j = r.json()
-        if _is_gemini:
-            parts = (j.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-            content = str(parts[0].get("text") or "").strip() if parts else ""
-        else:
-            content = str((j.get("message") or {}).get("content") or "").strip()
+        content = str((j.get("message") or {}).get("content") or "").strip()
         last_content = content
         if not content:
             last_error = "empty parser output"

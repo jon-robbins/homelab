@@ -22,9 +22,6 @@ from app.core.models import ACTION_CALL_ADAPTER  # noqa: E402
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b-instruct-q8_0")
-DEFAULT_LLM_PROVIDER = os.environ.get("MEDIA_AGENT_LLM_PROVIDER", "gemini")
-DEFAULT_GEMINI_MODEL = os.environ.get("MEDIA_AGENT_ROUTER_MODEL", "gemini-2.5-flash")
-_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 PARSER_SYSTEM = (
     "You are a strict API action parser. "
@@ -158,97 +155,6 @@ def _normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _convert_nullable_types(schema: dict[str, Any]) -> dict[str, Any]:
-    """Convert Ollama-style nullable types to Gemini format."""
-    import copy
-
-    schema = copy.deepcopy(schema)
-    schema.pop("additionalProperties", None)
-    for prop in schema.get("properties", {}).values():
-        t = prop.get("type")
-        if isinstance(t, list):
-            non_null = [x for x in t if x != "null"]
-            prop["type"] = non_null[0] if len(non_null) == 1 else "string"
-            if "null" in t:
-                prop["nullable"] = True
-    return schema
-
-
-def _parse_action_gemini(
-    user_message: str,
-    *,
-    model: str = DEFAULT_GEMINI_MODEL,
-    gemini_api_key: str,
-    max_retries: int = 3,
-) -> dict[str, Any]:
-    """Parse using Google Gemini REST API."""
-    gemini_schema = _convert_nullable_types(ACTION_SCHEMA)
-    contents = [{"role": "user", "parts": [{"text": user_message}]}]
-    last_error = "unknown parser failure"
-    last_content = ""
-    for _ in range(max_retries):
-        body: dict[str, Any] = {
-            "systemInstruction": {"parts": [{"text": PARSER_SYSTEM}]},
-            "contents": contents,
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": gemini_schema,
-            },
-        }
-        resp = _http_json(
-            "POST",
-            f"{_GEMINI_BASE}/{model}:generateContent?key={gemini_api_key}",
-            body,
-            timeout=60,
-        )
-        parts = (resp.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-        content = str(parts[0].get("text") or "").strip() if parts else ""
-        last_content = content
-        if not content:
-            last_error = "empty parser content"
-            contents.append({"role": "model", "parts": [{"text": ""}]})
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": "Previous output was empty. Output one valid JSON object with action + args only."
-                        }
-                    ],
-                }
-            )
-            continue
-        try:
-            candidate = _normalize_candidate(_extract_json_object(content))
-            action_obj = ACTION_CALL_ADAPTER.validate_python(candidate)
-            return action_obj.model_dump()
-        except (RuntimeError, ValidationError) as e:
-            if isinstance(e, ValidationError):
-                short = "; ".join(x["msg"] for x in e.errors()[:3])
-                last_error = f"schema validation failed: {short}"
-            else:
-                last_error = str(e)
-            contents.append({"role": "model", "parts": [{"text": content}]})
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": (
-                                "INVALID FORMAT. You must output exactly one JSON object matching the action schema. "
-                                f"Previous error: {last_error}"
-                            )
-                        }
-                    ],
-                }
-            )
-    preview = (last_content or "")[:300].replace("\n", " ")
-    raise RuntimeError(
-        f"parser produced invalid action payload: {last_error}; raw={preview!r}"
-    )
-
-
 def parse_action(
     user_message: str,
     *,
@@ -369,21 +275,12 @@ def format_response(action_payload: dict[str, Any], tool_result: dict[str, Any])
 def run_router(
     user_message: str,
     *,
-    provider: str = DEFAULT_LLM_PROVIDER,
-    model: str | None = None,
+    model: str = DEFAULT_OLLAMA_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
-    gemini_api_key: str = "",
     media_agent_url: str,
     media_agent_token: str,
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
-    if provider == "gemini":
-        action_payload = _parse_action_gemini(
-            user_message, model=model or DEFAULT_GEMINI_MODEL, gemini_api_key=gemini_api_key
-        )
-    else:
-        action_payload = parse_action(
-            user_message, model=model or DEFAULT_OLLAMA_MODEL, ollama_url=ollama_url
-        )
+    action_payload = parse_action(user_message, model=model, ollama_url=ollama_url)
     tool_result = execute_action(
         action_payload,
         media_agent_url=media_agent_url,
@@ -396,10 +293,8 @@ def run_router(
 def main() -> int:
     ap = argparse.ArgumentParser(description="Strict media action router")
     ap.add_argument("message", help="User media request text")
-    ap.add_argument("--provider", default=DEFAULT_LLM_PROVIDER, choices=["gemini", "ollama"])
-    ap.add_argument("--model", default=None)
+    ap.add_argument("--model", default=DEFAULT_OLLAMA_MODEL)
     ap.add_argument("--ollama-url", default=os.environ.get("OLLAMA_URL", DEFAULT_OLLAMA_URL))
-    ap.add_argument("--gemini-api-key", default=os.environ.get("GEMINI_API_KEY", ""))
     ap.add_argument("--media-agent-url", default=os.environ.get("MEDIA_AGENT_URL", ""))
     ap.add_argument("--media-agent-token", default=os.environ.get("MEDIA_AGENT_TOKEN", ""))
     ap.add_argument("--debug-json", action="store_true", help="Print parser/action/result JSON")
@@ -408,16 +303,11 @@ def main() -> int:
     if not args.media_agent_url or not args.media_agent_token:
         print("MEDIA_AGENT_URL and MEDIA_AGENT_TOKEN are required (flag or env).", file=sys.stderr)
         return 2
-    if args.provider == "gemini" and not args.gemini_api_key:
-        print("GEMINI_API_KEY is required when using gemini provider (flag or env).", file=sys.stderr)
-        return 2
     try:
         action_payload, tool_result, final_text = run_router(
             args.message,
-            provider=args.provider,
             model=args.model,
             ollama_url=args.ollama_url,
-            gemini_api_key=args.gemini_api_key,
             media_agent_url=args.media_agent_url,
             media_agent_token=args.media_agent_token,
         )

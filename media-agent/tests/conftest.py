@@ -10,7 +10,6 @@ import pytest
 # Must be set before importing the app (settings are cached on first get_settings()).
 # Force (not setdefault): host environment may set MEDIA_AGENT_TOKEN and break auth.
 os.environ["MEDIA_AGENT_TOKEN"] = "test-bearer-secret"
-os.environ["MEDIA_AGENT_LLM_PROVIDER"] = "ollama"
 os.environ["SONARR_URL"] = "http://sonarr.test/son"
 os.environ["SONARR_API_KEY"] = "sonarr-key"
 os.environ["RADARR_URL"] = "http://radarr.test/rad"

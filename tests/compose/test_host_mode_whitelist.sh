@@ -17,6 +17,7 @@ COMPOSE_FILES=(
 [[ -f "config/gpu/docker-compose.gpu.yml" ]] && COMPOSE_FILES+=("config/gpu/docker-compose.gpu.yml")
 
 ALLOWED_HOST_SERVICES=(
+  "pihole"
   "tailscale"
   "cloudflared"
   "plex"

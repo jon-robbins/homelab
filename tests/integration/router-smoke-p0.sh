@@ -48,7 +48,7 @@ first = post_json("/router", steps[0])
 first_tool = first.get("tool_result") or {}
 first_reuse_ok = (
     first_tool.get("existing_torrent_reused") is True
-    and str(first_tool.get("status") or "") in {"enabled", "already_downloaded", "already_selected"}
+    and str(first_tool.get("status") or "") in {"enabled", "already_downloaded"}
 )
 second = post_json("/router", steps[1]) if not first_reuse_ok else {}
 second_tool = second.get("tool_result") or {}

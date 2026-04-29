@@ -21,7 +21,7 @@ def season_range_includes(name: str, season: int) -> bool:
     low = (name or "").casefold()
     range_patterns = (
         r"\bs(?P<start>\d{1,2})\s*(?:-|to|through)\s*s?(?P<end>\d{1,2})\b",
-        r"\bseasons?[\s._-]*(?P<start>\d{1,2})\s*(?:-|to|through)\s*(?P<end>\d{1,2})\b",
+        r"\bseasons?\s*(?P<start>\d{1,2})\s*(?:-|to|through)\s*(?P<end>\d{1,2})\b",
     )
     for pattern in range_patterns:
         for match in re.finditer(pattern, low):
@@ -32,8 +32,7 @@ def season_range_includes(name: str, season: int) -> bool:
                 continue
             if start <= season <= end or end <= season <= start:
                 return True
-    norm = re.sub(r"[._-]+", " ", low)
-    return "complete series" in norm or "complete collection" in norm
+    return False
 
 
 def is_multi_season_pack(name: str) -> bool:
@@ -42,23 +41,29 @@ def is_multi_season_pack(name: str) -> bool:
         return True
     if re.search(r"\bseasons?\s*\d{1,2}\s*(?:-|to|through)\s*\d{1,2}\b", low):
         return True
-    return "complete series" in low or "complete collection" in low
+    if "complete series" in low or "complete collection" in low:
+        return True
+    return False
 
 
 def is_episode_specific_release(name: str) -> bool:
     low = (name or "").casefold()
     if re.search(r"\bs\d{1,2}\s*e\d{1,3}\b", low):
         return True
-    return bool(re.search(r"\b\d{1,2}x\d{1,3}\b", low))
+    if re.search(r"\b\d{1,2}x\d{1,3}\b", low):
+        return True
+    return False
 
 
 def season_request_matches_release(name: str, season: int) -> bool:
     low = (name or "").casefold()
     if is_multi_season_pack(low):
-        return season_range_includes(low, season)
+        return False
     if is_episode_specific_release(low):
         return False
-    return has_season_hint(low, season)
+    if has_season_hint(low, season):
+        return True
+    return False
 
 
 def season_path_matches(name: str, season: int) -> bool:
@@ -107,7 +112,9 @@ def query_matches_torrent_name(query: str, torrent_name: str, season: int | None
     q_tokens = [t for t in q.split() if len(t) >= 3]
     if len(q_tokens) < 2:
         return False
-    return all(t in n for t in q_tokens) and season_ok
+    if all(t in n for t in q_tokens) and season_ok:
+        return True
+    return False
 
 
 __all__ = [

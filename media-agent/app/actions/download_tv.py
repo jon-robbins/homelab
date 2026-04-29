@@ -66,9 +66,8 @@ class DownloadOptionsTV(ActionHandler[ActionDownloadOptionsTV]):
                     "ok": True,
                     "existing_torrent_reused": True,
                     "_router_response_text": (
-                        f"OK! It's downloading. I found an existing "
-                        f"multi-season torrent and enabled season "
-                        f"{args.season} files."
+                        f"I found an existing multi-season torrent and enabled season "
+                        f"{args.season} files. It should start downloading now."
                     ),
                     **reused,
                 }
@@ -77,8 +76,8 @@ class DownloadOptionsTV(ActionHandler[ActionDownloadOptionsTV]):
                     "ok": True,
                     "already_downloaded": True,
                     "_router_response_text": (
-                        f"OK! It's downloading. Season {args.season} "
-                        f"is already available from an existing torrent."
+                        f"You already downloaded season {args.season} "
+                        "from an existing multi-season torrent."
                     ),
                     **reused,
                 }

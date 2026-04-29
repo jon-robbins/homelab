@@ -15,10 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..models.router import RouterPendingOption, RouterSessionState
-from ..services.qb_files import (
-    season_only_selection_after_grab,
-    try_enable_requested_season_in_existing_torrent,
-)
+from ..services.qb_files import season_only_selection_after_grab
 
 
 def _is_duplicate_grab(tool_result: dict[str, Any]) -> bool:
@@ -74,37 +71,6 @@ def apply_post_grab_season_only(
         if duplicate and season_adjust.get("status") == "season_only_applied":
             tool_result["ok"] = True
             tool_result["duplicate_grab_reused"] = True
-            tool_result.pop("error", None)
-
-    # Fallback: if the grabbed torrent had no season files (e.g. Internet
-    # Archive junk), check whether a *different* existing torrent in
-    # qBittorrent is a multi-season pack that contains the requested season.
-    season_state = tool_result.get("season_selection")
-    if (
-        isinstance(season_state, dict)
-        and season_state.get("status") == "no_season_files_found"
-    ):
-        existing = try_enable_requested_season_in_existing_torrent(
-            http, settings, session.query, session.season
-        )
-        if isinstance(existing, dict) and existing.get("status") in (
-            "enabled",
-            "already_downloaded",
-            "already_selected",
-        ):
-            tool_result["season_selection"] = {
-                "status": "season_only_applied",
-                "season": session.season,
-                "torrent_hash": existing.get("torrent_hash", ""),
-                "enabled_file_count": existing.get(
-                    "enabled_file_count", existing.get("season_file_count", 0)
-                ),
-                "disabled_other_season_file_count": 0,
-                "existing_torrent_reused": True,
-                "existing_torrent_name": existing.get("torrent_name", ""),
-            }
-            tool_result["ok"] = True
-            tool_result["existing_torrent_reused"] = True
             tool_result.pop("error", None)
 
     season_state = tool_result.get("season_selection")

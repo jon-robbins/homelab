@@ -32,7 +32,6 @@ services:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -41,8 +40,8 @@ services:
       - ../data/prowlarr:/config
     labels:
       caddy: "${BASE_DOMAIN}"
-      caddy.handle_path: "/prowlarr*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 9696}}"
+      caddy.handle: "/prowlarr*"
+      caddy.handle.0_reverse_proxy: "{{upstreams 9696}}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9696/ping || exit 1"]
       interval: 30s
@@ -59,7 +58,6 @@ services:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -88,7 +86,6 @@ services:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -117,7 +114,6 @@ services:
       - homelab_net
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -246,43 +242,45 @@ services:
     logging: *default-logging
     pids_limit: 500
 
-  # VPN sidecar: optional WireGuard tunnel for qBittorrent traffic.
-  # To enable: docker compose --profile vpn up -d
-  # Then switch qbittorrent to network_mode: "service:gluetun" and remove its
-  # networks/ports/labels entries (they live on gluetun in VPN mode).
+  # VPN sidecar: all qBittorrent traffic exits through gluetun's WireGuard tunnel.
+  # Fill VPN_SERVICE_PROVIDER, WIREGUARD_PRIVATE_KEY, etc. in .env before starting.
   gluetun:
-    profiles: ["vpn"]
     image: qmcgaw/gluetun:latest
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
     networks:
       - homelab_net
+    ports:
+      - "51423:51423/tcp"
+      - "51423:51423/udp"
     environment:
       - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-}
       - VPN_TYPE=${VPN_TYPE:-wireguard}
       - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
       - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
+    labels:
+      caddy: "${BASE_DOMAIN}"
+      caddy.redir_0: "/qbittorrent /qbittorrent/"
+      caddy.handle_path: "/qbittorrent/*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 30s
     logging: *default-logging
     pids_limit: 200
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2
-    networks:
-      - homelab_net
+    network_mode: "service:gluetun"
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
-    ports:
-      - "51423:51423/tcp"
-      - "51423:51423/udp"
+    depends_on:
+      - gluetun
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -294,18 +292,59 @@ services:
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
-    labels:
-      caddy: "${BASE_DOMAIN}"
-      caddy.redir_0: "/qbittorrent /qbittorrent/"
-      caddy.handle_path: "/qbittorrent/*"
-      caddy.handle_path.0_reverse_proxy: "{{upstreams 8080}}"
     mem_limit: 4g
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/v2/app/version || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 200
+
+  torrent-health-ui:
+    build:
+      context: ../src/homelab_workers
+      # Pip during build needs working DNS; some runners break default bridge DNS.
+      network: host
+    image: local/homelab-workers:latest
+    working_dir: /workspace
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      - TZ=${TZ}
+      - TORRENT_HEALTH_UI_HOST=0.0.0.0
+      - TORRENT_HEALTH_UI_PORT=8091
+      - SONARR_URL=${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - QBITTORRENT_URL=${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME:-}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD:-}
+      - TORRENT_HEALTH_LOG_FILE=${TORRENT_HEALTH_LOG_FILE:-/workspace/data/torrent-health/health.log}
+    volumes:
+      - ../src/homelab_workers/src:/workspace/src/homelab_workers/src:ro
+      - ../data/sonarr:/workspace/data/sonarr:ro
+      - ../data/radarr:/workspace/data/radarr:ro
+      - ../data/torrent-health:/workspace/data/torrent-health:ro
+    command: >
+      sh -c '
+      PYTHONPATH=/workspace/src/homelab_workers/src python -m homelab_workers.torrent_health_ui.app
+      '
+    labels:
+      caddy: "${BASE_DOMAIN}"
+      caddy.handle_path: "/torrent-health*"
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 8091}}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8091/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     logging: *default-logging
     pids_limit: 200
@@ -328,9 +367,7 @@ services:
       - RADARR_URL=${RADARR_INTERNAL_URL:-http://radarr:7878/radarr}
       - RADARR_API_KEY=${RADARR_API_KEY:-}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - MEDIA_AGENT_LLM_PROVIDER=${MEDIA_AGENT_LLM_PROVIDER:-gemini}
-      - MEDIA_AGENT_ROUTER_MODEL=${MEDIA_AGENT_ROUTER_MODEL:-gemini-2.5-flash}
+      - MEDIA_AGENT_ROUTER_MODEL=${MEDIA_AGENT_ROUTER_MODEL:-qwen2.5-coder:7b-instruct-q8_0}
       - MEDIA_AGENT_ROUTER_MAX_RETRIES=${MEDIA_AGENT_ROUTER_MAX_RETRIES:-3}
       # Direct Prowlarr (GET/POST /api/v1/search) — optional; enables indexer-search / indexer-grab
       - PROWLARR_URL=${PROWLARR_INTERNAL_URL:-http://prowlarr:9696}

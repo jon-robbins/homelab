@@ -17,7 +17,6 @@ AUTH = {"Authorization": "Bearer test-bearer-secret"}
 
 
 def _ollama_env(monkeypatch) -> None:
-    monkeypatch.setenv("MEDIA_AGENT_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_URL", "http://ollama.test")
     monkeypatch.setenv("MEDIA_AGENT_ROUTER_MODEL", "unit-model")
     monkeypatch.setenv("MEDIA_AGENT_ROUTER_MAX_RETRIES", "1")
@@ -32,7 +31,6 @@ def _isolate_state_store(monkeypatch, tmp_path) -> None:
 
 @respx.mock
 def test_router_dispatch_search_success(monkeypatch) -> None:
-    """LLM returns 'search' for download-intent -> rewritten to indexer_search."""
     _ollama_env(monkeypatch)
     respx.post("http://ollama.test/api/chat").mock(
         return_value=httpx.Response(
@@ -45,21 +43,13 @@ def test_router_dispatch_search_success(monkeypatch) -> None:
         )
     )
     monkeypatch.setattr(
-        IndexerSearch,
+        Search,
         "run_for_router",
         lambda self, ctx, args: {
             "ok": True,
-            "source": "prowlarr",
-            "options": [
-                {
-                    "rank": 1,
-                    "title": "Sample Show S01",
-                    "seeders": 10,
-                    "leechers": 1,
-                    "size_human": "2.0 GB",
-                    "indexer": "Unit",
-                }
-            ],
+            "type": "tv",
+            "query": "sample",
+            "results": [{"title": "Sample Show", "year": 2020}],
         },
     )
     with TestClient(app) as client:
@@ -71,9 +61,9 @@ def test_router_dispatch_search_success(monkeypatch) -> None:
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["ok"] is True
-    assert d["action"]["action"] == "indexer_search"
+    assert d["action"]["action"] == "search"
     assert d["tool_result"]["ok"] is True
-    assert d["response_text"].startswith("Got it! Here are some options")
+    assert d["response_text"].startswith("I found these matches:")
 
 
 @respx.mock

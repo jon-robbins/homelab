@@ -341,7 +341,7 @@ def test_season_matcher_rejects_season_range_pack() -> None:
         torrent_name="Crazy Ex-Girlfriend Seasons 1-4 Complete Pack 1080p",
         season=4,
     )
-    assert matched is True
+    assert matched is False
 
 
 def test_season_matcher_accepts_exact_season_pack() -> None:
