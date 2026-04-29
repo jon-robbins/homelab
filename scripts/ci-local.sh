@@ -32,13 +32,13 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "compose" ]]; then
     docker compose -f docker-compose.yml config --quiet
 
   run_step "Compose config (network)" \
-    docker compose -f docker-compose.homelab-net.yml -f compose/docker-compose.network.yml config --quiet
+    docker compose -f docker-compose.yml -f compose/docker-compose.network.yml config --quiet
 
   run_step "Compose config (media)" \
-    docker compose -f docker-compose.homelab-net.yml -f compose/docker-compose.media.yml config --quiet
+    docker compose -f docker-compose.yml -f compose/docker-compose.media.yml config --quiet
 
   run_step "Compose config (llm)" \
-    docker compose -f docker-compose.homelab-net.yml -f compose/docker-compose.llm.yml config --quiet
+    docker compose -f docker-compose.yml -f compose/docker-compose.llm.yml config --quiet
 fi
 
 # ── 2. Compose shell tests ─────────────────────────────────────────────────
