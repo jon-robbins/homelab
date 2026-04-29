@@ -77,33 +77,37 @@ Reference for common issues when modifying Docker Compose services in this homel
 
 ## 3. Caddy Reverse Proxy Routing
 
-### 3.1 Labels must be on the running service
+All routing is defined in `caddy/Caddyfile` — there are no Docker labels involved.
 
-- **Symptom:** Subpath returns 404 (falls through to Dashy or default handler).
-- **Cause:** Caddy routing labels were placed on a different service (e.g., gluetun) that is profile-gated and not running. Caddy only generates routes for services it can detect via the Docker socket.
-- **Fix:** Always place `caddy.*` labels directly on the service that owns the port. If a service was previously behind a VPN sidecar (gluetun), move labels to the actual service when decoupling.
+### 3.1 Subpath routing — handle vs handle_path
 
-### 3.2 Subpath routing — handle vs handle_path
-
-| Directive | Strips prefix? | When to use |
-|-----------|---------------|-------------|
-| `caddy.handle: "/app*"` | No | App natively supports a URL base (e.g., Arr apps with `UrlBase`) |
-| `caddy.handle_path: "/app/*"` | Yes | App does NOT support a URL base (e.g., qBittorrent) |
+| Caddyfile Directive | Strips prefix? | When to use |
+|---------------------|---------------|-------------|
+| `handle /app* { reverse_proxy app:port }` | No | App natively supports a URL base (e.g., Arr apps with `UrlBase`) |
+| `handle_path /app* { reverse_proxy app:port }` | Yes | App does NOT support a URL base (e.g., qBittorrent) |
 
 When using `handle_path`, always pair with a trailing-slash redirect:
-```yaml
-caddy.redir_0: "/app /app/"
+```caddyfile
+redir /app /app/ 301
+handle_path /app/* {
+    reverse_proxy app:8080
+}
 ```
 
-### 3.3 Prowlarr UrlBase alignment
+### 3.2 Prowlarr UrlBase alignment
 
 - **Symptom:** Prowlarr UI loads blank page, JS assets return 404.
-- **Cause:** `caddy.handle_path` strips the prefix, but Prowlarr generates absolute URLs based on `UrlBase`. If `UrlBase` is empty, assets reference `/index.js` which doesn't route to Prowlarr.
+- **Cause:** `handle_path` in the Caddyfile strips the prefix, but Prowlarr generates absolute URLs based on `UrlBase`. If `UrlBase` is empty, assets reference `/index.js` which doesn't route to Prowlarr.
 - **Fix:** Set `UrlBase` in Prowlarr's `config.xml`:
   ```xml
   <UrlBase>/prowlarr</UrlBase>
   ```
-  Then use `caddy.handle` (not `handle_path`).
+  Then use `handle` (not `handle_path`) in `caddy/Caddyfile`:
+  ```caddyfile
+  handle /prowlarr* {
+      reverse_proxy prowlarr:9696
+  }
+  ```
 
 ---
 
@@ -113,8 +117,7 @@ caddy.redir_0: "/app /app/"
 
 - **Symptom:** `ERROR default route not found: in N route(s)` and immediate exit.
 - **Cause:** Gluetun needs VPN provider credentials (`VPN_SERVICE_PROVIDER`, `WIREGUARD_PRIVATE_KEY`, etc.) in `.env`. Without them, it crashes immediately.
-- **Impact:** If qBittorrent uses `network_mode: "service:gluetun"`, it cascades — qBittorrent can't start, dependent services can't connect, etc.
-- **Fix:** Keep gluetun behind `profiles: ["vpn"]` until VPN is configured. When not using VPN, qbittorrent should use `networks: [homelab_net]` directly.
+- **Fix:** Keep gluetun behind `profiles: ["vpn"]` until VPN is configured. qBittorrent uses `networks: [homelab_net]` directly (no VPN sidecar dependency).
 
 ---
 
@@ -128,6 +131,6 @@ caddy.redir_0: "/app /app/"
 | qbittorrent | `linuxserver/qbittorrent` | `["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]` |
 | arr services | `linuxserver/*` | `["CMD-SHELL", "curl -sf http://localhost:PORT/ping || exit 1"]` |
 | prowlarr | `linuxserver/prowlarr` | `["CMD-SHELL", "curl -sf http://localhost:9696/prowlarr/ping || exit 1"]` |
-| caddy | `lucaslorentz/caddy-docker-proxy` | `["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]` |
+| caddy | `local/caddy-cf:latest` | `["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]` |
 | internal-dashboard | custom (Node) | `["CMD-SHELL", "curl -sf http://127.0.0.1:8080/ || exit 1"]` |
 | openclaw-gateway | custom (Node) | `["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:18789/healthz')...\""]` |

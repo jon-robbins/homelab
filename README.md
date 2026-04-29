@@ -15,7 +15,7 @@ This setup definitely isn't plug and play, but I hope it gives some people some 
 |------------------|--------|
 | **Pi-hole** | LAN DNS / blocking |
 | **Cloudflare** | Tunneling (no open inbound ports for public names) |
-| **Caddy** | HTTPS + path routing on one hostname (e.g. qBittorrent at `https://home.com/qbittorrent/` instead of `192.168.x.x:8080`) |
+| **Caddy** | HTTPS reverse proxy — subpath routing on one hostname (e.g. `/sonarr`, `/radarr`) + subdomain routing for Plex, Jellyfin, Pi-hole, and OpenClaw |
 | **Dashy** | Central dashboard |
 | **Tailscale** | Remote mesh VPN |
 | **Telegram bot** | Gemini Flash + Gemma 31b (4-bit quantized) for torrent search — yes, alongside Seerr; the GPU is there, so why not |
@@ -549,10 +549,6 @@ The nftables ruleset (`scripts/hardening/nftables-arr-stack.nft`) filters the ho
 - All other traffic to those management ports is dropped.
 
 UFW, if enabled, should be configured to not conflict with Docker's nftables/iptables rules. See [Docker and iptables](https://docs.docker.com/network/iptables/) for details.
-
-### Docker socket proxy
-
-Caddy does not mount `/var/run/docker.sock` directly. Instead, a `docker-socket-proxy` (tecnativa/docker-socket-proxy) exposes a restricted read-only Docker API (containers and networks only, no exec/post) over TCP on `homelab_net`. This limits the blast radius if Caddy is compromised.
 
 ### HSTS
 

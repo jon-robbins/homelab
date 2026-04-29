@@ -20,15 +20,19 @@ Quick-reference for reaching services in this homelab stack — from scripts, co
 
 ## 2. Service Access Patterns
 
-| Service | Container Name | Internal Port | URL Base | Internal URL | Host URL (if exposed) |
-|---------|---------------|---------------|----------|--------------|----------------------|
-| Sonarr | `sonarr` | 8989 | `/sonarr` | `http://sonarr:8989/sonarr` | Not directly exposed |
-| Radarr | `radarr` | 7878 | `/radarr` | `http://radarr:7878/radarr` | Not directly exposed |
-| Prowlarr | `prowlarr` | 9696 | `/prowlarr` | `http://prowlarr:9696/prowlarr` | Not directly exposed |
-| Readarr | `readarr` | 8787 | `/readarr` | `http://readarr:8787/readarr` | Not directly exposed |
-| qBittorrent | `qbittorrent` | 8080 | — | `http://qbittorrent:8080` | Not directly exposed |
-| Jellyfin | `jellyfin` | 8096 | — | `http://jellyfin:8096` | Not directly exposed |
-| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Ports 80/443 exposed to host |
+| Service | Container Name | Internal Port | URL Base | Internal URL | Host URL (if exposed) | External URL |
+|---------|---------------|---------------|----------|--------------|----------------------|-------------|
+| Sonarr | `sonarr` | 8989 | `/sonarr` | `http://sonarr:8989/sonarr` | Not directly exposed | `https://{BASE_DOMAIN}/sonarr` |
+| Radarr | `radarr` | 7878 | `/radarr` | `http://radarr:7878/radarr` | Not directly exposed | `https://{BASE_DOMAIN}/radarr` |
+| Prowlarr | `prowlarr` | 9696 | `/prowlarr` | `http://prowlarr:9696/prowlarr` | Not directly exposed | `https://{BASE_DOMAIN}/prowlarr` |
+| Readarr | `readarr` | 8787 | `/readarr` | `http://readarr:8787/readarr` | Not directly exposed | `https://{BASE_DOMAIN}/readarr` |
+| Overseerr | `overseerr` | 5055 | — | `http://overseerr:5055` | Not directly exposed | `https://{BASE_DOMAIN}/overseerr` |
+| qBittorrent | `qbittorrent` | 8080 | — | `http://qbittorrent:8080` | Not directly exposed | `https://{BASE_DOMAIN}/qbittorrent/` |
+| Jellyfin | `jellyfin` | 8096 | — | `http://jellyfin:8096` | Not directly exposed | `https://jellyfin.{BASE_DOMAIN}` |
+| Plex | `plex` | 32400 | — | `http://host.docker.internal:32400` | Port 32400 on host | `https://plex.{BASE_DOMAIN}` |
+| Pi-hole | `pihole` | 8083 | — | `http://host.docker.internal:8083` | Port 8083 on host | `https://pihole.{BASE_DOMAIN}` |
+| OpenClaw | `openclaw-gateway` | 18789 | — | `http://openclaw-gateway:18789` | Not directly exposed | `https://openclaw.{BASE_DOMAIN}` |
+| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Ports 80/443 exposed to host | — (ingress itself) |
 
 > **Caddy** acts as the ingress reverse proxy, routing external traffic to internal services. All other services are accessed through Caddy or directly via internal Docker DNS.
 
@@ -86,7 +90,39 @@ When a container needs to reach a service running directly on the host (e.g., Pl
 
 ---
 
-## 5. API Authentication
+## 5. External Access via Caddy
+
+All services are behind the **Caddy** reverse proxy, which handles TLS termination (via Cloudflare DNS-01 challenge) and routing. No service is directly exposed to the internet — Caddy is the single ingress point.
+
+### Subpath services (single hostname)
+
+Services with a `UrlBase` setting are routed under `https://{BASE_DOMAIN}/<path>`:
+
+- `https://{BASE_DOMAIN}/sonarr`
+- `https://{BASE_DOMAIN}/radarr`
+- `https://{BASE_DOMAIN}/prowlarr`
+- `https://{BASE_DOMAIN}/readarr`
+- `https://{BASE_DOMAIN}/overseerr`
+- `https://{BASE_DOMAIN}/qbittorrent/`
+
+### Subdomain services
+
+Services that need their own hostname use dedicated subdomains:
+
+- `https://plex.{BASE_DOMAIN}`
+- `https://jellyfin.{BASE_DOMAIN}`
+- `https://pihole.{BASE_DOMAIN}`
+- `https://openclaw.{BASE_DOMAIN}`
+
+### HTTP LAN access (port 80)
+
+The `:80` block mirrors the subpath routes without TLS for direct access via LAN IP, Tailscale hostname (`100.x.x.x`), or `*.ts.net`. This is useful for local clients that don't need HTTPS.
+
+> **Reference:** All routing is defined in [`caddy/Caddyfile`](../caddy/Caddyfile).
+
+---
+
+## 6. API Authentication
 
 | Service | Auth Method | Header/Mechanism |
 |---------|------------|-----------------|
@@ -105,7 +141,7 @@ When a container needs to reach a service running directly on the host (e.g., Pl
 
 ---
 
-## 6. Common Pitfalls
+## 7. Common Pitfalls
 
 - **`127.0.0.1` from the Docker host won't reach services** that don't publish ports — use container IPs or Docker DNS from within the network.
 - **URL bases are mandatory in API paths.** `http://sonarr:8989/api/v3/` will 404; use `http://sonarr:8989/sonarr/api/v3/`.
@@ -116,7 +152,7 @@ When a container needs to reach a service running directly on the host (e.g., Pl
 
 ---
 
-## 7. Volume Mount Reference
+## 8. Volume Mount Reference
 
 | Service | Container Path | Host Path | Purpose |
 |---------|---------------|-----------|---------|

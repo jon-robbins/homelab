@@ -1,8 +1,10 @@
-# Prowlarr Caddy Routing & Indexer Sync
+# Prowlarr Caddyfile Routing & Indexer Sync
 
 ## 1. Problem Summary
 
-When Prowlarr is hosted behind Caddy under a subpath (`/prowlarr`), using the wrong Caddy directive (`handle_path` instead of `handle`) breaks indexer sync to Sonarr, Radarr, and Readarr. The symptom is that the \*arr apps report **zero active indexers**, even though Prowlarr itself works fine for manual searches.
+When Prowlarr is hosted behind Caddy under a subpath (`/prowlarr`), using the wrong Caddyfile directive (`handle_path` instead of `handle`) breaks indexer sync to Sonarr, Radarr, and Readarr. The symptom is that the \*arr apps report **zero active indexers**, even though Prowlarr itself works fine for manual searches.
+
+All routing is defined in a single hand-written Caddyfile at `caddy/Caddyfile` — there are no Docker labels involved.
 
 ## 2. Symptom Chain
 
@@ -26,7 +28,7 @@ This is confusing because Prowlarr appears healthy — the problem is only visib
   ```
   http://prowlarr:9696/prowlarr/api/v3/indexer/{id}/proxy/...
   ```
-- If Caddy uses `handle_path /prowlarr*` (path-stripping), the `/prowlarr` prefix is **removed** before forwarding to Prowlarr's backend.
+- If the Caddyfile uses `handle_path /prowlarr*` (path-stripping), the `/prowlarr` prefix is **removed** before forwarding to Prowlarr's backend.
 - Prowlarr's backend **expects** the `/prowlarr` prefix (because UrlBase is set), so it doesn't recognize the stripped path.
 - Prowlarr returns an HTML error page instead of JSON.
 - Sonarr/Radarr fail to parse the response:
@@ -37,18 +39,36 @@ This is confusing because Prowlarr appears healthy — the problem is only visib
 
 ## 4. The Fix
 
-**In the Caddyfile** (`data/caddy/Caddyfile`):
+In `caddy/Caddyfile`, use `handle` (path-preserving) instead of `handle_path` (path-stripping):
 
 ```diff
 - handle_path /prowlarr* {
+-     reverse_proxy prowlarr:9696
+- }
 + handle /prowlarr* {
-      reverse_proxy prowlarr:9696
-  }
++     reverse_proxy prowlarr:9696
++ }
 ```
 
-This changes from path-stripping to path-preserving, so the `/prowlarr` prefix stays intact when forwarded to the backend — matching what Prowlarr expects with its UrlBase setting.
+This keeps the `/prowlarr` prefix intact when forwarded to the backend — matching what Prowlarr expects with its UrlBase setting.
 
-**Important:** Sonarr and Radarr already use `handle` (path-preserving) for the same reason — they also have UrlBase set (`/sonarr`, `/radarr`). All \*arr services behind Caddy subpaths should use `handle`, not `handle_path`.
+**Important:** All \*arr services with a UrlBase use the same pattern in the Caddyfile:
+
+```caddyfile
+# Arr stack — path-preserving (services have UrlBase set)
+handle /sonarr* {
+    reverse_proxy sonarr:8989
+}
+handle /radarr* {
+    reverse_proxy radarr:7878
+}
+handle /prowlarr* {
+    reverse_proxy prowlarr:9696
+}
+handle /readarr* {
+    reverse_proxy readarr:8787
+}
+```
 
 After changing, reload Caddy:
 
@@ -58,7 +78,7 @@ docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 ## 5. The Rule
 
-> **Rule of thumb:** When an \*arr service has a non-empty `UrlBase` (e.g., `/sonarr`, `/radarr`, `/prowlarr`), Caddy **must** use `handle` (path-preserving), NOT `handle_path` (path-stripping). The two must always agree — if UrlBase expects the prefix, Caddy must preserve it.
+> **Rule of thumb:** When an \*arr service has a non-empty `UrlBase` (e.g., `/sonarr`, `/radarr`, `/prowlarr`), the Caddyfile **must** use `handle` (path-preserving), NOT `handle_path` (path-stripping). The two must always agree — if UrlBase expects the prefix, Caddy must preserve it.
 
 ## 6. Verification
 
@@ -76,7 +96,10 @@ If it still shows 0, trigger a re-sync from Prowlarr's **Settings → Apps → (
 
 ## 7. Related Configuration
 
-The docker-compose labels in `compose/docker-compose.media.yml` use `caddy.handle` (correct), not `caddy.handle_path`. The Caddyfile at `data/caddy/Caddyfile` is the runtime config that Caddy actually uses — make sure both stay in sync.
+- **Caddyfile location:** `caddy/Caddyfile` (source of truth, mounted into the Caddy container)
+- **Prowlarr config:** `data/prowlarr/config.xml` (`<UrlBase>/prowlarr</UrlBase>`)
+- **Sonarr config:** `data/sonarr/config.xml` (`<UrlBase>/sonarr</UrlBase>`)
+- **Radarr config:** `data/radarr/config.xml` (`<UrlBase>/radarr</UrlBase>`)
 
 ---
 
