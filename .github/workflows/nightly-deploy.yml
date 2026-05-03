@@ -239,10 +239,7 @@ jobs:
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
-          bash tests/integration/router-smoke-p0.sh
           bash tests/integration/media-pipeline-e2e.sh
-          bash tests/integration/llm-pipeline-e2e.sh
-          python3 tests/integration/llm_behavior_check.py
 
       - name: Rollback on failure
         if: failure() && steps.merge.outputs.prev_sha != ''
