@@ -42,11 +42,27 @@ fail() { echo "[media-e2e] FAIL: $*" >&2; cleanup; exit 1; }
 
 seerr_api() {
   # Call Overseerr via docker compose exec to avoid host port dependency.
+  # The overseerr image has no curl; use Node.js fetch (available in Node 18+).
   local method="$1" path="$2"; shift 2
-  local api_key
-  api_key="$(cexec overseerr sh -c 'node -e "const f=require(\"fs\");const c=JSON.parse(f.readFileSync(\"/app/config/settings.json\",\"utf8\"));console.log(c.main.apiKey);"' 2>/dev/null)"
-  cexec overseerr sh -c \
-    "curl -sf -X '${method}' -H 'X-Api-Key: ${api_key}' -H 'Content-Type: application/json' 'http://localhost:5055${path}' $*"
+  local body="null"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d) body="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  cexec overseerr node -e "
+    const fs = require('fs');
+    const c = JSON.parse(fs.readFileSync('/app/config/settings.json','utf8'));
+    const key = c.main.apiKey;
+    const opts = {method:'${method}',headers:{'X-Api-Key':key,'Content-Type':'application/json'}};
+    const body = ${body};
+    if(body) opts.body = JSON.stringify(body);
+    fetch('http://localhost:5055${path}',opts)
+      .then(r=>{if(r.status>=400)throw new Error('HTTP '+r.status);return r.text()})
+      .then(t=>{process.stdout.write(t)})
+      .catch(e=>{process.stderr.write(e.message);process.exit(1)});
+  "
 }
 
 radarr_api() {
