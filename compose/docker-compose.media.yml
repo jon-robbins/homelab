@@ -144,6 +144,31 @@ services:
     logging: *default-logging
     pids_limit: 500
 
+  bazarr:
+    image: lscr.io/linuxserver/bazarr@sha256:cb57afc3bd35558e1e7062658f9d4d18a0b4c474f10afe55f0ccfd867025f24f
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ../data/bazarr:/config
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6767/bazarr/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
   overseerr:
     image: ghcr.io/seerr-team/seerr@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad
     init: true
