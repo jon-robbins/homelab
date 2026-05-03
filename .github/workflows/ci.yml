@@ -83,11 +83,11 @@ jobs:
           set -euo pipefail
           shopt -s globstar nullglob
           scripts=(
-            "${GITHUB_WORKSPACE}/scripts/setup.sh"
-            "${GITHUB_WORKSPACE}/scripts/gh-actions-local.sh"
-            "${GITHUB_WORKSPACE}/scripts/fix-media-permissions.sh"
-            "${GITHUB_WORKSPACE}/scripts/backup-data.sh"
-            "${GITHUB_WORKSPACE}/scripts/render-readme-mermaid.sh"
+            "${GITHUB_WORKSPACE}/scripts/ops/setup.sh"
+            "${GITHUB_WORKSPACE}/scripts/ci/gh-actions-local.sh"
+            "${GITHUB_WORKSPACE}/scripts/ops/fix-media-permissions.sh"
+            "${GITHUB_WORKSPACE}/scripts/ops/backup-data.sh"
+            "${GITHUB_WORKSPACE}/scripts/ops/render-readme-mermaid.sh"
             "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
             "${GITHUB_WORKSPACE}/tests/runtime/run_tests.sh"
             "${GITHUB_WORKSPACE}"/tests/integration/*.sh

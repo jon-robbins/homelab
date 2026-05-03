@@ -67,7 +67,7 @@ def _run_agent(session_id: str | None) -> dict[str, Any]:
     ]
     p = subprocess.run(
         cmd,
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         env=os.environ,
         capture_output=True,
         text=True,

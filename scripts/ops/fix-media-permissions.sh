@@ -16,7 +16,7 @@ TARGET_PATHS=(
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./scripts/fix-media-permissions.sh [options]
+  sudo ./scripts/ops/fix-media-permissions.sh [options]
 
 Options:
   --dry-run            Print actions without applying changes
@@ -26,9 +26,9 @@ Options:
   -h, --help           Show this help
 
 Examples:
-  sudo ./scripts/fix-media-permissions.sh --dry-run
-  sudo ./scripts/fix-media-permissions.sh --owner jon --group plex
-  sudo ./scripts/fix-media-permissions.sh --path /mnt/media-hdd/TV --path /mnt/media-nvme/Incoming
+  sudo ./scripts/ops/fix-media-permissions.sh --dry-run
+  sudo ./scripts/ops/fix-media-permissions.sh --owner jon --group plex
+  sudo ./scripts/ops/fix-media-permissions.sh --path /mnt/media-hdd/TV --path /mnt/media-nvme/Incoming
 EOF
 }
 

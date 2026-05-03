@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_PATH = REPO_ROOT / "scripts" / "media_action_router.py"
+SCRIPT_PATH = REPO_ROOT / "scripts" / "media" / "media_action_router.py"
 SPEC = importlib.util.spec_from_file_location("media_action_router", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

@@ -68,7 +68,7 @@ SONARR_URL=http://sonarr:8989/sonarr RADARR_URL=http://radarr:7878/radarr \
   -v $(pwd)/scripts:/scripts \
   -v $(pwd)/.env:/app/.env \
   python:3.12-slim \
-  python /scripts/configure_remote_path_mappings.py
+  python /scripts/media/configure_remote_path_mappings.py
 ```
 
 ---

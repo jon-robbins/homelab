@@ -128,7 +128,7 @@ jobs:
             echo "::error::Backup dir is not writable: ${BACKUP_DIR}. Fix ownership/permissions on ${DEST_DRIVE}/backups."
             exit 1
           fi
-          bash scripts/backup-data.sh
+          bash scripts/ops/backup-data.sh
 
       - name: Deploy
         if: steps.check.outputs.skip != 'true' && steps.merge.conclusion == 'success'

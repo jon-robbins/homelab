@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 MEDIA_AGENT_APP_PATH = REPO_ROOT / "media-agent"
 if str(MEDIA_AGENT_APP_PATH) not in sys.path:
     sys.path.insert(0, str(MEDIA_AGENT_APP_PATH))
