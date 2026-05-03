@@ -168,7 +168,7 @@ flowchart LR
 ## Features
 
 - Root orchestration: `docker-compose.yml` uses Compose **`include`** to load `compose/docker-compose.network.yml`, `compose/docker-compose.media.yml`, and `compose/docker-compose.llm.yml`, and defines the shared external `homelab_net` network directly. Comment out the LLM line in `docker-compose.yml` if you want edge + media only.
-- First-run bootstrap with `scripts/setup.sh` for `.env`, templates, Docker network, and compose validation.
+- First-run bootstrap with `scripts/ops/setup.sh` for `.env`, templates, Docker network, and compose validation.
 - Plain Caddyfile ingress (`caddy/Caddyfile`) — single source of truth for all routes.
 - Intentional host networking only for DNS, tunnel/VPN, and media discovery workloads.
 - NVIDIA GPU acceleration is enabled by default (Plex/Jellyfin/Ollama assume NVIDIA Container Toolkit).
@@ -187,10 +187,10 @@ flowchart LR
 ```bash
 git clone <repo-url> ~/homelab
 cd ~/homelab
-./scripts/setup.sh
+./scripts/ops/setup.sh
 ```
 
-`scripts/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, and validates compose files.
+`scripts/ops/setup.sh` creates `.env` from `.env.example` when missing, prompts for host path values, copies config templates, creates `homelab_net` if needed, and validates compose files.
 
 ### Start Services
 
@@ -307,7 +307,7 @@ flowchart LR
 **Nightly deploy** (2 AM CEST, or manual via workflow dispatch):
 1. Skips if `dev` has no new commits or if the latest validate is failing.
 2. Fast-forward merges `dev` into `main` and pushes.
-3. Runs `scripts/backup-data.sh`: compresses `./data/` to a timestamped `.tar.gz` under `${MEDIA_HDD_PATH}/backups/homelab-data/` (Ollama **weights** under `data/llm/ollama/models/blobs/` are excluded; **manifests** stay so you know which models/tags were present), prunes archives older than 14 days. If this step fails, deploy does not run.
+3. Runs `scripts/ops/backup-data.sh`: compresses `./data/` to a timestamped `.tar.gz` under `${MEDIA_HDD_PATH}/backups/homelab-data/` (Ollama **weights** under `data/llm/ollama/models/blobs/` are excluded; **manifests** stay so you know which models/tags were present), prunes archives older than 14 days. If this step fails, deploy does not run.
 4. Pulls images and runs `docker compose up -d --build` on the server.
 5. Waits for all healthchecks (up to 5 minutes).
 6. Runs E2E integration tests against the live stack.
@@ -321,7 +321,7 @@ gh workflow run "Nightly Deploy"
 
 ## Configuration
 
-Compose reads variables from `.env`. `scripts/setup.sh` only updates `.env`; it does not rewrite compose files.
+Compose reads variables from `.env`. `scripts/ops/setup.sh` only updates `.env`; it does not rewrite compose files.
 
 ### Core environment contract (`.env.example`)
 
@@ -508,7 +508,7 @@ Security relies on network segmentation, Caddyfile-defined routing, and low-priv
 
 ### Hardening scripts
 
-Run `scripts/setup.sh --harden` to apply file-permission lockdown and host firewall rules in one step. You can also run the scripts individually:
+Run `scripts/ops/setup.sh --harden` to apply file-permission lockdown and host firewall rules in one step. You can also run the scripts individually:
 
 | Script | What it does |
 |---|---|
@@ -517,7 +517,7 @@ Run `scripts/setup.sh --harden` to apply file-permission lockdown and host firew
 
 ```bash
 # Apply both at once
-./scripts/setup.sh --harden
+./scripts/ops/setup.sh --harden
 
 # Or individually
 bash scripts/hardening/secure-secret-file-permissions.sh

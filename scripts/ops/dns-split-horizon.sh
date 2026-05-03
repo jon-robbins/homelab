@@ -7,11 +7,11 @@
 #   - Pi-hole running and reachable at PIHOLE_URL (defaults to http://127.0.0.1:8083)
 #   - jq installed
 #
-# Usage: bash scripts/dns-split-horizon.sh [--dry-run]
+# Usage: bash scripts/ops/dns-split-horizon.sh [--dry-run]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

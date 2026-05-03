@@ -402,7 +402,7 @@ Keys in `.env.example` but **missing** from `.env`: `CADDY_IMAGE`, `CADDY_INGRES
 | | |
 |---|---|
 | **Severity** | Low |
-| **Files** | `scripts/setup.sh`, `scripts/hardening/secure-secret-file-permissions.sh`, `scripts/hardening/nftables-arr-stack.nft` |
+| **Files** | `scripts/ops/setup.sh`, `scripts/hardening/secure-secret-file-permissions.sh`, `scripts/hardening/nftables-arr-stack.nft` |
 | **Impact** | `setup.sh` creates `.env`, copies templates, creates Docker network, and validates compose -- but does not run the permission hardening script or load nftables. Users must remember to run these separately |
 | **Recommendation** | Add an `--harden` flag to `setup.sh` that optionally runs `scripts/hardening/secure-secret-file-permissions.sh` and loads the nftables ruleset |
 

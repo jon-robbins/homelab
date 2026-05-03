@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Watch CI for the current branch: poll until complete, then show failed logs.
-# Usage: scripts/ci-watch.sh [--run-id <id>]
+# Usage: scripts/ci/ci-watch.sh [--run-id <id>]
 set -euo pipefail
 
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "jon-robbins/homelab")"

@@ -3,7 +3,7 @@
 # nielsvaneck/render-md-mermaid@v3: image markdown, then <details>, then ```mermaid).
 # Requires Docker. Override image with MERMAID_CLI_IMAGE if needed.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 IMG="${MERMAID_CLI_IMAGE:-minlag/mermaid-cli:latest}"
 export ROOT IMG

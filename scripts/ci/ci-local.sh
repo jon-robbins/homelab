@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ── Local CI: mirrors .github/workflows/ci.yml + nightly E2E ────────────────
-# Usage:  bash scripts/ci-local.sh          (run all CI checks — no E2E)
-#         bash scripts/ci-local.sh compose   (compose config + shell tests)
-#         bash scripts/ci-local.sh tests     (pytest + ruff + bash syntax)
-#         bash scripts/ci-local.sh build     (docker image builds)
-#         bash scripts/ci-local.sh e2e       (healthcheck gate + integration E2E)
-#         bash scripts/ci-local.sh nightly   (full CI + E2E — mirrors nightly deploy)
+# Usage:  bash scripts/ci/ci-local.sh          (run all CI checks — no E2E)
+#         bash scripts/ci/ci-local.sh compose   (compose config + shell tests)
+#         bash scripts/ci/ci-local.sh tests     (pytest + ruff + bash syntax)
+#         bash scripts/ci/ci-local.sh build     (docker image builds)
+#         bash scripts/ci/ci-local.sh e2e       (healthcheck gate + integration E2E)
+#         bash scripts/ci/ci-local.sh nightly   (full CI + E2E — mirrors nightly deploy)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 PASS=0; FAIL=0; SKIP=0
@@ -100,12 +100,12 @@ fi
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" ]]; then
   check_bash_syntax() {
     local scripts=(
-      scripts/setup.sh
-      scripts/gh-actions-local.sh
-      scripts/fix-media-permissions.sh
-      scripts/backup-data.sh
-      scripts/configure-bazarr.sh
-      scripts/render-readme-mermaid.sh
+      scripts/ops/setup.sh
+      scripts/ci/gh-actions-local.sh
+      scripts/ops/fix-media-permissions.sh
+      scripts/ops/backup-data.sh
+      scripts/media/configure-bazarr.sh
+      scripts/ops/render-readme-mermaid.sh
       tests/compose/run_tests.sh
       tests/runtime/run_tests.sh
     )
