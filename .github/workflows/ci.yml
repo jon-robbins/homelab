@@ -63,12 +63,17 @@ jobs:
 
       - name: Package ruff
         run: |
-          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check "${GITHUB_WORKSPACE}/src/homelab_workers/src"
+          "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check \
+            "${GITHUB_WORKSPACE}/src/homelab_workers/src" \
+            "${GITHUB_WORKSPACE}/src/homelab_workers/src/homelab_workers/tests" \
+            "${GITHUB_WORKSPACE}/tests/workers"
 
       - name: Media agent ruff
         run: |
           if [[ -d "${GITHUB_WORKSPACE}/media-agent/app" ]]; then
-            "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check "${GITHUB_WORKSPACE}/media-agent/app"
+            "${GITHUB_WORKSPACE}/src/homelab_workers/.venv/bin/ruff" check \
+              "${GITHUB_WORKSPACE}/media-agent/app" \
+              "${GITHUB_WORKSPACE}/media-agent/tests"
           else
             echo "No media-agent/app; skipping"
           fi
@@ -83,17 +88,17 @@ jobs:
           set -euo pipefail
           shopt -s globstar nullglob
           scripts=(
-            "${GITHUB_WORKSPACE}/scripts/ops/setup.sh"
-            "${GITHUB_WORKSPACE}/scripts/ci/gh-actions-local.sh"
-            "${GITHUB_WORKSPACE}/scripts/ops/fix-media-permissions.sh"
-            "${GITHUB_WORKSPACE}/scripts/ops/backup-data.sh"
-            "${GITHUB_WORKSPACE}/scripts/ops/render-readme-mermaid.sh"
-            "${GITHUB_WORKSPACE}/tests/compose/run_tests.sh"
-            "${GITHUB_WORKSPACE}/tests/runtime/run_tests.sh"
+            "${GITHUB_WORKSPACE}"/scripts/ci/*.sh
+            "${GITHUB_WORKSPACE}"/scripts/ops/*.sh
+            "${GITHUB_WORKSPACE}"/scripts/media/*.sh
+            "${GITHUB_WORKSPACE}"/scripts/vpn/*.sh
+            "${GITHUB_WORKSPACE}"/scripts/hardening/*.sh
+            "${GITHUB_WORKSPACE}"/tests/compose/*.sh
+            "${GITHUB_WORKSPACE}"/tests/runtime/*.sh
             "${GITHUB_WORKSPACE}"/tests/integration/*.sh
           )
           for script in "${scripts[@]}"; do
-            [[ -f "${script}" ]] && bash -n "${script}" && echo "OK  ${script##*/}"
+            [[ -f "${script}" ]] && bash -n "${script}" && echo "OK  ${script#${GITHUB_WORKSPACE}/}"
           done
 
       - name: README mermaid blocks
