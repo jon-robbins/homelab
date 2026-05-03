@@ -16,7 +16,7 @@ services:
       - LOG_LEVEL=info
       - TZ=${TZ}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8191/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8191/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -45,9 +45,9 @@ services:
     volumes:
       - ../data/prowlarr:/config
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:9696 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9696/ping || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 30s
     restart: unless-stopped
@@ -75,9 +75,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8989 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8989/sonarr/ping || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 30s
     restart: unless-stopped
@@ -105,9 +105,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7878 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7878/radarr/ping || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 30s
     restart: unless-stopped
@@ -135,9 +135,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
       - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8787 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8787/readarr/ping || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 30s
     restart: unless-stopped
@@ -160,7 +160,7 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:6767/bazarr/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:6767/bazarr/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -218,7 +218,7 @@ services:
       - video
       - render
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:32400/identity || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:32400/identity || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -252,7 +252,7 @@ services:
     group_add:
       - video
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8096/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8096/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -289,9 +289,9 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
     mem_limit: 4g
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 30s
     restart: unless-stopped
