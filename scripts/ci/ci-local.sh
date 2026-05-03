@@ -82,10 +82,15 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" ]]; then
   run_step "Package pytest" "$PY" -m pytest -q "${PKG_DIR}/src/homelab_workers/tests"
 
   # ruff
-  run_step "Package ruff" "${VENV}/bin/ruff" check "${PKG_DIR}/src"
+  run_step "Package ruff" "${VENV}/bin/ruff" check \
+    "${PKG_DIR}/src" \
+    "${PKG_DIR}/src/homelab_workers/tests" \
+    "${ROOT}/tests/workers"
 
   if [[ -d "${ROOT}/media-agent/app" ]]; then
-    run_step "Media agent ruff" "${VENV}/bin/ruff" check "${ROOT}/media-agent/app"
+    run_step "Media agent ruff" "${VENV}/bin/ruff" check \
+      "${ROOT}/media-agent/app" \
+      "${ROOT}/media-agent/tests"
   else
     skip_step "Media agent ruff (no app dir)"
   fi
@@ -99,22 +104,21 @@ fi
 # ── 5. Bash syntax ─────────────────────────────────────────────────────────
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" ]]; then
   check_bash_syntax() {
+    shopt -s nullglob globstar
     local scripts=(
-      scripts/ops/setup.sh
-      scripts/ci/gh-actions-local.sh
-      scripts/ops/fix-media-permissions.sh
-      scripts/ops/backup-data.sh
-      scripts/media/configure-bazarr.sh
-      scripts/ops/render-readme-mermaid.sh
-      tests/compose/run_tests.sh
-      tests/runtime/run_tests.sh
+      scripts/ci/*.sh
+      scripts/ops/*.sh
+      scripts/media/*.sh
+      scripts/vpn/*.sh
+      scripts/hardening/*.sh
+      tests/compose/*.sh
+      tests/runtime/*.sh
+      tests/integration/*.sh
     )
-    shopt -s nullglob
-    scripts+=(tests/integration/*.sh)
     local ok=true
     for s in "${scripts[@]}"; do
       if [[ -f "$s" ]]; then
-        bash -n "$s" && echo "  OK  ${s##*/}" || { echo "  ERR ${s##*/}"; ok=false; }
+        bash -n "$s" && echo "  OK  ${s}" || { echo "  ERR ${s}"; ok=false; }
       fi
     done
     $ok

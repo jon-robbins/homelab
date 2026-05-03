@@ -47,3 +47,10 @@ pythonpath = ["."]
 # Use a non-default cache path so a root-owned or Docker-created
 # .pytest_cache/ in this tree does not break cache writes (Errno 13).
 cache_dir = "build/pytest_cache"
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # respx emits DeprecationWarning on Python 3.12 for its legacy mock-route
+    # kwargs; harmless for our usage and not controllable from the test side.
+    "ignore::DeprecationWarning:respx.*",
+]
