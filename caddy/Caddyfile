@@ -4,6 +4,7 @@
 
 {
 	admin :2019
+	auto_https disable_redirects
 }
 
 # ── HTTPS: Primary domain (subpath routes) ──────────────────
@@ -28,6 +29,9 @@
 	handle /readarr* {
 		reverse_proxy readarr:8787
 	}
+	handle /bazarr* {
+		reverse_proxy bazarr:6767
+	}
 
 	# Path-stripping services (no UrlBase configured)
 	handle_path /overseerr* {
@@ -43,6 +47,41 @@
 
 	handle_path /dashboard* {
 		reverse_proxy internal-dashboard:8080
+	}
+
+	# 3x-ui VPN panel — subscription endpoints
+	handle /vpn/7HKxYcd1PS* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle /vpn/json* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle /vpn/clash* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	# 3x-ui VPN panel — web UI (path preserved)
+	handle /vpn* {
+		reverse_proxy host.docker.internal:26435 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
 	# Catch-all: Dashy dashboard
@@ -92,6 +131,13 @@ openclaw.{$BASE_DOMAIN} {
 :80 {
 	encode gzip zstd
 
+	# Redirect domain-based HTTP requests to HTTPS on port 8443
+	# (port 443 is used by Xray REALITY VPN, Caddy HTTPS is on 8443)
+	@https_domain host {$BASE_DOMAIN} plex.{$BASE_DOMAIN} jellyfin.{$BASE_DOMAIN} pihole.{$BASE_DOMAIN} openclaw.{$BASE_DOMAIN}
+	handle @https_domain {
+		redir https://{host}:8443{uri} permanent
+	}
+
 	handle /sonarr* {
 		reverse_proxy sonarr:8989 {
 			header_up Host {host}
@@ -112,6 +158,12 @@ openclaw.{$BASE_DOMAIN} {
 	}
 	handle /readarr* {
 		reverse_proxy readarr:8787 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle /bazarr* {
+		reverse_proxy bazarr:6767 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
 		}
@@ -144,6 +196,40 @@ openclaw.{$BASE_DOMAIN} {
 		reverse_proxy flaresolverr:8191 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+		}
+	}
+	# 3x-ui VPN panel — subscription endpoints
+	handle /vpn/7HKxYcd1PS* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle /vpn/json* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle /vpn/clash* {
+		reverse_proxy host.docker.internal:2096 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	# 3x-ui VPN panel — web UI (path preserved)
+	handle /vpn* {
+		reverse_proxy host.docker.internal:26435 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
 		}
 	}
 	handle {

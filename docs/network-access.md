@@ -32,9 +32,10 @@ Quick-reference for reaching services in this homelab stack — from scripts, co
 | Plex | `plex` | 32400 | — | `http://host.docker.internal:32400` | Port 32400 on host | `https://plex.{BASE_DOMAIN}` |
 | Pi-hole | `pihole` | 8083 | — | `http://host.docker.internal:8083` | Port 8083 on host | `https://pihole.{BASE_DOMAIN}` |
 | OpenClaw | `openclaw-gateway` | 18789 | — | `http://openclaw-gateway:18789` | Not directly exposed | `https://openclaw.{BASE_DOMAIN}` |
-| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Ports 80/443 exposed to host | — (ingress itself) |
+| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Port 80 + 8443 (HTTPS) exposed to host; public 443 reserved for Xray | — (ingress itself) |
+| 3x-UI (Xray) | `3x-ui` | 26435/2096/443 | `/vpn` | `http://127.0.0.1:26435/vpn` | Port 443 (Reality), 26435 (panel), 2096 (subs) via `network_mode: host` | `https://{BASE_DOMAIN}/vpn` |
 
-> **Caddy** acts as the ingress reverse proxy, routing external traffic to internal services. All other services are accessed through Caddy or directly via internal Docker DNS.
+> **Caddy** acts as the ingress reverse proxy, routing external traffic to internal services on port 80 (HTTP) and 8443 (HTTPS). **Xray Reality** owns port 443 on the host for VPN traffic — see `3x-ui-vpn-setup.md` for details. All other services are accessed through Caddy or directly via internal Docker DNS.
 
 ---
 
@@ -168,4 +169,4 @@ The `:80` block mirrors the subpath routes without TLS for direct access via LAN
 
 ---
 
-*Last updated: April 2026*
+*Last updated: May 2026*

@@ -104,6 +104,7 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" ]]; then
       scripts/gh-actions-local.sh
       scripts/fix-media-permissions.sh
       scripts/backup-data.sh
+      scripts/configure-bazarr.sh
       scripts/render-readme-mermaid.sh
       tests/compose/run_tests.sh
       tests/runtime/run_tests.sh

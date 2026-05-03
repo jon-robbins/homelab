@@ -6,6 +6,7 @@
 - Plain Caddy (not caddy-docker-proxy) — no Docker labels, no auto-discovery
 - Custom image (`local/caddy-cf:latest`) with Cloudflare DNS plugin for TLS
 - Mounted read-only into the Caddy container at `/etc/caddy/Caddyfile`
+- Caddy listens on host port **80** (HTTP) and **8443** (HTTPS). Public port `443` is reserved for **Xray Reality** — see [`3x-ui-vpn-setup.md`](./3x-ui-vpn-setup.md). The Tailscale IP (`100.106.194.32`) keeps a direct `:443` binding.
 
 ## Architecture
 
@@ -38,6 +39,7 @@ A global options block enables the admin API on `:2019`.
 | Overseerr | `handle_path /overseerr*` | `overseerr:5055` | none |
 | qBittorrent | `handle_path /qbittorrent/*` | `qbittorrent:8080` | none |
 | Dashboard | `handle_path /dashboard*` | `internal-dashboard:8080` | none |
+| 3x-UI (VPN panel) | `handle /vpn*` + `handle /vpn/{json,clash,7HKxYcd1PS}*` | `host.docker.internal:26435` / `:2096` | `/vpn` |
 | Dashy | `handle` (catch-all) | `dashy:8082` | none |
 
 > qBittorrent also has a `redir /qbittorrent /qbittorrent/ 301` to normalize the trailing slash.
@@ -66,6 +68,7 @@ The `:80` block mirrors the HTTPS subpath routes and adds a few LAN-only extras:
 | qBittorrent | `handle_path /qbittorrent*` | `qbittorrent:8080` |
 | Dashboard | `handle_path /dashboard*` | `internal-dashboard:8080` |
 | FlareSolverr | `handle /flaresolverr*` | `flaresolverr:8191` |
+| 3x-UI (VPN panel) | `handle /vpn*` + `handle /vpn/{json,clash,7HKxYcd1PS}*` | `host.docker.internal:26435` / `:2096` |
 | Dashy | `handle` (catch-all) | `dashy:8082` |
 
 All `:80` proxies forward `Host` and `X-Real-IP` headers upstream.
@@ -126,7 +129,9 @@ curl -s http://localhost:2019/config/ | jq .
 ## Caddy Container Configuration
 
 - **Image:** custom build from `caddy/Dockerfile` (`caddy:latest` + Cloudflare DNS plugin)
+- **Ports:** `80:80`, `8443:443` (public HTTPS), `100.106.194.32:443:443` (Tailscale direct)
 - **Mounts:** `caddy/Caddyfile:/etc/caddy/Caddyfile:ro`, `data/caddy/data:/data`, `data/caddy/config:/config`
 - **Security:** `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`
 - **Healthcheck:** `wget -q --spider http://localhost:2019/config/`
 - **Admin API:** `:2019` (container-internal only)
+- **Global options:** `auto_https disable_redirects` (Xray owns public `:443`; Caddy's `:80` block applies its own `@https_domain` redirect to `:8443`)
