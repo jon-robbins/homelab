@@ -34,6 +34,10 @@ POLL_TIMEOUT=120  # seconds (Arr ingest / series creation)
 # identify the torrent by hash from the Arr queue rather than by name+category.
 QBT_POLL_TIMEOUT=300
 
+# Pin searches to a reliable private tracker for deterministic E2E results.
+# The name must match the indexer label shown in Radarr/Sonarr (Prowlarr sync).
+PREFERRED_INDEXER="TorrentLeech"
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-homelab}"
 cexec() { docker compose -p "${COMPOSE_PROJECT}" exec -T "$@"; }
@@ -236,10 +240,74 @@ else:
 done
 [[ -n "${SONARR_SERIES_ID}" ]] || fail "Sonarr did not receive the TV show within ${POLL_TIMEOUT}s"
 
-# ── Step 5: Resolve torrent hashes from Arr queues, then verify in qBittorrent ─
-# Strategy: Radarr/Sonarr populate `downloadId` (the torrent hash) in their
-# queue the moment they hand the release off to qBittorrent. That hash is our
-# deterministic key — category-name matching races the Arr -> qBT handshake.
+# ── Step 5: Trigger manual search and grab from preferred indexer ─────────────
+# Instead of relying on automatic search (which hits all indexers, including
+# unreliable public ones), trigger an interactive search via the Arr API and
+# grab the best result from our preferred private tracker.
+
+# Search releases and grab the first match from PREFERRED_INDEXER.
+# Usage: grab_from_preferred <arr_api_func> <search_path> <label>
+# Returns the grabbed release's downloadId (torrent hash) on stdout, or empty.
+grab_from_preferred() {
+  local api_func="$1" search_path="$2" label="$3"
+  log "  Searching ${label} releases (interactive)..."
+  local releases
+  releases="$($api_func GET "${search_path}" 2>/dev/null || echo '[]')"
+
+  # Pick the best release from the preferred indexer: highest seeders, approved.
+  local best
+  best="$(echo "${releases}" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+preferred = '${PREFERRED_INDEXER}'.lower()
+candidates = []
+for r in data:
+    idx = (r.get('indexer') or '').lower()
+    if preferred not in idx:
+        continue
+    if r.get('rejected'):
+        continue
+    seeders = r.get('seeders') or 0
+    candidates.append((seeders, r))
+candidates.sort(key=lambda x: -x[0])
+if candidates:
+    c = candidates[0][1]
+    print(json.dumps({'guid': c['guid'], 'indexerId': c['indexerId'], 'title': c.get('title',''), 'seeders': c.get('seeders',0)}))
+" 2>/dev/null || true)"
+
+  if [[ -z "${best}" ]]; then
+    log "  WARNING: No releases found on ${PREFERRED_INDEXER} for ${label}"
+    return 1
+  fi
+
+  local title seeders guid indexerId
+  title="$(echo "${best}" | python3 -c "import json,sys; print(json.load(sys.stdin)['title'])")"
+  seeders="$(echo "${best}" | python3 -c "import json,sys; print(json.load(sys.stdin)['seeders'])")"
+  guid="$(echo "${best}" | python3 -c "import json,sys; print(json.load(sys.stdin)['guid'])")"
+  indexerId="$(echo "${best}" | python3 -c "import json,sys; print(json.load(sys.stdin)['indexerId'])")"
+  log "  Grabbing from ${PREFERRED_INDEXER}: ${title} (${seeders} seeders)"
+
+  # POST the grab request
+  $api_func POST "/api/v3/release" \
+    -d "{\"guid\":\"${guid}\",\"indexerId\":${indexerId}}" >/dev/null 2>&1 \
+    || { log "  WARNING: Grab request failed for ${label}"; return 1; }
+
+  return 0
+}
+
+# Trigger interactive search on Radarr for the movie
+log "Triggering manual movie search on ${PREFERRED_INDEXER}..."
+grab_from_preferred radarr_api "/api/v3/release?movieId=${RADARR_MOVIE_ID}" "movie" \
+  || log "  Falling back to automatic search for movie"
+
+# Trigger interactive search on Sonarr for the TV show
+log "Triggering manual TV search on ${PREFERRED_INDEXER}..."
+grab_from_preferred sonarr_api "/api/v3/release?seriesId=${SONARR_SERIES_ID}&seasonNumber=1" "TV" \
+  || log "  Falling back to automatic search for TV"
+
+# ── Step 6: Resolve torrent hashes from Arr queues, then verify in qBittorrent ─
+# Radarr/Sonarr populate `downloadId` (the torrent hash) in their queue the
+# moment they hand the release off to qBittorrent.
 log "Waiting for torrents in qBittorrent..."
 elapsed=0
 movie_hash=""
@@ -278,7 +346,7 @@ for t in data:
 }
 
 while [[ ${elapsed} -lt ${QBT_POLL_TIMEOUT} ]]; do
-  # Step 5a: pull the download hash from Arr queues (only once each).
+  # Step 6a: pull the download hash from Arr queues (only once each).
   if [[ -z "${movie_hash}" ]]; then
     radarr_queue="$(radarr_api GET "/api/v3/queue?pageSize=200" 2>/dev/null || echo '{}')"
     movie_hash="$(echo "${radarr_queue}" | extract_download_id "star wars")"
@@ -288,7 +356,7 @@ while [[ ${elapsed} -lt ${QBT_POLL_TIMEOUT} ]]; do
     tv_hash="$(echo "${sonarr_queue}" | extract_download_id "breaking")"
   fi
 
-  # Step 5b: look up those hashes directly in qBittorrent.
+  # Step 6b: look up those hashes directly in qBittorrent.
   if [[ -n "${movie_hash}" || -n "${tv_hash}" ]]; then
     torrents="$(qbt_api "/torrents/info" 2>/dev/null || echo "[]")"
 
@@ -320,7 +388,7 @@ done
 # ── Evaluate results ─────────────────────────────────────────────────────────
 passed=true
 if [[ "${movie_found}" != "true" ]]; then
-  log "FAIL: Movie torrent not found in qBittorrent within ${POLL_TIMEOUT}s"
+  log "FAIL: Movie torrent not found in qBittorrent within ${QBT_POLL_TIMEOUT}s"
   # Check Radarr queue for details
   radarr_api GET "/api/v3/queue" 2>/dev/null | python3 -c "
 import json,sys
@@ -332,7 +400,7 @@ for r in data.get('records', []):
 fi
 
 if [[ "${tv_found}" != "true" ]]; then
-  log "FAIL: TV torrent not found in qBittorrent within ${POLL_TIMEOUT}s"
+  log "FAIL: TV torrent not found in qBittorrent within ${QBT_POLL_TIMEOUT}s"
   sonarr_api GET "/api/v3/queue" 2>/dev/null | python3 -c "
 import json,sys
 data = json.load(sys.stdin)
