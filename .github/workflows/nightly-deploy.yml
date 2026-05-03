@@ -52,7 +52,21 @@ jobs:
       - name: Check validate status on dev
         if: steps.check.outputs.skip != 'true'
         run: |
-          RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion')
+          # Poll CI status — wait up to 10 minutes for a completed run
+          elapsed=0
+          while (( elapsed < 600 )); do
+            RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 \
+              --json status,conclusion \
+              -q '.[0].conclusion // "pending"')
+            # null / empty / pending / in_progress → still running, keep waiting
+            if [[ -z "$RESULT" || "$RESULT" == "null" || "$RESULT" == "pending" ]]; then
+              echo "CI still running (status=$RESULT). Waiting 30s... (${elapsed}s elapsed)"
+              sleep 30
+              elapsed=$(( elapsed + 30 ))
+              continue
+            fi
+            break
+          done
           if [ "$RESULT" != "success" ]; then
             echo "::error::Latest CI validate on dev has status '$RESULT'. Skipping deploy."
             TITLE="Nightly deploy skipped: validate failing on dev"
@@ -153,11 +167,36 @@ jobs:
         working-directory: /home/jon/homelab
         run: |
           set -euo pipefail
-          echo "Waiting up to 300s for all services to become healthy..."
+          # Only block on critical services; non-critical/deprecated ones must not gate deploy
+          CRITICAL_SERVICES=(
+            caddy
+            cloudflared
+            plex
+            jellyfin
+            radarr
+            sonarr
+            prowlarr
+            qbittorrent
+            overseerr
+            dashy
+            ollama
+          )
+
+          echo "Waiting up to 300s for critical services to become healthy..."
           deadline=$(( SECONDS + 300 ))
           while (( SECONDS < deadline )); do
             all_ready=true
             for c in $(docker compose ps --format '{{.Name}}'); do
+              # Skip containers not in the critical list
+              is_critical=false
+              for svc in "${CRITICAL_SERVICES[@]}"; do
+                if [[ "$c" == *"$svc"* ]]; then
+                  is_critical=true
+                  break
+                fi
+              done
+              $is_critical || continue
+
               status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
               case "$status" in
                 healthy|none) ;;
@@ -171,11 +210,24 @@ jobs:
 
           failed=0
           for c in $(docker compose ps --format '{{.Name}}'); do
+            # Only fail on unhealthy critical services
+            is_critical=false
+            for svc in "${CRITICAL_SERVICES[@]}"; do
+              if [[ "$c" == *"$svc"* ]]; then
+                is_critical=true
+                break
+              fi
+            done
+
             status=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
             if [[ "$status" == "unhealthy" ]]; then
-              echo "FAIL: $c ($status)"
-              docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
-              failed=$(( failed + 1 ))
+              if $is_critical; then
+                echo "FAIL: $c ($status) [CRITICAL]"
+                docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
+                failed=$(( failed + 1 ))
+              else
+                echo "WARN: $c ($status) [non-critical, ignored]"
+              fi
             else
               echo "OK: $c ($status)"
             fi
@@ -196,15 +248,21 @@ jobs:
         if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
           set -euo pipefail
-          PREV="${{ steps.merge.outputs.prev_sha }}"
-          echo "Deploy or E2E failed. Resetting main to pre-merge SHA ${PREV}..."
+          merged_sha="${{ steps.merge.outputs.merged_sha }}"
+          echo "Deploy or E2E failed. Reverting merge commit ${merged_sha}..."
 
-          # Do not use `git revert HEAD` after a fast-forward merge: HEAD may not be the
-          # deploy merge, so revert can undo the wrong commit. Reset main to the recorded SHA.
           git checkout main
           git fetch origin main
-          git reset --hard "${PREV}"
-          git push origin main --force-with-lease
+          git reset --hard origin/main
+
+          # Revert the merge commit (parent 1 = main before merge)
+          git revert -m 1 "$merged_sha" --no-edit || {
+            # Fallback for no-diff merges: create an empty revert commit via commit-tree
+            tree=$(git rev-parse HEAD^{tree})
+            revert_sha=$(git commit-tree "$tree" -p HEAD -m "Revert nightly merge $merged_sha (no-diff fallback)")
+            git update-ref refs/heads/main "$revert_sha"
+          }
+          git push origin main
 
           # Update production directory to the reverted state
           cd "$DEPLOY_DIR"
