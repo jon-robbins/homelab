@@ -1,0 +1,55 @@
+services:
+  x-ui:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: 3x-ui
+    hostname: 3x-ui
+    volumes:
+      - ./db/:/etc/x-ui/
+      - ./certs/:/root/cert/
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      XUI_ENABLE_FAIL2BAN: "true"
+      XUI_LOG_LEVEL: "info"
+    labels:
+      caddy: home.ashorkqueen.xyz
+      # Subscription paths: strip /vpn prefix, proxy to sub server on 2096
+      caddy.handle_0: "/vpn/7HKxYcd1PS*"
+      caddy.handle_0.0_uri: "strip_prefix /vpn"
+      caddy.handle_0.1_reverse_proxy: "host.docker.internal:2096"
+      caddy.handle_0.1_reverse_proxy.header_up: "Host {host}"
+      caddy.handle_0.1_reverse_proxy.header_up_1: "X-Real-IP {remote_host}"
+      caddy.handle_0.1_reverse_proxy.header_up_2: "X-Forwarded-For {remote_host}"
+      caddy.handle_0.1_reverse_proxy.header_up_3: "X-Forwarded-Proto {scheme}"
+      # JSON sub path
+      caddy.handle_1: "/vpn/json*"
+      caddy.handle_1.0_uri: "strip_prefix /vpn"
+      caddy.handle_1.1_reverse_proxy: "host.docker.internal:2096"
+      caddy.handle_1.1_reverse_proxy.header_up: "Host {host}"
+      caddy.handle_1.1_reverse_proxy.header_up_1: "X-Real-IP {remote_host}"
+      caddy.handle_1.1_reverse_proxy.header_up_2: "X-Forwarded-For {remote_host}"
+      caddy.handle_1.1_reverse_proxy.header_up_3: "X-Forwarded-Proto {scheme}"
+      # Clash sub path
+      caddy.handle_2: "/vpn/clash*"
+      caddy.handle_2.0_uri: "strip_prefix /vpn"
+      caddy.handle_2.1_reverse_proxy: "host.docker.internal:2096"
+      caddy.handle_2.1_reverse_proxy.header_up: "Host {host}"
+      caddy.handle_2.1_reverse_proxy.header_up_1: "X-Real-IP {remote_host}"
+      caddy.handle_2.1_reverse_proxy.header_up_2: "X-Forwarded-For {remote_host}"
+      caddy.handle_2.1_reverse_proxy.header_up_3: "X-Forwarded-Proto {scheme}"
+      # Web panel: catch-all for /vpn paths
+      caddy.handle_3: "/vpn*"
+      caddy.handle_3.0_reverse_proxy: "host.docker.internal:26435"
+      caddy.handle_3.0_reverse_proxy.header_up: "Host {host}"
+      caddy.handle_3.0_reverse_proxy.header_up_1: "X-Real-IP {remote_host}"
+      caddy.handle_3.0_reverse_proxy.header_up_2: "X-Forwarded-For {remote_host}"
+      caddy.handle_3.0_reverse_proxy.header_up_3: "X-Forwarded-Proto {scheme}"
+      caddy.tls.dns: "cloudflare {env.CLOUDFLARE_TOKEN}"
+      caddy.header.Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:26435/vpn"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
