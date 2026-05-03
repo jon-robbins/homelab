@@ -1,0 +1,19 @@
+# Database files (contain sensitive configuration)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+db/*.db.*
+db/*.backup
+db/*.backup-*
+
+# TLS certificates
+certs/
+
+# Environment files
+.env
+*.env
+
+# OS files
+.DS_Store
+.qoder/

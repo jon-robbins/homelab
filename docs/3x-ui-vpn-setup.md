@@ -34,7 +34,7 @@ The 3x-UI panel itself is accessible at `https://home.ashorkqueen.xyz/vpn/`.
 ### Image & compose location
 
 - **Image:** `ghcr.io/mhsanaei/3x-ui:latest` (upstream stock image from MHSanaei)
-- **Compose file:** `~/3x-ui/docker-compose.yml` (standalone, outside the homelab compose stack)
+- **Compose file:** `homelab/3x-ui/docker-compose.yml` (standalone compose, invoked from inside the homelab repo but not part of the main `docker-compose.yml` stack)
 
 ### Key configuration
 
@@ -69,7 +69,7 @@ services:
 
 ### Git repo
 
-The `~/3x-ui` directory is a standalone git repo with a `.gitignore` excluding:
+The `homelab/3x-ui/` directory lives inside the main homelab repo. A local `homelab/3x-ui/.gitignore` excludes runtime data:
 - `db/*.db` (sensitive Xray/panel config)
 - `certs/` (TLS certificates)
 - `.env` (environment secrets)
@@ -281,10 +281,10 @@ These manage both the Xray service and macOS system proxy settings in one comman
 
 | File | Purpose |
 |------|---------|
-| `~/3x-ui/docker-compose.yml` | 3x-UI container definition, Caddy labels, health check |
-| `~/3x-ui/db/` | 3x-UI database and Xray config (gitignored) |
-| `~/3x-ui/certs/` | TLS certificates (gitignored) |
-| `~/3x-ui/.gitignore` | Excludes db, certs, .env from version control |
+| `homelab/3x-ui/docker-compose.yml` | 3x-UI container definition, Caddy labels, health check |
+| `homelab/3x-ui/db/` | 3x-UI database and Xray config (gitignored) |
+| `homelab/3x-ui/certs/` | TLS certificates (gitignored) |
+| `homelab/3x-ui/.gitignore` | Excludes db, certs, .env from version control |
 | `homelab/compose/docker-compose.network.yml` | Caddy (port 8443), cloudflared, Tailscale |
 | `homelab/data/cloudflared/config.yml` | Tunnel ingress with `home.ashorkqueen.xyz` route |
 | `homelab/caddy/Caddyfile` | Primary Caddy routing config (file-based, not label-driven) |
