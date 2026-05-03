@@ -75,11 +75,11 @@ services:
     volumes:
       - ${DASHY_CONFIG_PATH:-../data/dashy/conf.yml}:/app/user-data/conf.yml
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082 || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     logging: *default-logging
     restart: unless-stopped
 
@@ -93,7 +93,7 @@ services:
       - ${CLOUDFLARED_CONFIG_PATH:-../data/cloudflared/config.yml}:/etc/cloudflared/config.yml:ro
       - ../data/cloudflared/credentials:/etc/cloudflared/credentials
     healthcheck:
-      test: ["CMD", "cloudflared", "tunnel", "info", "--output", "json"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/2000' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
