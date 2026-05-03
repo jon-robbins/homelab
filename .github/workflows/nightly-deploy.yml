@@ -55,13 +55,21 @@ jobs:
           RESULT=$(gh run list --branch dev --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion')
           if [ "$RESULT" != "success" ]; then
             echo "::error::Latest CI validate on dev has status '$RESULT'. Skipping deploy."
-            gh issue create \
-              --title "Nightly deploy skipped: validate failing on dev" \
-              --body "$(cat <<EOF
+            TITLE="Nightly deploy skipped: validate failing on dev"
+            BODY="$(cat <<EOF
           The latest CI validate run on \`dev\` has conclusion \`$RESULT\`.
           Fix validation errors on \`dev\` before the next nightly deploy.
           EOF
-          )" || echo "::warning::Could not create GitHub issue (network or API)."
+          )"
+            EXISTING="$(gh issue list --state open --search "in:title \"${TITLE}\"" --json number,title \
+              --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n1 || true)"
+            if [[ -n "${EXISTING}" ]]; then
+              gh issue comment "${EXISTING}" --body "${BODY}" \
+                || echo "::warning::Could not comment on existing issue #${EXISTING}."
+            else
+              gh issue create --title "${TITLE}" --body "${BODY}" \
+                || echo "::warning::Could not create GitHub issue (network or API)."
+            fi
             exit 1
           fi
           echo "Latest validate on dev passed."
@@ -209,7 +217,7 @@ jobs:
 
           echo "Rollback complete."
 
-      - name: Create failure issue
+      - name: Create or update failure issue
         if: failure() && steps.merge.outputs.prev_sha != ''
         run: |
           set -euo pipefail
@@ -217,9 +225,8 @@ jobs:
           if [[ -z "${FAILED_SHA}" ]]; then
             FAILED_SHA="unknown (merge may not have completed push)"
           fi
-          gh issue create \
-            --title "Nightly deploy failed: auto-rolled back" \
-            --body "$(cat <<EOF
+          TITLE="Nightly deploy failed: auto-rolled back"
+          BODY="$(cat <<EOF
           The nightly deploy at $(date -u +%Y-%m-%dT%H:%M:%SZ) failed and was automatically rolled back.
 
           **Failed revision:** \`${FAILED_SHA}\`
@@ -228,4 +235,17 @@ jobs:
 
           Check the workflow logs above for details on which step failed (healthcheck or E2E).
           EOF
-          )" || echo "::warning::Could not create GitHub issue (network or API)."
+          )"
+
+          # Reuse an existing open issue with the same title instead of spawning duplicates.
+          EXISTING="$(gh issue list --state open --search "in:title \"${TITLE}\"" --json number,title \
+            --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n1 || true)"
+
+          if [[ -n "${EXISTING}" ]]; then
+            gh issue comment "${EXISTING}" --body "${BODY}" \
+              || echo "::warning::Could not comment on existing issue #${EXISTING}."
+            echo "Commented on existing issue #${EXISTING}."
+          else
+            gh issue create --title "${TITLE}" --body "${BODY}" \
+              || echo "::warning::Could not create GitHub issue (network or API)."
+          fi

@@ -29,7 +29,10 @@ TV_TITLE="Breaking Bad"
 TV_SEASONS='[1]'         # Only request season 1 to keep it fast
 
 POLL_INTERVAL=5
-POLL_TIMEOUT=120  # seconds
+POLL_TIMEOUT=120  # seconds (Arr ingest / series creation)
+# qBT ingest can lag behind the Arr grab event under load; give it longer and
+# identify the torrent by hash from the Arr queue rather than by name+category.
+QBT_POLL_TIMEOUT=300
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-homelab}"
@@ -217,48 +220,76 @@ else:
 done
 [[ -n "${SONARR_SERIES_ID}" ]] || fail "Sonarr did not receive the TV show within ${POLL_TIMEOUT}s"
 
-# ── Step 5: Wait for torrents to appear in qBittorrent ───────────────────────
+# ── Step 5: Resolve torrent hashes from Arr queues, then verify in qBittorrent ─
+# Strategy: Radarr/Sonarr populate `downloadId` (the torrent hash) in their
+# queue the moment they hand the release off to qBittorrent. That hash is our
+# deterministic key — category-name matching races the Arr -> qBT handshake.
 log "Waiting for torrents in qBittorrent..."
 elapsed=0
+movie_hash=""
+tv_hash=""
 movie_found=false
 tv_found=false
 
-while [[ ${elapsed} -lt ${POLL_TIMEOUT} ]]; do
-  torrents="$(qbt_api "/torrents/info" 2>/dev/null || echo "[]")"
-
-  if [[ "${movie_found}" != "true" ]]; then
-    QBT_MOVIE_HASHES="$(echo "${torrents}" | python3 -c "
-import json,sys
+# Extract a downloadId (lower-cased hash) from an Arr queue response that
+# matches a given substring in the queue record title.
+extract_download_id() {
+  python3 -c "
+import json, sys
 data = json.load(sys.stdin)
-hashes = []
+needle = sys.argv[1].lower()
+for r in data.get('records', []):
+    title = (r.get('title') or '').lower()
+    did = (r.get('downloadId') or '').lower()
+    if needle in title and did:
+        print(did)
+        break
+" "$1" 2>/dev/null || true
+}
+
+# Given a qBT /torrents/info response and a hash, return the hash if present.
+find_qbt_hash() {
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+needle = sys.argv[1].lower()
 for t in data:
-    cat = (t.get('category') or '').lower()
-    name = (t.get('name') or '').lower()
-    if 'radarr' in cat and ('star' in name and 'war' in name):
-        hashes.append(t['hash'])
-print('|'.join(hashes))
-" 2>/dev/null || echo "")"
-    if [[ -n "${QBT_MOVIE_HASHES}" ]]; then
-      movie_found=true
-      log "  Movie torrent found in qBittorrent: ${QBT_MOVIE_HASHES}"
-    fi
+    h = (t.get('hash') or '').lower()
+    if h == needle:
+        print(h)
+        break
+" "$1" 2>/dev/null || true
+}
+
+while [[ ${elapsed} -lt ${QBT_POLL_TIMEOUT} ]]; do
+  # Step 5a: pull the download hash from Arr queues (only once each).
+  if [[ -z "${movie_hash}" ]]; then
+    radarr_queue="$(radarr_api GET "/api/v3/queue?pageSize=200" 2>/dev/null || echo '{}')"
+    movie_hash="$(echo "${radarr_queue}" | extract_download_id "star wars")"
+  fi
+  if [[ -z "${tv_hash}" ]]; then
+    sonarr_queue="$(sonarr_api GET "/api/v3/queue?pageSize=200" 2>/dev/null || echo '{}')"
+    tv_hash="$(echo "${sonarr_queue}" | extract_download_id "breaking")"
   fi
 
-  if [[ "${tv_found}" != "true" ]]; then
-    QBT_TV_HASHES="$(echo "${torrents}" | python3 -c "
-import json,sys
-data = json.load(sys.stdin)
-hashes = []
-for t in data:
-    cat = (t.get('category') or '').lower()
-    name = (t.get('name') or '').lower()
-    if 'sonarr' in cat and 'breaking' in name and 'bad' in name:
-        hashes.append(t['hash'])
-print('|'.join(hashes))
-" 2>/dev/null || echo "")"
-    if [[ -n "${QBT_TV_HASHES}" ]]; then
-      tv_found=true
-      log "  TV torrent found in qBittorrent: ${QBT_TV_HASHES}"
+  # Step 5b: look up those hashes directly in qBittorrent.
+  if [[ -n "${movie_hash}" || -n "${tv_hash}" ]]; then
+    torrents="$(qbt_api "/torrents/info" 2>/dev/null || echo "[]")"
+
+    if [[ "${movie_found}" != "true" && -n "${movie_hash}" ]]; then
+      if [[ -n "$(echo "${torrents}" | find_qbt_hash "${movie_hash}")" ]]; then
+        movie_found=true
+        QBT_MOVIE_HASHES="${movie_hash}"
+        log "  Movie torrent present in qBittorrent: ${movie_hash}"
+      fi
+    fi
+
+    if [[ "${tv_found}" != "true" && -n "${tv_hash}" ]]; then
+      if [[ -n "$(echo "${torrents}" | find_qbt_hash "${tv_hash}")" ]]; then
+        tv_found=true
+        QBT_TV_HASHES="${tv_hash}"
+        log "  TV torrent present in qBittorrent: ${tv_hash}"
+      fi
     fi
   fi
 
