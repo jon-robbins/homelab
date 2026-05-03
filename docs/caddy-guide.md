@@ -21,27 +21,28 @@ This homelab runs **[caddy-docker-proxy](https://github.com/lucaslorentz/caddy-d
 
 - **Config is generated automatically** from Docker container labels — you almost never edit a Caddyfile directly.
 - A static Caddyfile exists at `data/caddy/Caddyfile` as a **reference/fallback** (e.g. for the LAN-only `:80` routes). It is not the primary config source for HTTPS routes.
-- Caddy listens on **ports 80 and 443** on the host.
+- Caddy listens on **port 80** (HTTP) and **port 8443** (HTTPS, mapped from container port 443) on the host. Port 443 on the public interface is reserved for Xray Reality (see `3x-ui-vpn-setup.md`). The Tailscale IP (`100.106.194.32`) retains a direct `:443` binding.
 - TLS certificates are provisioned automatically via **Cloudflare DNS-01 challenge** (no port-80 ACME needed).
 - A **Docker socket proxy** (`tecnativa/docker-socket-proxy`) sits between Caddy and the Docker socket for security — Caddy never mounts `/var/run/docker.sock` directly.
+
+> **Note (May 2026):** The primary routing config has migrated from label-only (caddy-docker-proxy) to a **file-based Caddyfile** mounted at `/etc/caddy/Caddyfile`. Most routes are defined in `homelab/caddy/Caddyfile`. The 3x-UI service (separate compose project) still uses caddy-docker-proxy labels for its `/vpn*` routes.
 
 ### Container definition (from `docker-compose.network.yml`)
 
 ```yaml
 caddy:
   image: ${CADDY_IMAGE:-local/caddy-cf:latest}
-  depends_on:
-    - docker-socket-proxy
   ports:
     - "80:80"
-    - "443:443"
+    - "8443:443"                      # HTTPS on 8443; public 443 reserved for Xray Reality
+    - "100.106.194.32:443:443"        # Tailscale IP keeps direct 443
   volumes:
+    - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
     - ../data/caddy/data:/data
     - ../data/caddy/config:/config
   environment:
-    - CADDY_INGRESS_NETWORKS=${CADDY_INGRESS_NETWORKS:-homelab_net}
+    - BASE_DOMAIN=${BASE_DOMAIN}
     - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
-    - DOCKER_HOST=tcp://docker-socket-proxy:2375
   networks:
     - homelab_net
   extra_hosts:
@@ -52,9 +53,11 @@ Key things to note:
 
 | Setting | Purpose |
 |---------|---------|
-| `CADDY_INGRESS_NETWORKS` | Tells caddy-docker-proxy which Docker network to scan for labeled containers |
+| `8443:443` | Maps Caddy's internal HTTPS (443) to host port 8443 — public 443 is for Xray Reality |
+| `100.106.194.32:443:443` | Tailscale IP retains direct 443 binding for local HTTPS |
+| `Caddyfile:/etc/caddy/Caddyfile:ro` | Mounts the file-based routing config (read-only) |
+| `BASE_DOMAIN` | Domain used in Caddyfile site addresses |
 | `CLOUDFLARE_TOKEN` | API token for DNS-01 TLS challenge |
-| `DOCKER_HOST` | Points to the socket proxy instead of the real Docker socket |
 | `extra_hosts` → `host.docker.internal` | Allows Caddy to reach services running in `network_mode: host` |
 
 ---
@@ -474,3 +477,7 @@ Useful if you scale a service to multiple replicas.
 | `homelab/data/caddy/Caddyfile` | Static fallback config for LAN-only `:80` routes |
 | `homelab/data/caddy/data/` | Caddy persistent data (certs, ACME state) |
 | `homelab/data/caddy/config/` | Caddy auto-generated config |
+
+---
+
+*Last updated: May 2026*
