@@ -28,9 +28,10 @@ Quick-reference for reaching services in this homelab stack — from scripts, co
 | Readarr | `readarr` | 8787 | `/readarr` | `http://readarr:8787/readarr` | Not directly exposed |
 | qBittorrent | `qbittorrent` | 8080 | — | `http://qbittorrent:8080` | Not directly exposed |
 | Jellyfin | `jellyfin` | 8096 | — | `http://jellyfin:8096` | Not directly exposed |
-| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Ports 80/443 exposed to host |
+| Caddy | `caddy` | 80/443 | — | `http://caddy:80` | Port 80 + 8443 (HTTPS) exposed to host; public 443 reserved for Xray |
+| 3x-UI (Xray) | `3x-ui` | 26435/2096/443 | `/vpn` | `http://127.0.0.1:26435/vpn` | Port 443 (Reality), 26435 (panel), 2096 (subs) via `network_mode: host` |
 
-> **Caddy** acts as the ingress reverse proxy, routing external traffic to internal services. All other services are accessed through Caddy or directly via internal Docker DNS.
+> **Caddy** acts as the ingress reverse proxy, routing external traffic to internal services on port 80 (HTTP) and 8443 (HTTPS). **Xray Reality** owns port 443 on the host for VPN traffic — see `3x-ui-vpn-setup.md` for details. All other services are accessed through Caddy or directly via internal Docker DNS.
 
 ---
 
@@ -132,4 +133,4 @@ When a container needs to reach a service running directly on the host (e.g., Pl
 
 ---
 
-*Last updated: April 2026*
+*Last updated: May 2026*
