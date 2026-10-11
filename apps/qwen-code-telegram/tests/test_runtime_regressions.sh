@@ -19,10 +19,8 @@ cd "${ROOT}"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "SKIP: docker not available"
-  exit 0
-fi
+command -v docker >/dev/null 2>&1 \
+  || fail "docker is not installed; runtime regression tests require Docker"
 
 IMAGE="homelab/qwen-code-telegram:test"
 TEST_VOL_WORKSPACE="test-qwen-workspace-reg-$$"

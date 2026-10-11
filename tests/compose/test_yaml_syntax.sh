@@ -12,16 +12,6 @@ ensure_test_network() {
   docker network create homelab_net >/dev/null
 }
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "SKIP: docker is not installed; cannot run compose schema validation."
-  exit 0
-fi
-
-if ! docker info >/dev/null 2>&1; then
-  echo "SKIP: docker daemon is unavailable; cannot run compose schema validation."
-  exit 0
-fi
-
 ensure_test_network
 
 failures=0

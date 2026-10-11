@@ -16,6 +16,7 @@ SETUP_STEPS = {
     "Create homelab agent environment",
     "Create media agent environment",
     "Create qwen code Telegram environment",
+    "Create changed images environment",
 }
 
 
@@ -32,10 +33,13 @@ def _workflow_checks() -> dict[str, str]:
 
 def _local_checks() -> dict[str, str]:
     source = LOCAL_GATE.read_text(encoding="utf-8").replace("\\\n", " ")
-    matches = re.finditer(r'^\s*run_step "([^"]+)"\s+(.+)$', source, re.MULTILINE)
+    matches = re.finditer(
+        r'^\s*run_(?:docker_)?step "([^"]+)"\s+(.+)$', source, re.MULTILINE
+    )
     return {
         match.group(1): _signature(match.group(2), match.group(1))
         for match in matches
+        if not match.group(1).startswith("$")
         if match.group(1) != "Build local images"
     }
 

@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -119,6 +120,10 @@ jobs:
           python3 -m venv "${RUNNER_TEMP}/qwen-code-telegram-venv"
           "${RUNNER_TEMP}/qwen-code-telegram-venv/bin/pip" install -q pytest
 
+      - name: Create changed images environment
+        id: changed_images
+        run: python3 scripts/ci/changed_images.py --github-output "$GITHUB_OUTPUT"
+
       - name: Qwen code Telegram tests
         run: |
           set -euo pipefail
@@ -128,6 +133,10 @@ jobs:
           bash apps/qwen-code-telegram/tests/test_entrypoint.sh
           bash apps/qwen-code-telegram/tests/test_role_render.sh
           bash apps/qwen-code-telegram/tests/test_system_policy.sh
+
+      - name: Qwen runtime regressions
+        if: steps.changed_images.outputs.qwen-code-telegram == 'true'
+        run: bash scripts/ci/run-qwen-runtime-regressions.sh
 
       - name: Public readiness
         run: python3 scripts/ci/public-readiness.py
