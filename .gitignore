@@ -1,0 +1,91 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+apps/homelab-workers/.venv/
+apps/homelab-workers/.venv-tests/
+apps/homelab-workers/uv.lock
+
+.coverage
+.pytest_cache/
+**/.pytest_cache/
+
+# media-agent / apps build outputs
+media-agent/build/
+apps/media-agent/build/
+
+# Persistent runtime data (templates live under config/)
+data/
+
+# Local environment and secrets
+.env
+.env.local
+.env.*
+!.env.example
+infisical.env
+secrets/
+example-secrets/
+databases/
+cookies/
+certificates/
+*.cookie
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.db
+x-ui.db
+certs/
+
+# Local artifacts
+*.tar
+*.tar.gz
+*.tmp
+*.swp
+*.bak
+*.bak.*
+*.log
+logs/
+
+# Local helper binaries downloaded by bootstrap (gum/cloudflared)
+bin/
+
+# IDE / agent tooling (keep .cursorrules at repo root)
+.cursor/
+!.cursor/skills/
+!.cursor/skills/**
+.claude/
+.qoder/
+
+# Local directory listings
+tree.txt
+homelab-tree.txt
+
+# VPN diagnostic logs
+vpn-homelab.log
+vpn-china.log
+vpn-homelab-report.log
+vpn-china-report.log
+
+# Third-party skill submodule (install separately if needed)
+vendor/visual-explainer/
+
+
+data/nginx/logs/
+
+# Git worktrees (local isolation)
+.worktrees/
+
+# Infisical CLI workspace state (unused by this repo's REST-based flow)
+.infisical.json
+
+# Gas City
+.beads/*
+!.beads/identity.toml

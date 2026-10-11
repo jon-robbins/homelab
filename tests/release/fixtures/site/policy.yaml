@@ -1,0 +1,6 @@
+minimum_rollback:
+  beta: manual
+required_probes:
+  alpha: [alpha-route]
+  beta: [beta-route]
+gpu_profiles: []

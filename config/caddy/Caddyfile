@@ -1,0 +1,79 @@
+# Canonical public Caddy example. Site-specific routes belong in homelab-site.
+{
+	admin :2019
+	auto_https disable_redirects
+}
+{$BASE_DOMAIN:example.homelab.local} {
+	encode gzip zstd
+	@internal remote_ip 127.0.0.1
+	handle_path /dashboard* {
+		handle @internal {
+			reverse_proxy internal-dashboard:8080
+		}
+		handle {
+			respond "Unauthorized Access" 403
+		}
+	}
+	handle /sonarr* {
+		reverse_proxy sonarr:8989
+	}
+	handle /radarr* {
+		reverse_proxy radarr:7878
+	}
+	handle /prowlarr* {
+		reverse_proxy prowlarr:9696
+	}
+	handle /readarr* {
+		reverse_proxy readarr:8787
+	}
+	redir /bazarr /bazarr/ 301
+	handle /bazarr* {
+		reverse_proxy bazarr:6767
+	}
+	handle_path /overseerr* {
+		reverse_proxy overseerr:5055
+	}
+	handle_path /qbittorrent* {
+		reverse_proxy qbittorrent:8080
+	}
+	handle_path /autobrr* {
+		handle @internal {
+			reverse_proxy autobrr:7474
+		}
+		handle {
+			respond "Unauthorized Access" 403
+		}
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}
+
+:80 {
+	encode gzip zstd
+	handle /sonarr* {
+		reverse_proxy sonarr:8989
+	}
+	handle /radarr* {
+		reverse_proxy radarr:7878
+	}
+	handle /prowlarr* {
+		reverse_proxy prowlarr:9696
+	}
+	handle /readarr* {
+		reverse_proxy readarr:8787
+	}
+	redir /bazarr /bazarr/ 301
+	handle /bazarr* {
+		reverse_proxy bazarr:6767
+	}
+	handle_path /overseerr* {
+		reverse_proxy overseerr:5055
+	}
+	handle_path /qbittorrent* {
+		reverse_proxy qbittorrent:8080
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}

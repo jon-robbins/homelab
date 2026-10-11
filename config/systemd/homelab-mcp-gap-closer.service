@@ -1,0 +1,14 @@
+[Unit]
+Description=Homelab MCP gap closer (inbox sync + Cloud Agent)
+Documentation=file:///homelab/docs/mcp-gap-closer.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jon
+Group=jon
+WorkingDirectory=/homelab
+Environment=MCP_GAP_CLOSER_ENV=/homelab/data/secrets/mcp-gap-closer.env
+ExecStart=/homelab/scripts/ops/mcp-gap-inbox-sync.sh
+ExecStart=/homelab/scripts/ops/mcp-gap-cloud-runner.sh

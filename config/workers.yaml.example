@@ -1,0 +1,55 @@
+# ==============================================================================
+# HOMELAB WORKERS CONFIGURATION (config/workers.yaml)
+# ==============================================================================
+# Compose mounts this example by default. For live overrides, copy it to a runtime
+# path such as 'config/workers.local.yaml' and set WORKERS_CONFIG_PATH to that file.
+# Precedence: Environment Variables > config/workers.yaml > Python Dataclass Defaults.
+# ==============================================================================
+
+# --- Boot Orchestrator ---
+boot:
+  ingress_smoke:
+    enabled: true
+    required: true
+    wait_seconds: 90
+    timeout_seconds: 5
+    routes:
+      - name: qbittorrent
+        url: http://${TAILSCALE_IP}/qbittorrent/
+        host_header: example-homelab
+        accepted_statuses:
+          - 200
+          - 401
+          - 403
+
+# --- qBittorrent NVMe-to-HDD Offload Worker ---
+offload:
+  catchup_seconds: 3600
+  min_hdd_free_bytes: 10737418240
+  status_path: /state/status.json
+  status_max_age_seconds: 7200
+  # Put site-specific exclusions in private configuration.
+  excluded_tags: []
+  excluded_categories: []
+
+# --- Arr Missing Search Scheduler ---
+arr_missing_search:
+  enabled: false
+  hour: 4
+  minute: 15
+  cap: 50
+  sonarr_quota: 25
+  radarr_quota: 25
+  status_path: /state/status.json
+  lock_path: /state/search.lock
+  status_max_age_seconds: 90000
+
+# --- Plex Ratio-Ready Hardlinker ---
+plex_ratio_ready:
+  enabled: true
+  dry_run: true
+  interval_seconds: 300
+  status_path: /state/status.json
+  lock_path: /state/ready.lock
+  status_max_age_seconds: 900
+  min_video_bytes: 104857600

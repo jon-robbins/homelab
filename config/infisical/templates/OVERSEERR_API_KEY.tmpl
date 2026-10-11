@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab" "prod" "/arr" -}}
+{{- range . -}}
+{{- if eq .Key "OVERSEERR_API_KEY" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

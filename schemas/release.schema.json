@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://homelab.example/schemas/release.schema.json",
+  "title": "ReleaseRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+    "site_id": { "$ref": "#/$defs/name" },
+    "sequence": { "$ref": "#/$defs/sequence" },
+    "tooling_git_sha": { "$ref": "#/$defs/gitSha" },
+    "sources": { "$ref": "#/$defs/sources" },
+    "images": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/imageRef" },
+      "propertyNames": { "$ref": "#/$defs/name" }
+    },
+    "bundle_sha256": { "$ref": "#/$defs/digest" },
+    "rollback_floor": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["schema", "site_id", "sequence", "tooling_git_sha", "sources", "images", "bundle_sha256", "rollback_floor"],
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sequence": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "imageRef": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$" },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "homelab": { "$ref": "#/$defs/gitSha" },
+        "homelab_site": { "$ref": "#/$defs/gitSha" },
+        "tracker_integrations": { "$ref": "#/$defs/gitSha" }
+      },
+      "required": ["homelab", "homelab_site"]
+    }
+  }
+}

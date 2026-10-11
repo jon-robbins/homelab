@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab" "prod" "/qbt" -}}
+{{- range . -}}
+{{- if eq .Key "QBITTORRENT_USERNAME" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

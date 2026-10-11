@@ -1,0 +1,43 @@
+name: Post-merge credential-free builds
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: apps/homelab-agent/Dockerfile
+            context: apps/homelab-agent
+            image: homelab-agent
+          - dockerfile: apps/homelab-mcp/Dockerfile
+            context: .
+            image: homelab-mcp
+          - dockerfile: apps/homelab-workers/Dockerfile
+            context: apps/homelab-workers
+            image: homelab-workers
+          - dockerfile: apps/media-agent/Dockerfile
+            context: apps/media-agent
+            image: media-agent
+          - dockerfile: apps/qwen-code-telegram/Dockerfile
+            context: apps/qwen-code-telegram
+            image: qwen-code-telegram
+          - dockerfile: apps/qwen-serve/Dockerfile
+            context: apps/qwen-serve
+            image: qwen-serve
+          - dockerfile: config/caddy/Dockerfile
+            context: config/caddy
+            image: caddy
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+      image: ${{ matrix.image }}
+      artifact-name: oci-${{ matrix.image }}

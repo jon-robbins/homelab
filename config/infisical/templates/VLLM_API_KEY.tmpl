@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab" "prod" "/llm" -}}
+{{- range . -}}
+{{- if eq .Key "VLLM_API_KEY" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

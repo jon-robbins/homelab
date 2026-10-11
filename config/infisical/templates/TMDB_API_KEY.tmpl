@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab" "prod" "/media" -}}
+{{- range . -}}
+{{- if eq .Key "TMDB_API_KEY" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

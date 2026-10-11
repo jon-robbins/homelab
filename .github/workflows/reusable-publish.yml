@@ -1,0 +1,48 @@
+name: Reusable byte-copy publisher
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        required: true
+        type: string
+      destination:
+        required: true
+        type: string
+      manifest-digest:
+        required: true
+        type: string
+    secrets:
+      GHCR_PUBLISH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Download OCI artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: artifact
+
+      - name: Copy and verify OCI artifact
+        env:
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+        run: >-
+          python3 scripts/release/artifacts.py publish
+          --artifact artifact/oci-layout.tar
+          --destination "${{ inputs.destination }}"
+          --expected-manifest-digest "${{ inputs.manifest-digest }}"

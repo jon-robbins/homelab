@@ -1,0 +1,11 @@
+{
+  "destinations": [
+    "ghcr.io/jon-robbins/homelab/homelab-agent",
+    "ghcr.io/jon-robbins/homelab/homelab-mcp",
+    "ghcr.io/jon-robbins/homelab/homelab-workers",
+    "ghcr.io/jon-robbins/homelab/media-agent",
+    "ghcr.io/jon-robbins/homelab/qwen-code-telegram",
+    "ghcr.io/jon-robbins/homelab/qwen-serve",
+    "ghcr.io/jon-robbins/homelab/caddy"
+  ]
+}

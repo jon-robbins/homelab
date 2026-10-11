@@ -1,0 +1,11 @@
+{
+  "services": {
+    "web": {
+      "image": "ghcr.io/example/web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "environment": {"MODE": "production"},
+      "volumes": [{"type": "bind", "source": "data/web", "target": "/data", "bind": {"create_host_path": false}}]
+    },
+    "cache": {"image": "redis:7", "volumes": [{"type": "volume", "source": "cache-data", "target": "/data"}]}
+  },
+  "volumes": {"cache-data": {}}
+}

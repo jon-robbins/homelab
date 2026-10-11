@@ -1,0 +1,17 @@
+[Unit]
+Description=Homelab Infisical Agent
+Documentation=file:///homelab/docs/secrets-management.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jon
+Group=jon
+WorkingDirectory=/homelab
+ExecStart=/usr/bin/infisical agent --config /etc/infisical-agent/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

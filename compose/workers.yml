@@ -1,0 +1,103 @@
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+x-homelab-worker: &homelab-worker
+  build:
+    context: ../apps/homelab-workers
+    dockerfile: Dockerfile
+  user: "${PUID:-1000}:${PGID:-1000}"
+  networks: [homelab_net]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  restart: unless-stopped
+  logging: *default-logging
+  pids_limit: 100
+
+services:
+  homelab-qbt-offload:
+    <<: *homelab-worker
+    image: local/homelab-qbt-offload:latest
+    entrypoint: ["homelab-qbt-offload"]
+    command: ["--serve", "--host", "0.0.0.0", "--port", "8099"]
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+    secrets:
+      - QBITTORRENT_USERNAME
+      - QBITTORRENT_PASSWORD
+    environment:
+      TZ: ${TZ}
+      QBITTORRENT_INTERNAL_URL: ${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      QBT_OFFLOAD_CATCHUP_SECONDS: ${QBT_OFFLOAD_CATCHUP_SECONDS:-3600}
+      QBT_OFFLOAD_MIN_HDD_FREE_BYTES: ${QBT_OFFLOAD_MIN_HDD_FREE_BYTES:-10737418240}
+      QBT_OFFLOAD_STATUS_MAX_AGE_SECONDS: ${QBT_OFFLOAD_STATUS_MAX_AGE_SECONDS:-7200}
+      QBT_OFFLOAD_EXCLUDED_TAGS: ${QBT_OFFLOAD_EXCLUDED_TAGS:-}
+      QBT_OFFLOAD_EXCLUDED_CATEGORIES: ${QBT_OFFLOAD_EXCLUDED_CATEGORIES:-}
+      QBT_OFFLOAD_STATUS_PATH: /state/status.json
+      MEDIA_NVME_PATH: ${MEDIA_NVME_PATH:-/mnt/media-nvme}
+      MEDIA_HDD_PATH: ${MEDIA_HDD_PATH:-/mnt/media-hdd}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/qbt-offload:/state
+      - ${WORKERS_CONFIG_PATH:-../config/workers.yaml.example}:/config/workers.yaml:ro
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}:${MEDIA_NVME_PATH:-/mnt/media-nvme}
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}:${MEDIA_HDD_PATH:-/mnt/media-hdd}
+    healthcheck:
+      test: ["CMD", "homelab-qbt-offload", "--healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  homelab-qbt-events:
+    <<: *homelab-worker
+    image: local/homelab-qbt-events:latest
+    entrypoint: ["homelab-qbt-events"]
+    command: ["--serve", "--host", "0.0.0.0", "--port", "8101"]
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+    secrets:
+      - QBITTORRENT_USERNAME
+      - QBITTORRENT_PASSWORD
+    environment:
+      TZ: ${TZ:-UTC}
+      QBITTORRENT_INTERNAL_URL: ${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+      QBT_EVENTS_SESSION_PATH: /state/session.json
+      QBT_EVENTS_STATUS_PATH: /state/status.json
+      QBT_EVENTS_REENFORCE_SECONDS: ${QBT_EVENTS_REENFORCE_SECONDS:-45}
+    volumes:
+      # Host dir must be owned by PUID:PGID (setup.sh creates data/qbt-events).
+      # If Docker auto-creates it as root, session writes fail with Permission denied.
+      - ${APP_DATA_DIR:-../data}/qbt-events:/state
+    healthcheck:
+      test: ["CMD", "homelab-qbt-events", "--healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  homelab-arr-missing-search:
+    <<: *homelab-worker
+    image: local/homelab-arr-missing-search:latest
+    entrypoint: ["homelab-arr-missing-search"]
+    depends_on:
+      sonarr:
+        condition: service_healthy
+      radarr:
+        condition: service_healthy
+    secrets:
+      - RADARR_API_KEY
+      - SONARR_API_KEY
+    environment:
+      TZ: ${TZ:-UTC}
+      ARR_MISSING_SEARCH_ENABLED: ${ARR_MISSING_SEARCH_ENABLED:-0}
+      ARR_MISSING_SEARCH_STATUS_PATH: /state/status.json
+    volumes:
+      - ${APP_DATA_DIR:-../data}/arr-missing-search:/state
+    healthcheck:
+      test: ["CMD", "homelab-arr-missing-search", "--healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

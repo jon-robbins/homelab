@@ -1,0 +1,69 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-homelab-worker: &homelab-worker
+  build:
+    context: ../apps/homelab-workers
+    dockerfile: Dockerfile
+  user: "${PUID:-1000}:${PGID:-1000}"
+  networks:
+    - homelab_net
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  restart: unless-stopped
+  logging: *default-logging
+  pids_limit: 100
+
+x-qbt-client-env: &qbt-client-env
+  TZ: ${TZ}
+  QBITTORRENT_INTERNAL_URL: ${QBITTORRENT_INTERNAL_URL:-http://qbittorrent:8080}
+
+x-qbt-client-secrets: &qbt-client-secrets
+  - QBITTORRENT_USERNAME
+  - QBITTORRENT_PASSWORD
+
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2
+    networks:
+      - homelab_net
+    ports:
+      - "${QBT_PEER_PORT:-51423}:${QBT_PEER_PORT:-51423}/tcp"
+      - "${QBT_PEER_PORT:-51423}:${QBT_PEER_PORT:-51423}/udp"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${APP_DATA_DIR:-../data}/qbittorrent/config:/config
+      - ${APP_DATA_DIR:-../data}/qbittorrent/torrent-trackers:/torrent-trackers
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+      - ${MEDIA_NVME_PATH:-./example-data/media-nvme}/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/.seed/Seeding:/seeding
+      - ../config/qbittorrent/autorun-offload.sh:/scripts/autorun-offload.sh:ro
+      # Completion hook entrypoint: set autorun_program=/scripts/dispatcher.sh "%I" after deploy
+      - ../config/qbittorrent/dispatcher.sh:/scripts/dispatcher.sh:ro
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 200

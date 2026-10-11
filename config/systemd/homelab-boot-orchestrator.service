@@ -1,0 +1,30 @@
+[Unit]
+Description=Homelab boot orchestrator (mounts, Docker binds, Tailscale, VPN)
+Documentation=file:///homelab/docs/boot-orchestrator.md
+After=docker.service homelab-infisical-agent.service mnt-media\x2dhdd.mount mnt-media\x2dnvme.mount
+Wants=docker.service homelab-infisical-agent.service
+# Prevent double Tailscale recreate if the legacy unit is still enabled.
+Conflicts=homelab-tailscale-binds.service
+# Cap retries: unlimited Restart + force-recreate would churn the media stack.
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=jon
+Group=jon
+WorkingDirectory=/homelab
+Environment=HOMELAB_BOOT_MOUNT_WAIT_SEC=120
+Environment=HOMELAB_BOOT_DOCKER_WAIT_SEC=60
+Environment=TAILSCALE_BIND_WAIT_SEC=180
+Environment=HOMELAB_BOOT_VPN_WAIT_SEC=120
+Environment=HOMELAB_BOOT_SETTLE_SEC=120
+# MUST be the runtime host checkout, not a git worktree.
+ExecStart=/homelab/scripts/ops/homelab-boot-orchestrator.sh
+# Retry wait failures (mounts/Docker/TS) a few times; script skips recreates already done this boot.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

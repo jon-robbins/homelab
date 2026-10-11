@@ -1,0 +1,11 @@
+# Copy relevant lines into data/autobrr/config.toml after first autobrr start.
+# data/autobrr/ is gitignored — TL RSS key and credentials stay there.
+
+host = "0.0.0.0"
+port = 7474
+
+# Required for Caddy handle_path subpath (see docs/example-autobrr-ops.md)
+baseUrl = "/autobrr/"
+baseUrlModeLegacy = true
+
+# sessionSecret — autobrr generates on first boot; do not commit

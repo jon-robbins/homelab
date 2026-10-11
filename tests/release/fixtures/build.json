@@ -1,0 +1,1 @@
+{"services":{"app":{"build":{"context":"."},"image":"example/app"}}}

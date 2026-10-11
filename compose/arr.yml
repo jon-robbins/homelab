@@ -1,0 +1,203 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr@sha256:7962759d99d7e125e108e0f5e7f3cdbcd36161776d058d1d9b7153b92ef1af9e
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    shm_size: "2gb"
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8191/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 2g
+    pids_limit: 500
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr@sha256:c5de2a8758a05594319263e7691c1dce56899442ed1720d6eca216c0958f4caf
+    networks:
+      - homelab_net
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/prowlarr:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9696 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
+    networks:
+      - homelab_net
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/sonarr:/config
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/.seed/Seeding:/seeding
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8989 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
+  radarr:
+    image: lscr.io/linuxserver/radarr@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d
+    networks:
+      - homelab_net
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/radarr:/config
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/.seed/Seeding:/seeding
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7878 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:0.4.19-nightly@sha256:4f291128d1a5538be73c2a30473d7cdd0820e223dc8b8533b0cbc5659000dcbe
+    networks:
+      - homelab_net
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/readarr:/config
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
+      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8787 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr@sha256:cb57afc3bd35558e1e7062658f9d4d18a0b4c474f10afe55f0ccfd867025f24f
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_DATA_DIR:-../data}/bazarr:/config
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
+      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:6767/bazarr/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500
+
+  overseerr:
+    image: ghcr.io/seerr-team/seerr@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad
+    init: true
+    entrypoint: ["/custom-entrypoint.sh"]
+    networks:
+      - homelab_net
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - TMDB_API_KEY
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+      - PORT=5055
+    ports:
+      - "127.0.0.1:5055:5055"
+    volumes:
+      - ${APP_DATA_DIR:-../data}/overseerr:/app/config
+      - ../config/seerr/entrypoint.sh:/custom-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5055/api/v1/settings/public >/dev/null || exit 1"]
+      start_period: 40s
+      timeout: 5s
+      interval: 20s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 500

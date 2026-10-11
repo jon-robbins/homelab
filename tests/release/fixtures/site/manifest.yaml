@@ -1,0 +1,16 @@
+schema: 1
+applications:
+  - name: alpha
+    image: registry.invalid/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    rollback: automatic
+    depends_on: []
+    secrets: []
+    health_probe: alpha-health
+    semantic_probes: [alpha-route]
+  - name: beta
+    image: registry.invalid/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    rollback: manual
+    depends_on: [alpha]
+    secrets: []
+    health_probe: beta-health
+    semantic_probes: [beta-route]

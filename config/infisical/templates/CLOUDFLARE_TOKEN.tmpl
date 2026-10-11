@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab" "prod" "/network" -}}
+{{- range . -}}
+{{- if eq .Key "CLOUDFLARE_TOKEN" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

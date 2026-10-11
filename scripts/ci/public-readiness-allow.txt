@@ -1,0 +1,34 @@
+# Reviewed false positives: one tracked path and one rule per line.
+scripts/ci/public-readiness.py private-network # Scanner documentation networks and private ranges are regex fixtures.
+scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain token-shaped examples by design.
+scripts/release/compose_policy.py token-shaped # Compose variable parser regex is not a credential.
+tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
+tests/ops/test_ci_local_placeholders.sh token-shaped # Test placeholder is deliberately synthetic.
+tests/ops/test_infisical_agent_config.py token-shaped # Test credential is deliberately synthetic.
+tests/ops/test_infisical_agent_pilot_contract.sh token-shaped # Test credential is deliberately synthetic.
+tests/ops/test_infisical_agent_reload.py token-shaped # Test credentials are deliberately synthetic.
+tests/ops/test_managed_secrets.py token-shaped # Test credentials are deliberately synthetic.
+tests/runtime/test_seerr_download_path_health.sh token-shaped # Test credential is deliberately synthetic.
+tests/ci/test_public_readiness.py private-network # Test inputs intentionally exercise private-network detection.
+tests/ci/test_public_readiness.py token-shaped # Test inputs intentionally exercise token-shaped detection.
+.gitleaks.toml token-shaped # Synthetic credential fixture used by the leak scanner.
+apps/homelab-workers/src/homelab_workers/mcp_gap_closer/redact.py token-shaped # Synthetic token prefixes used by the redaction regexes.
+apps/homelab-workers/src/homelab_workers/tests/test_autobrr_push_verify.py token-shaped # Synthetic release-name fixtures.
+apps/homelab-workers/src/homelab_workers/tests/test_mcp_gap_redact.py token-shaped # Synthetic credential fixture.
+apps/homelab-workers/src/homelab_workers/tests/test_qbt_exclusive.py token-shaped # Synthetic release-name fixtures.
+apps/qwen-code-telegram/tests/test_runtime_regressions.sh token-shaped # Synthetic installed-runtime path fixtures.
+config/seerr/entrypoint.sh token-shaped # Synthetic JavaScript replacement fixture.
+scripts/lib/managed-secrets.sh token-shaped # Synthetic shell variable-name parser fixture.
+scripts/ops/ensure-sonarr-scene-mappings.sh token-shaped # Synthetic title used by the local API check.
+tests/boundary/test_pr02_task5_compose.py token-shaped # Synthetic path fixture in a boundary assertion.
+tests/compose/test_arr_missing_search_service.sh token-shaped # Synthetic Compose service-name fixture.
+tests/compose/test_caddy_labels.sh token-shaped # Synthetic YAML key parser fixture.
+tests/compose/test_env_completeness.sh token-shaped # Synthetic environment-name parser fixtures.
+tests/compose/test_host_mode_whitelist.sh token-shaped # Synthetic YAML key parser fixture.
+tests/compose/test_infisical_agent_files.sh token-shaped # Synthetic secret-name fixture.
+tests/compose/test_infisical_secrets.sh token-shaped # Synthetic secret-name fixture.
+tests/compose/test_network_definitions.sh token-shaped # Synthetic YAML key parser fixture.
+tests/compose/test_seerr_entrypoint.sh token-shaped # Synthetic YAML key parser fixture.
+tests/integration/telegram_reports.py token-shaped # Synthetic Telegram token-shape regex.
+tests/integration/test_telegram_cases.py token-shaped # Synthetic Telegram token fixtures.
+apps/qwen-serve/requirements.lock.txt private-network # Public dependency version is not an IP address.

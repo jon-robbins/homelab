@@ -1,0 +1,14 @@
+{
+  "tv-sonarr": {
+    "save_path": "tv"
+  },
+  "movies-radarr": {
+    "save_path": "movies"
+  },
+  "seed-staging": {
+    "save_path": "/downloads/seed-staging"
+  },
+  "prowlarr": {
+    "save_path": "prowlarr"
+  }
+}

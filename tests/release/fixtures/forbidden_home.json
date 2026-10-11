@@ -1,0 +1,1 @@
+{"services":{"app":{"image":"example/app","volumes":[{"type":"bind","source":"/root","target":"/data","bind":{"create_host_path":false}}]}}}

@@ -1,0 +1,34 @@
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /compose
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/homelab-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/homelab-mcp
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/homelab-workers
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/media-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/qwen-code-telegram
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/qwen-serve
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /config/caddy
+    schedule:
+      interval: weekly

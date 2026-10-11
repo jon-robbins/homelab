@@ -1,0 +1,37 @@
+[project]
+name = "homelab-workers"
+version = "0.1.0"
+description = "Python workers for homelab automation"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4,<0.16", "pytest-httpx>=0.30"]
+mcp-gap = ["cursor-sdk>=1.0.24"]
+
+[project.scripts]
+qbt-seed-slots = "homelab_workers.cli.qbt_seed_slots:main"
+qbt-arr-post-import = "homelab_workers.cli.qbt_arr_post_import:main"
+homelab-arr-missing-search = "homelab_workers.cli.arr_missing_search:main"
+homelab-qbt-offload = "homelab_workers.cli.qbt_offload:main"
+homelab-qbt-events = "homelab_workers.cli.qbt_events:main"
+homelab-mcp-gap-inbox-sync = "homelab_workers.cli.mcp_gap_inbox_sync:main"
+homelab-mcp-gap-cloud-runner = "homelab_workers.cli.mcp_gap_cloud_runner:main"
+homelab-seerr-request-reconciler = "homelab_workers.cli.seerr_reconciler:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["src/homelab_workers/tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
