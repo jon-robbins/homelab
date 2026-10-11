@@ -48,7 +48,7 @@ exit 0
 MOCK
 chmod +x "$TMP_DIR/bin/homelab-compose.py"
 
-# 1. 'nightly', 'e2e', and 'unknown-scope' must exit 2 before invoking anything.
+# 1. Retired and unknown scopes must exit 2 before invoking anything.
 for scope in nightly e2e unknown-scope; do
   > "$SENTINEL"
   set +e
@@ -56,7 +56,7 @@ for scope in nightly e2e unknown-scope; do
   code=$?
   set -e
   if [[ $code -ne 2 ]]; then fail "Scope '$scope' exited with $code, expected 2"; fi
-  if [[ "$out" != *"FATAL: Scope '$scope' is quarantined."* ]]; then fail "Scope '$scope' missing fatal quarantine message"; fi
+  if [[ "$out" != *"FATAL: Scope '$scope' is invalid."* ]]; then fail "Scope '$scope' missing fatal invalid-scope message"; fi
   if [[ -s "$SENTINEL" ]]; then fail "Scope '$scope' invoked commands before exit: $(cat "$SENTINEL")"; fi
   pass "Scope '$scope' quarantined correctly"
 done

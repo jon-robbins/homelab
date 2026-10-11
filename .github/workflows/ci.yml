@@ -35,15 +35,16 @@ jobs:
         run: |
           set -euo pipefail
           WORKERS_DIR="${GITHUB_WORKSPACE}/apps/homelab-workers"
-          python3 -m venv "${WORKERS_DIR}/.venv"
-          "${WORKERS_DIR}/.venv/bin/pip" install -e "${WORKERS_DIR}[dev]"
-          echo "${GITHUB_WORKSPACE}/apps/homelab-workers/.venv/bin" >> "${GITHUB_PATH}"
+          python3 -m venv "${RUNNER_TEMP}/workers-venv"
+          "${RUNNER_TEMP}/workers-venv/bin/pip" install -q -e "${WORKERS_DIR}[dev]"
 
       - name: Workflow security policy
-        run: python3 -m pytest -q tests/ci/test_workflow_security.py
+        run: >-
+          "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_workflow_security.py
 
       - name: Release pytest
-        run: python3 -m pytest -q tests/release
+        run: >-
+          "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/release
 
       - name: Compose config with synthetic secrets
         run: bash "${GITHUB_WORKSPACE}/scripts/ci/compose-config-check.sh"
@@ -55,7 +56,8 @@ jobs:
         run: bash "${GITHUB_WORKSPACE}/tests/ops/run_tests.sh"
 
       - name: Package pytest
-        run: python3 -m pytest -q apps/homelab-workers/src/homelab_workers/tests
+        run: >-
+          "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q apps/homelab-workers/src/homelab_workers/tests
 
       - name: MCP pytest
         run: |
@@ -67,23 +69,60 @@ jobs:
           "${RUNNER_TEMP}/mcp-venv/bin/python" -m pytest -q
 
       - name: Package ruff
-        run: ruff check apps/homelab-workers/src apps/homelab-workers/src/homelab_workers/tests
+        run: >-
+          "${RUNNER_TEMP}/workers-venv/bin/ruff" check apps/homelab-workers/src apps/homelab-workers/src/homelab_workers/tests
+
+      - name: Create homelab agent environment
+        run: |
+          set -euo pipefail
+          AGENT_DIR="${GITHUB_WORKSPACE}/apps/homelab-agent"
+          python3 -m venv "${RUNNER_TEMP}/homelab-agent-venv"
+          "${RUNNER_TEMP}/homelab-agent-venv/bin/pip" install -q -e "${AGENT_DIR}[dev]"
+
+      - name: Homelab agent pytest
+        run: |
+          cd "${GITHUB_WORKSPACE}/apps/homelab-agent"
+          "${RUNNER_TEMP}/homelab-agent-venv/bin/python" -m pytest -W "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning" -q
+
+      - name: Homelab agent ruff
+        run: >-
+          "${RUNNER_TEMP}/homelab-agent-venv/bin/ruff" check apps/homelab-agent/app apps/homelab-agent/tests
 
       - name: Create media agent environment
         run: |
           set -euo pipefail
           MEDIA_DIR="${GITHUB_WORKSPACE}/apps/media-agent"
-          python3 -m venv "${MEDIA_DIR}/.venv"
-          "${MEDIA_DIR}/.venv/bin/pip" install -e "${MEDIA_DIR}[dev]"
-          echo "${GITHUB_WORKSPACE}/apps/media-agent/.venv/bin" >> "${GITHUB_PATH}"
+          python3 -m venv "${RUNNER_TEMP}/media-agent-venv"
+          "${RUNNER_TEMP}/media-agent-venv/bin/pip" install -q -e "${MEDIA_DIR}[dev]"
 
       - name: Media agent pytest
         env:
           PYTHONWARNINGS: "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning"
-        run: python3 -m pytest -W "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning" -q apps/media-agent/tests
+        run: >-
+          "${RUNNER_TEMP}/media-agent-venv/bin/python" -m pytest -W "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning" -q apps/media-agent/tests
 
       - name: Media agent ruff
-        run: ruff check apps/media-agent/app apps/media-agent/tests
+        run: >-
+          "${RUNNER_TEMP}/media-agent-venv/bin/ruff" check apps/media-agent/app apps/media-agent/tests
+
+      - name: Create qwen code Telegram environment
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/qwen-code-telegram-venv"
+          "${RUNNER_TEMP}/qwen-code-telegram-venv/bin/pip" install -q pytest
+
+      - name: Qwen code Telegram tests
+        run: |
+          set -euo pipefail
+          export PATH="${RUNNER_TEMP}/qwen-code-telegram-venv/bin:${PATH}"
+          PYTHONPATH="${GITHUB_WORKSPACE}/apps/homelab-mcp/src" \
+            "${RUNNER_TEMP}/qwen-code-telegram-venv/bin/python" -m pytest -q apps/qwen-code-telegram/tests/test_response_contract.py
+          bash apps/qwen-code-telegram/tests/test_entrypoint.sh
+          bash apps/qwen-code-telegram/tests/test_role_render.sh
+          bash apps/qwen-code-telegram/tests/test_system_policy.sh
+
+      - name: Public readiness
+        run: python3 scripts/ci/public-readiness.py
 
       - name: Bash syntax
         run: |

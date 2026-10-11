@@ -240,11 +240,11 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertLess(worker_setup_index, ops_index)
 
         worker_setup = step_by_name["Create workers environment"]["run"]
-        self.assertIn('apps/homelab-workers/.venv/bin" >> "${GITHUB_PATH}"', worker_setup)
-        self.assertIn('pip" install -e "${WORKERS_DIR}[dev]"', worker_setup)
-        self.assertEqual(
+        self.assertIn('"${RUNNER_TEMP}/workers-venv/bin/pip" install -q -e "${WORKERS_DIR}[dev]"', worker_setup)
+        self.assertIn('python3 -m venv "${RUNNER_TEMP}/workers-venv"', worker_setup)
+        self.assertIn(
+            '"${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_workflow_security.py',
             step_by_name["Workflow security policy"]["run"],
-            "python3 -m pytest -q tests/ci/test_workflow_security.py",
         )
 
         self.assertEqual(
@@ -259,8 +259,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
 
         media_setup = step_by_name["Create media agent environment"]["run"]
-        self.assertIn('apps/media-agent/.venv/bin" >> "${GITHUB_PATH}"', media_setup)
-        self.assertIn('pip" install -e "${MEDIA_DIR}[dev]"', media_setup)
+        self.assertIn('"${RUNNER_TEMP}/media-agent-venv/bin/pip" install -q -e "${MEDIA_DIR}[dev]"', media_setup)
+        self.assertIn('python3 -m venv "${RUNNER_TEMP}/media-agent-venv"', media_setup)
         self.assertIsNone(
             step_by_name["Package pytest"].get("working-directory")
         )
