@@ -17,11 +17,6 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! docker info >/dev/null 2>&1; then
-  echo "SKIP: docker daemon is unavailable; cannot run compose schema validation."
-  exit 0
-fi
-
 ensure_test_network
 
 failures=0
