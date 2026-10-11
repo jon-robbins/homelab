@@ -89,3 +89,6 @@ data/nginx/logs/
 # Gas City
 .beads/*
 !.beads/identity.toml
+
+# The qwen-code-telegram image ships this script; keep it despite the bin/ rule above.
+!apps/qwen-code-telegram/files/usr/local/bin/
