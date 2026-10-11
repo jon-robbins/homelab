@@ -42,6 +42,10 @@ jobs:
         run: >-
           "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_workflow_security.py
 
+      - name: CI step parity
+        run: >-
+          "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_ci_step_parity.py
+
       - name: Release pytest
         run: >-
           "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/release
@@ -59,12 +63,16 @@ jobs:
         run: >-
           "${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q apps/homelab-workers/src/homelab_workers/tests
 
-      - name: MCP pytest
+      - name: Create MCP environment
         run: |
           set -euo pipefail
           python3 -m venv "${RUNNER_TEMP}/mcp-venv"
           "${RUNNER_TEMP}/mcp-venv/bin/pip" install -q "${GITHUB_WORKSPACE}/apps/homelab-workers" \
             -e "${GITHUB_WORKSPACE}/apps/homelab-mcp" pytest pytest-asyncio pytest-httpx respx
+
+      - name: MCP pytest
+        run: |
+          set -euo pipefail
           cd "${GITHUB_WORKSPACE}/apps/homelab-mcp"
           "${RUNNER_TEMP}/mcp-venv/bin/python" -m pytest -q
 
@@ -158,6 +166,9 @@ jobs:
               print("README must contain at least one mermaid block", file=sys.stderr)
               sys.exit(1)
           PY
+
+      - name: Documentation tests
+        run: bash "${GITHUB_WORKSPACE}/tests/docs/run_tests.sh"
 
   gitleaks:
     if: github.event_name == 'pull_request'

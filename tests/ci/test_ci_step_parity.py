@@ -3,34 +3,73 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPECTED = (
-    "Workflow security policy",
-    "Release pytest",
-    "Compose config with synthetic secrets",
-    "Compose shell tests",
-    "Ops shell tests",
-    "Package pytest",
-    "MCP pytest",
-    "Package ruff",
-    "Homelab agent pytest",
-    "Homelab agent ruff",
-    "Media agent pytest",
-    "Media agent ruff",
-    "Qwen code Telegram tests",
-    "Public readiness",
-    "Bash syntax",
-    "README mermaid blocks",
-)
+WORKFLOW = ROOT / ".github/workflows/ci.yml"
+LOCAL_GATE = ROOT / "scripts/ci/ci-local.sh"
+SETUP_STEPS = {
+    "Checkout",
+    "Set up Python",
+    "Create workers environment",
+    "Create homelab agent environment",
+    "Create media agent environment",
+    "Create qwen code Telegram environment",
+}
 
 
-def test_validate_step_names_match_between_workflow_and_local_gate() -> None:
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    validate = workflow.split("\n  gitleaks:", 1)[0]
-    workflow_names = tuple(re.findall(r"^      - name: (.+)$", validate, re.MULTILINE))
-    local = (ROOT / "scripts/ci/ci-local.sh").read_text(encoding="utf-8")
-    local_names = tuple(re.findall(r'^  run_step "([^"]+)"', local, re.MULTILINE))
+def _workflow_checks() -> dict[str, str]:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return {
+        step["name"]: _signature(step.get("run", ""), step["name"])
+        for step in workflow["jobs"]["validate"]["steps"]
+        if "name" in step
+        and step["name"] not in SETUP_STEPS
+        and not step["name"].startswith("Create ")
+    }
 
-    assert set(workflow_names) >= set(EXPECTED)
-    assert set(local_names) >= set(EXPECTED)
+
+def _local_checks() -> dict[str, str]:
+    source = LOCAL_GATE.read_text(encoding="utf-8").replace("\\\n", " ")
+    matches = re.finditer(r'^\s*run_step "([^"]+)"\s+(.+)$', source, re.MULTILINE)
+    return {
+        match.group(1): _signature(match.group(2), match.group(1))
+        for match in matches
+        if match.group(1) != "Build local images"
+    }
+
+
+def _signature(command: str, name: str) -> str:
+    command = command.replace(str(ROOT), "")
+    command = command.replace("${ROOT}/", "")
+    command = command.replace("${WORKERS_DIR}", "apps/homelab-workers")
+    command = command.replace("${GITHUB_WORKSPACE}", "").replace("${ROOT}", "")
+    command = command.replace("${RUNNER_TEMP}", "VENV").replace("${CI_TMP}", "VENV")
+    command = re.sub(r"(?:\$\{?\w+_VENV\}?|VENV/[^ ]+-venv)/bin", "VENV/bin", command)
+    command = re.sub(r"['\"]", "", command)
+    command = re.sub(r"set -euo pipefail\s*", "", command)
+    command = re.sub(r"(?:bash -c\s+)?cd [^&\n]+(?:\s+&&)?\s*", "", command)
+    command = re.sub(r"export PATH=[^&\n]+ &&\s*", "", command)
+    command = re.sub(r"export PATH=[^\\\n]+(?:\\\n)?\s*", "", command)
+    command = re.sub(r"PYTHONPATH=[^ ]+\s+", "", command)
+    command = command.replace("&&", " ")
+    command = command.replace("\\\n", " ")
+    command = (
+        command.replace("/apps/", "apps/")
+        .replace("/tests/", "tests/")
+        .replace("/scripts/", "scripts/")
+    )
+    if "bash -n" in command or "check_bash_syntax" in command:
+        return "bash -n"
+    if "mermaid" in command or name == "README mermaid blocks":
+        return "README mermaid check"
+    return " ".join(command.split())
+
+
+def test_validate_step_names_and_commands_match_between_gates() -> None:
+    workflow_checks = _workflow_checks()
+    local_checks = _local_checks()
+
+    assert local_checks == workflow_checks
+    assert "--local" not in LOCAL_GATE.read_text(encoding="utf-8")

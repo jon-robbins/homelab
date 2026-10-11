@@ -45,7 +45,7 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "compose" || "$SCOPE" == "validate" ]]; t
 fi
 
 if [[ "$SCOPE" == "all" || "$SCOPE" == "compose" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
-  run_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh" --local
+  run_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh"
 fi
 
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
@@ -67,23 +67,28 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
   python3 -m venv "$WORKERS_VENV"
   "$WORKERS_VENV/bin/pip" install -q -e "${WORKERS_DIR}[dev]"
   run_step "Workflow security policy" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_workflow_security.py"
+  run_step "CI step parity" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_ci_step_parity.py"
   run_step "Release pytest" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/release"
   run_step "Package pytest" "$WORKERS_VENV/bin/python" -m pytest -q "${WORKERS_DIR}/src/homelab_workers/tests"
   run_step "Package ruff" "$WORKERS_VENV/bin/ruff" check "${WORKERS_DIR}/src" "${WORKERS_DIR}/src/homelab_workers/tests"
 
   python3 -m venv "$MCP_VENV"
-  run_step "MCP pytest" bash -c "${MCP_VENV}/bin/pip install -q '${WORKERS_DIR}' -e '${ROOT}/apps/homelab-mcp' pytest pytest-asyncio pytest-httpx respx && cd '${ROOT}/apps/homelab-mcp' && '${MCP_VENV}/bin/python' -m pytest -q"
+  "${MCP_VENV}/bin/pip" install -q "${WORKERS_DIR}" -e "${ROOT}/apps/homelab-mcp" pytest pytest-asyncio pytest-httpx respx
+  run_step "MCP pytest" bash -c "cd '${ROOT}/apps/homelab-mcp' && '${MCP_VENV}/bin/python' -m pytest -q"
 
   python3 -m venv "$AGENT_VENV"
-  run_step "Homelab agent pytest" bash -c "${AGENT_VENV}/bin/pip install -q -e '${ROOT}/apps/homelab-agent[dev]' && cd '${ROOT}/apps/homelab-agent' && '${AGENT_VENV}/bin/python' -m pytest -W 'ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning' -q"
+  "${AGENT_VENV}/bin/pip" install -q -e "${ROOT}/apps/homelab-agent[dev]"
+  run_step "Homelab agent pytest" bash -c "cd '${ROOT}/apps/homelab-agent' && '${AGENT_VENV}/bin/python' -m pytest -W 'ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning' -q"
   run_step "Homelab agent ruff" "$AGENT_VENV/bin/ruff" check "${ROOT}/apps/homelab-agent/app" "${ROOT}/apps/homelab-agent/tests"
 
   python3 -m venv "$MEDIA_VENV"
-  run_step "Media agent pytest" bash -c "${MEDIA_VENV}/bin/pip install -q -e '${ROOT}/apps/media-agent[dev]' && cd '${ROOT}/apps/media-agent' && '${MEDIA_VENV}/bin/python' -m pytest -W 'ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning' -q"
+  "${MEDIA_VENV}/bin/pip" install -q -e "${ROOT}/apps/media-agent[dev]"
+  run_step "Media agent pytest" "${MEDIA_VENV}/bin/python" -m pytest -W "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning" -q "${ROOT}/apps/media-agent/tests"
   run_step "Media agent ruff" "$MEDIA_VENV/bin/ruff" check "${ROOT}/apps/media-agent/app" "${ROOT}/apps/media-agent/tests"
 
   python3 -m venv "$QWEN_VENV"
-  run_step "Qwen code Telegram tests" bash -c "${QWEN_VENV}/bin/pip install -q pytest && cd '${ROOT}' && export PATH='${QWEN_VENV}/bin':\$PATH && PYTHONPATH='${ROOT}/apps/homelab-mcp/src' '${QWEN_VENV}/bin/python' -m pytest -q apps/qwen-code-telegram/tests/test_response_contract.py && bash apps/qwen-code-telegram/tests/test_entrypoint.sh && bash apps/qwen-code-telegram/tests/test_role_render.sh && bash apps/qwen-code-telegram/tests/test_system_policy.sh"
+  "${QWEN_VENV}/bin/pip" install -q pytest
+  run_step "Qwen code Telegram tests" bash -c "cd '${ROOT}' && export PATH='${QWEN_VENV}/bin':\$PATH && PYTHONPATH='${ROOT}/apps/homelab-mcp/src' '${QWEN_VENV}/bin/python' -m pytest -q apps/qwen-code-telegram/tests/test_response_contract.py && bash apps/qwen-code-telegram/tests/test_entrypoint.sh && bash apps/qwen-code-telegram/tests/test_role_render.sh && bash apps/qwen-code-telegram/tests/test_system_policy.sh"
 fi
 
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
@@ -111,6 +116,7 @@ from pathlib import Path
 content = Path("README.md").read_text(encoding="utf-8")
 raise SystemExit(0 if len(re.findall(r"```mermaid", content)) >= 1 else 1)
 '
+  run_step "Documentation tests" bash "${ROOT}/tests/docs/run_tests.sh"
 fi
 
 if [[ "$SCOPE" == "build" ]]; then
