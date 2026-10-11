@@ -1,63 +1,101 @@
 # Homelab Docker Template
 
-This repository is a generic, off-host Docker Compose platform for reusable
-services, workers, and MCP tooling. It is intentionally safe to render with
-fictional values and synthetic secrets; it does not contain a deployment
-identity or private host topology.
+This is a public, generic Docker Compose platform for self-hosted services,
+workers, and MCP tooling. It is safe to inspect and validate off-host with
+fictional values; it is not a ready-made deployment for a particular site.
+
+**Status: Current and planned.** The table below distinguishes shipped
+capabilities from explicitly planned work.
 
 ## Documentation map
 
-- [Architecture overview](docs/architecture/overview.md)
-- [Threat model](docs/architecture/threat-model.md)
-- [Getting started](docs/getting-started.md)
-- [Public Caddyfile](config/caddy/Caddyfile)
+Every page labels claims as **Current** or **Planned**. Start with
+[the docs index](docs/README.md), then use [Getting started](docs/getting-started.md)
+for the public validation path. [Architecture](docs/architecture/overview.md),
+[configuration](docs/configuration.md), and [development](docs/development.md)
+cover the main extension points.
+
+## Current status
+
+| Area | Status | Details |
+| --- | --- | --- |
+| Compose modules | Built | [compose/](compose/base.yml) aggregates the public modules. |
+| Workers | Built | [apps/homelab-workers/](apps/homelab-workers/) contains packaged workers. |
+| MCP core + extension interface | Built | [apps/homelab-mcp/](apps/homelab-mcp/) exposes the core and private extension boundary. |
+| CI | Built | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) renders, tests, scans, and builds. |
+| Off-host OCI build lane | Built | CI builds images without deploying them. |
+| Signed release feed (N6) | Planned | See [release notes](docs/operations.md). |
+| Host controller (N7–N11) | Planned | No controller or host pull path is shipped. |
 
 ## Architecture at a glance
 
-The public platform routes generic requests through Compose services. A single
-trusted controller applies a private site overlay, while CI/CD remains limited
-to rendering, tests, and scans. The public architecture uses a fictional
-two-service `hello`/`whoami` example and grants its synthetic secret as a file.
-
-Real ingress routes, host storage, service enablement, and site identities are
-private deployment inputs. Optional private integrations register through the
-platform extension interface and are not imported by default.
-
-This diagram shows the public platform, private extensions, and planned release flow.
-
 ```mermaid
 flowchart LR
-    H["homelab<br/>(public: apps, workers, MCP core,<br/>Compose modules, release tooling under scripts/release)"]
-    S["homelab-site<br/>(private: site config, overlays,<br/>release feed)"]
-    T["tracker-integrations<br/>(private plugin)"]
-    M["merge"] --> B["CI build"] --> R["signed release"] --> C["host controller pulls"]
-    H --> S
-    H --> T
-    H --> M
+  C[Compose modules] --> W[Workers]
+  C --> M[MCP core]
+  E[Private extension] -. interface .-> M
+  C --> CI[CI and off-host OCI build]
+  CI -. planned signed feed .-> H[planned host controller]
 ```
+
+The public repository ends at the CI/build boundary. Private site overlays may
+connect extensions at runtime; the signed feed and controller are planned.
 
 ## Quick Start
 
+Prerequisites: Docker Compose v2 and Python 3.11+. From a fresh clone, run:
+
 ```bash
 cp .env.example .env.local
-docker compose --env-file .env.example config --quiet
-python3 -m unittest -v tests.boundary.test_pr02_task4_caddy \
-  tests.boundary.test_pr02_task5_compose \
-  tests.boundary.test_pr02_task6_secrets \
-  tests.boundary.test_pr02_task7_history \
-  tests.boundary.test_pr02_task8_docs
+bash scripts/ci/public-check.sh
 ```
 
-The public example uses `example.homelab.local`, relative `example-data`
-directories, and synthetic secret values. Never commit a runtime `.env`, secret
-file, database, session cookie, or certificate. For the fictional two-service
-walkthrough, follow [Getting started](docs/getting-started.md).
+The check creates disposable synthetic secret files in a temporary directory,
+renders Compose with `.env.example`, runs the local Compose tests, checks links,
+runs the boundary/CI/release tests, and runs the public-readiness scan. It does
+not apply Compose or start containers. Expected final output is:
+
+```text
+161 passed, 7 skipped
+Public check passed.
+```
+
+The exact test count may change as the suite grows; every command must exit 0.
+`.env.local` is only a local copy of the public contract and must not contain
+real credentials or be committed.
+
+## Repository layout
+
+```text
+apps/                 services, workers, and MCP core
+compose/              current Compose modules
+config/               public service configuration
+docs/                 current/planned public documentation
+scripts/ci/           reproducible validation helpers
+scripts/release/      current build-policy and artifact tooling
+tests/                boundary, CI, Compose, and release tests
+```
+
+The modules are [base.yml](compose/base.yml), [network.yml](compose/network.yml),
+[arr.yml](compose/arr.yml), [media.yml](compose/media.yml),
+[download.yml](compose/download.yml), [workers.yml](compose/workers.yml),
+[autobrr.yml](compose/autobrr.yml), [llm.yml](compose/llm.yml), and
+[files.yml](compose/files.yml).
+
+## Private extensions
+
+Private code plugs in through documented interfaces rather than public site
+values. For example, a fictional `tracker-extension` can implement the MCP
+extension contract, be installed by a private overlay, and set
+`HOMELAB_MCP_EXTENSIONS=tracker-extension`; the public repository does not
+contain that package, its credentials, or its routes. Private projects such as
+`homelab-site` and `tracker-integrations` are examples of that boundary.
 
 ## Features
 
-- Generic worker and MCP packages that can be tested off-host.
 - Parameterized Compose modules with synthetic defaults.
-- Explicit private overlays for site and tracker integrations.
+- Packaged workers and an MCP core with an extension interface.
+- CI validation and an off-host OCI build lane.
 
 ## License
 
