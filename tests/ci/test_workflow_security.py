@@ -118,7 +118,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
 
     def assert_no_legacy_authority(
-        self, workflow: dict[str, Any], *, allow_publish_secret: bool = False
+        self, workflow: dict[str, Any], *, allow_package_write: bool = False
     ) -> None:
         triggers = workflow.get("on")
         self.assertIsInstance(triggers, dict)
@@ -140,7 +140,12 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertIsInstance(job.get("runs-on"), str)
             self.assertIn(job.get("runs-on"), GITHUB_HOSTED_RUNNERS)
             if "permissions" in job:
-                self.assert_read_only_permissions(job["permissions"])
+                if allow_package_write and job["permissions"].get("packages") == "write":
+                    self.assertEqual(job["permissions"], {"contents": "read", "packages": "write"})
+                    self.assertEqual(job.get("environment"), "production-release")
+                    self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
+                else:
+                    self.assert_read_only_permissions(job["permissions"])
 
             for step in job.get("steps", []):
                 self.assertIsInstance(step, dict)
@@ -153,9 +158,6 @@ class WorkflowSecurityTests(unittest.TestCase):
         def assert_no_secrets(value: object) -> None:
             if isinstance(value, dict):
                 for key, child in value.items():
-                    if allow_publish_secret and key == "secrets":
-                        self.assertEqual(child, {"GHCR_PUBLISH_TOKEN": {"required": "true"}})
-                        continue
                     self.assertNotEqual(str(key).lower(), "secrets")
                     self.assertFalse(has_secrets_context_reference(str(key)), key)
                     assert_no_secrets(child)
@@ -163,8 +165,6 @@ class WorkflowSecurityTests(unittest.TestCase):
                 for child in value:
                     assert_no_secrets(child)
             elif isinstance(value, str):
-                if allow_publish_secret and value == "${{ secrets.GHCR_PUBLISH_TOKEN }}":
-                    return
                 self.assertFalse(has_secrets_context_reference(value), value)
 
         assert_no_secrets(workflow)
@@ -336,6 +336,21 @@ class WorkflowSecurityTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_candidate_ci_policy(workflow)
 
+    def test_package_write_only_in_protected_publish_job(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "reusable-publish.yml")
+        self.assert_no_legacy_authority(workflow, allow_package_write=True)
+        for mutate in (
+            lambda job: job.pop("environment"),
+            lambda job: job.update({"if": "always()"}),
+            lambda job: job.update({"environment": "other"}),
+        ):
+            candidate = load_workflow(WORKFLOWS / "reusable-publish.yml")
+            mutate(candidate["jobs"]["publish"])
+            with self.assertRaises(AssertionError):
+                self.assert_no_legacy_authority(candidate, allow_package_write=True)
+        with self.assertRaises(AssertionError):
+            self.assert_no_legacy_authority(load_workflow(WORKFLOWS / "reusable-publish.yml"))
+
     def test_docs_workflow_removed(self) -> None:
         self.assertFalse((WORKFLOWS / "render-md-mermaid.yml").exists())
         self.assertFalse((WORKFLOWS / "render-md-mermaid.yaml").exists())
@@ -346,7 +361,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         for path in paths:
             with self.subTest(workflow=path.name):
                 self.assert_no_legacy_authority(
-                    load_workflow(path), allow_publish_secret=path.name == "reusable-publish.yml"
+                    load_workflow(path), allow_package_write=path.name == "reusable-publish.yml"
                 )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:
