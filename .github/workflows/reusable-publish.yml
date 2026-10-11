@@ -12,9 +12,6 @@ on:
       manifest-digest:
         required: true
         type: string
-    secrets:
-      GHCR_PUBLISH_TOKEN:
-        required: true
 
 permissions:
   contents: read
@@ -24,8 +21,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production-release
+    # Decision 2026-10-11: publish with the job token. packages: write is granted only
+    # here, on main, inside the branch-restricted production-release environment.
     permissions:
       contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -40,7 +40,7 @@ jobs:
 
       - name: Copy and verify OCI artifact
         env:
-          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+          GHCR_PUBLISH_TOKEN: ${{ github.token }}
         run: >-
           python3 scripts/release/artifacts.py publish
           --artifact artifact/oci-layout.tar
