@@ -46,6 +46,14 @@ else
 fi
 unset SKIP_HOST_PORT_PREFLIGHT
 
+# Use the public contract for local renders, matching the documented checkout.
+if [[ -f "${ROOT}/.env.example" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "${ROOT}/.env.example"
+  set +a
+fi
+
 # shellcheck source=/dev/null
 source "${ROOT}/scripts/ci/export-ci-secret-placeholders.sh"
 secret_dir="$(mktemp -d)"

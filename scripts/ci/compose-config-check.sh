@@ -14,4 +14,4 @@ while IFS= read -r key; do
   printf 'CI_SENTINEL_%s\n' "${key}" >"${HOMELAB_SECRET_DIR}/${key}"
 done < <(managed_secret_keys)
 
-docker compose --env-file /dev/null -f "${ROOT}/docker-compose.yml" config --quiet
+docker compose --env-file "${ROOT}/.env.example" -f "${ROOT}/docker-compose.yml" config --quiet

@@ -1,23 +1,16 @@
 # Service troubleshooting
 
-## qBittorrent missing files
+**Status: Current public checks.** First run:
 
-If a completed torrent reports `missingFiles`, verify that its content path is
-mounted in the qBittorrent container and that the host path is mounted. Use
-the generic offload worker or qBittorrent's own location and recheck actions;
-avoid moving data behind qBittorrent's state.
+```bash
+bash scripts/ci/public-check.sh
+```
 
-## qBittorrent exclusive sessions
+If Compose rendering fails, check that Docker Compose v2 is installed and that
+`.env.example` is unchanged. If a shell test fails, run the named script from
+`tests/compose/` directly. If a runtime service is unhealthy, runtime logs,
+storage, credentials, and ingress are private deployment concerns not
+reproducible from this public checkout.
 
-The `qbt_exclusive_*` tools pause non-matching torrents for one controlled
-download session. Inspect `data/qbt-events/` and worker logs when a session
-does not release its paused set.
+A host controller and automatic remediation are **Planned**.
 
-## Arr items that never download
-
-Monitored does not mean an Arr item is searched continuously. Run the
-`homelab-arr-missing-search` worker for a capped backfill, or use the Arr
-Wanted/Missing search controls. Check its status file and container health
-when a request remains queued.
-
-VPN and host-level tunnel management are outside this project.
