@@ -10,8 +10,7 @@ from typing import Any, Mapping
 
 from .contracts import validate_release_record
 
-COSIGN_VERSION = "v2.2.3"
-COSIGN_SHA256 = "f669f41176cb1d58bb6a3fdb06e24861540cfdb5a571b4ec5eb2218b0df5d304"
+COSIGN_VERSION = "v3.1.3"
 COSIGN_IDENTITY_TEMPLATE = "https://github.com/{repository}/.github/workflows/release.yml@refs/heads/main"
 COSIGN_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 

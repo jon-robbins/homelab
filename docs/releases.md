@@ -73,7 +73,7 @@ records/<sequence>/bundle.tar
 ```
 
 `record.json` is the canonical JSON ReleaseRecord, ending with a newline.
-`record.sigstore.json` is the cosign keyless bundle for the exact canonical
+`record.sigstore.json` is the cosign v3.1.3 keyless bundle for the exact canonical
 `record.json` bytes. Cosign signs with the GitHub OIDC identity
 `https://github.com/jon-robbins/homelab/.github/workflows/release.yml@refs/heads/main`;
 consumers verify that exact identity and issuer
@@ -94,4 +94,6 @@ Before enabling the workflow, the owner creates `PRIVATE_INPUT_READ_TOKEN`
 `SITE_FEED_TOKEN` (contents write on `homelab-site`) in the `production-release`
 environment. Cleanup is to delete the old `RELEASE_SIGNING_KEY` secret and
 `RELEASE_SIGNING_KEY_ID` variable, and remove `trust/release-keys.json` from
-`homelab-site`. No signing secret or trust map is used by the workflow.
+`homelab-site`. No signing secret or trust map is used by the workflow. The
+cosign installer action is pinned by commit SHA and its pin is managed by
+Dependabot.

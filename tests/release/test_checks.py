@@ -9,7 +9,7 @@ def test_sign_check_requires_pinned_cosign_and_oidc(monkeypatch):
 
     class Result:
         returncode = 0
-        stdout = '{"gitVersion":"v2.2.3"}'
+        stdout = '{"gitVersion":"v3.1.3"}'
         stderr = ""
 
     monkeypatch.setattr("scripts.release.reconcile.subprocess.run", lambda *args, **kwargs: Result())
