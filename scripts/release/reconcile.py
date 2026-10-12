@@ -281,12 +281,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         all_images = _destination_images(approved)
         homelab_changed = sha is not None
         if homelab_changed:
-            try:
-                builds = _attested_builds(client, repository, sha)
-            except VerificationError as error:
-                if "still running or failed" in str(error):
-                    raise
-                builds = {}
+            builds = _attested_builds(client, repository, sha)
             builds = {image: spec for image, spec in builds.items() if spec.get("head_sha") == sha}
         else:
             builds = {}

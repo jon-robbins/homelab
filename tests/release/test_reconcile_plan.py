@@ -210,6 +210,14 @@ class BuildStatusClient:
         raise AssertionError("artifacts must not be consulted before an exact successful run exists")
 
 
+class PlanBuildStatusClient(Client):
+    def workflow_runs(self, *_args):
+        return {"workflow_runs": []}
+
+    def artifacts(self, *_args):
+        raise AssertionError("artifacts must not be consulted before an exact successful run exists")
+
+
 @pytest.mark.parametrize("runs, message", [
     ([], "not visible yet"),
     ([{"head_sha": "h2", "status": "completed", "conclusion": "failure"}], "still running or failed"),
@@ -217,6 +225,25 @@ class BuildStatusClient:
 def test_pending_or_failed_post_merge_build_waits(runs, message):
     with pytest.raises(VerificationError, match=message):
         reconcile._attested_builds(BuildStatusClient(runs), "homelab", "h2")
+
+
+def test_plan_waits_without_release_for_unseen_candidate_build(monkeypatch, tmp_path):
+    image_map = {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64}
+    previous = _record(
+        {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"},
+        image_map,
+    )
+    client = PlanBuildStatusClient(
+        previous,
+        {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"},
+    )
+    _setup(monkeypatch, {"agent"})
+    output = tmp_path / "plan.json"
+
+    with pytest.raises(VerificationError, match="not visible yet"):
+        reconcile.plan(client, repository="homelab", site_repository="site", output=output)
+
+    assert not output.exists()
 
 
 def test_no_source_change_produces_no_release(monkeypatch):
