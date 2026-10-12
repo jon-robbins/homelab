@@ -28,11 +28,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
       - name: Verify release inputs
         id: plan
         env:
           RELEASE_INPUTS_DIR: release-inputs
-        run: python3 -m scripts.release.reconcile plan --output release-plan.json
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile plan --output release-plan.json
       - name: Upload release plan
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
         with:
@@ -45,7 +50,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       run_id: ${{ steps.plan.outputs.run_id }}
       images: ${{ steps.plan.outputs.images }}
-      has-images: ${{ steps.plan.outputs.has_images }}
+      has_images: ${{ steps.plan.outputs.has_images }}
 
   publish:
     if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
@@ -82,12 +87,17 @@ jobs:
         with:
           ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
       - name: Download release plan
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: release-plan
       - name: Build and sign release record
-        run: python3 -m scripts.release.reconcile sign --plan release-plan.json --output-dir release-output
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile sign --plan release-plan.json --output-dir release-output
       - name: Upload signed release
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
         with:
@@ -109,6 +119,10 @@ jobs:
         with:
           ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
       - name: Download signed release
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -119,4 +133,5 @@ jobs:
         with:
           name: release-plan
       - name: Publish release feed
-        run: python3 -m scripts.release.reconcile feed --directory release-output
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile feed --directory release-output

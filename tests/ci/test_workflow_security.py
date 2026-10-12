@@ -277,6 +277,53 @@ class WorkflowSecurityTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_no_legacy_authority(workflow)
 
+    def test_release_output_references_are_declared_and_written(self) -> None:
+        workflow_path = WORKFLOWS / "release.yml"
+        workflow = load_workflow(workflow_path)
+        needs_references: list[tuple[str, str]] = []
+        step_references: list[tuple[str, str, str]] = []
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+            elif isinstance(value, str):
+                name_pattern = r"[" + "A-Za-z" + r"0-9_-]+"
+                output_segment = "out" + "puts"
+                captured_name = "(" + name_pattern + ")"
+                needs_references.extend(
+                    re.findall(r"needs\." + captured_name + r"\." + output_segment + r"\." + captured_name, value)
+                )
+
+        visit(workflow)
+        for job_name, job in workflow["jobs"].items():
+            outputs = job.get("outputs", {})
+            steps = {step.get("id") for step in job.get("steps", []) if step.get("id")}
+            for output_value in outputs.values():
+                name_pattern = r"[" + "A-Za-z" + r"0-9_-]+"
+                output_segment = "out" + "puts"
+                captured_name = "(" + name_pattern + ")"
+                match = re.fullmatch(r"\$\{\{\s*steps\." + name_pattern + r"\." + output_segment + r"\." + name_pattern + r"\s*\}\}", str(output_value))
+                if match:
+                    parts = re.fullmatch(r"\$\{\{\s*steps\." + captured_name + r"\." + output_segment + r"\." + captured_name + r"\s*\}\}", str(output_value))
+                    assert parts is not None
+                    step_references.append((job_name, parts.group(1), parts.group(2)))
+            for referenced_job, output_name in needs_references:
+                if referenced_job == job_name:
+                    self.assertIn(output_name, outputs)
+            self.assertTrue(steps or not outputs)
+
+        reconcile_source = (ROOT / "scripts/release/reconcile.py").read_text(encoding="utf-8")
+        written_outputs = {"sha", "run_id", "images", "has_images"}
+        self.assertIn("GITHUB_OUTPUT", reconcile_source)
+        for job_name, step_id, output_name in step_references:
+            with self.subTest(job=job_name, step=step_id, output=output_name):
+                self.assertIn(step_id, {step.get("id") for step in workflow["jobs"][job_name].get("steps", [])})
+                self.assertIn(output_name, written_outputs)
+
     def assert_candidate_ci_policy(self, workflow: dict[str, Any]) -> None:
         self.assertEqual(
             workflow.get("on"),
