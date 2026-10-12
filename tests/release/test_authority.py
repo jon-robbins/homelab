@@ -313,9 +313,7 @@ class RestReleaseFake:
         return {"workflow_runs": [
             {"id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
              "status": "completed", "conclusion": "success", "head_sha": self.run_sha,
-             "repository": {"full_name": repository}, "workflow": workflow,
-             "image": image, "manifest_digest": "sha256:" + ("1" if image == "homelab-agent" else "2") * 64}
-            for image in self.images
+             "repository": {"full_name": repository}, "workflow": workflow}
         ]}
 
     def run_artifacts(self, repository, run_id):

@@ -74,7 +74,16 @@ def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, 
             image = provenance.get("image")
             digest = provenance.get("manifest_digest")
             if isinstance(image, str) and isinstance(digest, str):
-                images[image] = {"repository": repository, "workflow": BUILD_WORKFLOW, "head_sha": sha, "run_id": int(run["id"]), "run_attempt": int(run.get("run_attempt", 1)), "image": image, "manifest_digest": digest, "artifact_name": name}
+                images[image] = {
+                    "repository": repository,
+                    "workflow": BUILD_WORKFLOW,
+                    "head_sha": sha,
+                    "run_id": int(run["id"]),
+                    "run_attempt": int(run.get("run_attempt", 1)),
+                    "artifact_name": name,
+                    "manifest_digest": digest,
+                    "provenance": {"image": image, "manifest_digest": digest},
+                }
         return int(run["id"]), images
     raise VerificationError(f"no successful post-merge build for {sha}")
 

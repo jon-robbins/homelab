@@ -86,12 +86,23 @@ def _successful_run(runs: Any, image: str, manifest_digest: str, repository: str
             caller = _get(run, "caller", _get(run, "actor", _get(run, "triggering_actor")))
             if expected_caller is not None and _get(caller, "login", caller) != expected_caller:
                 continue
-            provenance = _get(run, "provenance", run)
-            if (_get(provenance, "image") != image
-                    or _get(provenance, "manifest_digest") != manifest_digest):
-                continue
+            # GitHub workflow-run objects do not identify the matrix image or
+            # its manifest. Those values are bound to the run by the
+            # downloaded artifact provenance in the build specification.
+            # Preserve the stricter check for synthetic/legacy run objects
+            # that provide explicit image fields.
+            provenance = _get(run, "provenance")
+            if provenance is not None:
+                if (_get(provenance, "image") != image
+                        or _get(provenance, "manifest_digest") != manifest_digest):
+                    continue
+            elif _get(run, "image") is not None or _get(run, "manifest_digest") is not None:
+                if (_get(run, "image") != image
+                        or _get(run, "manifest_digest") != manifest_digest):
+                    continue
             data = dict(run) if isinstance(run, Mapping) else {key: getattr(run, key) for key in vars(run)}
             data.setdefault("image", image)
+            data.setdefault("manifest_digest", manifest_digest)
             return data
     return None
 
@@ -183,6 +194,8 @@ def verify_release(
             raise VerificationError(f"build head is not the verified source head: {image}")
         workflow_name = spec.get("workflow_path", spec.get("workflow", workflow))
         provenance = spec.get("provenance", spec)
+        if provenance.get("image", image) != image:
+            raise VerificationError(f"artifact provenance image does not match: {image}")
         image_ref = provenance.get("image_ref")
         if isinstance(image_ref, str) and "@" in image_ref:
             manifest_digest = image_ref.rsplit("@", 1)[1]

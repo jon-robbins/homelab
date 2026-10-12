@@ -14,7 +14,9 @@ from io import BytesIO
 
 
 class GitHubError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class GitHubClient:
@@ -36,7 +38,7 @@ class GitHubClient:
                 raw = response.read()
         except HTTPError as error:
             detail = error.read().decode(errors="replace")
-            raise GitHubError(f"GitHub API {error.code} {method} {path}: {detail[:300]}") from error
+            raise GitHubError(f"GitHub API {error.code} {method} {path}: {detail[:300]}", status_code=error.code) from error
         if not raw:
             return None
         try:
@@ -55,7 +57,8 @@ class GitHubClient:
         return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}/pulls")
 
     def workflow_runs(self, repository: str, workflow: str, head_sha: str) -> Any:
-        path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow, safe='/')}/runs?head_sha={head_sha}&per_page=100"
+        workflow_id = workflow.rsplit("/", 1)[-1]
+        path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs?head_sha={head_sha}&per_page=100"
         return self.request("GET", path)
 
     def run_artifacts(self, repository: str, run_id: int) -> Any:
@@ -80,8 +83,8 @@ class GitHubClient:
     def read(self, repository: str, branch: str, path: str, allow_missing: bool = False) -> bytes | None:
         try:
             value = self.request("GET", f"/repos/{self._repo(repository)}/contents/{quote(path, safe='/')}?ref={quote(branch, safe='')}")
-        except GitHubError:
-            if allow_missing:
+        except GitHubError as error:
+            if allow_missing and error.status_code == 404:
                 return None
             raise
         return base64.b64decode(value["content"])
@@ -91,8 +94,10 @@ class GitHubClient:
     def last_record(self, repository: str, branch: str) -> Mapping[str, Any] | None:
         try:
             listing = self.request("GET", f"/repos/{self._repo(repository)}/contents/records?ref={quote(branch, safe='')}")
-        except GitHubError:
-            return None
+        except GitHubError as error:
+            if error.status_code == 404:
+                return None
+            raise
         sequences = [int(item["name"]) for item in listing if item.get("type") == "dir" and item.get("name", "").isdigit()]
         if not sequences:
             return None
@@ -100,11 +105,13 @@ class GitHubClient:
         return load_release_record(self.read(repository, branch, f"records/{max(sequences)}/record.json") or b"")
 
     def commit_files(self, repository: str, branch: str, ref: str, files: Mapping[str, bytes], message: str) -> str:
+        commit = self.request("GET", f"/repos/{self._repo(repository)}/git/commits/{quote(ref, safe='')}")
+        base_tree = commit["tree"]["sha"]
         blobs = []
         for path, data in files.items():
             blob = self.request("POST", f"/repos/{self._repo(repository)}/git/blobs", {"content": base64.b64encode(data).decode(), "encoding": "base64"})
             blobs.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-        tree = self.request("POST", f"/repos/{self._repo(repository)}/git/trees", {"base_tree": ref, "tree": blobs})
+        tree = self.request("POST", f"/repos/{self._repo(repository)}/git/trees", {"base_tree": base_tree, "tree": blobs})
         commit = self.request("POST", f"/repos/{self._repo(repository)}/git/commits", {"message": message, "tree": tree["sha"], "parents": [ref]})
         try:
             self.request("PATCH", f"/repos/{self._repo(repository)}/git/refs/heads/{quote(branch, safe='')}", {"sha": commit["sha"], "force": False})
