@@ -125,7 +125,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
 
     def assert_no_legacy_authority(
-        self, workflow: dict[str, Any], *, allow_package_write: bool = False
+        self, workflow: dict[str, Any], *, allow_package_write: bool = False,
+        allow_attestation: bool = False
     ) -> None:
         triggers = workflow.get("on")
         self.assertIsInstance(triggers, dict)
@@ -147,6 +148,12 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertIsInstance(job.get("runs-on"), str)
             self.assertIn(job.get("runs-on"), GITHUB_HOSTED_RUNNERS)
             if "permissions" in job:
+                if allow_attestation and job_name == "build":
+                    self.assertEqual(
+                        job["permissions"],
+                        {"contents": "read", "id-token": "write", "attestations": "write"},
+                    )
+                    continue
                 if allow_package_write and job["permissions"].get("packages") == "write":
                     self.assertEqual(job["permissions"], {"contents": "read", "actions": "read", "packages": "write"})
                     self.assertEqual(job.get("environment"), "production-release")
@@ -611,7 +618,9 @@ class WorkflowSecurityTests(unittest.TestCase):
                     self.assert_release_policy(workflow)
                 else:
                     self.assert_no_legacy_authority(
-                        workflow, allow_package_write=path.name == "reusable-publish.yml"
+                        workflow,
+                        allow_package_write=path.name == "reusable-publish.yml",
+                        allow_attestation=path.name == "reusable-build.yml",
                     )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:

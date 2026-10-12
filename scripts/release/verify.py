@@ -124,6 +124,7 @@ def verify_release(
     workflow: str = ".github/workflows/post-merge-build.yml",
     expected_attempts: Mapping[str, int] | None = None,
     expected_caller: str | None = None,
+    ruleset_repositories: set[str] | tuple[str, ...] = (),
 ) -> VerificationResult | str:
     """Verify heads and their exact successful post-merge build runs.
 
@@ -147,6 +148,9 @@ def verify_release(
         verified_repository_heads[repo] = sha
         bootstrap = set(bootstrap_shas.get(name, ()))
         if sha in bootstrap:
+            sources.append(sha)
+            continue
+        if name in ruleset_repositories:
             sources.append(sha)
             continue
         # The PR-list API is only an alternate way to find the PR; it must
@@ -204,24 +208,29 @@ def verify_release(
             manifest_digest = provenance.get("manifest_digest")
         if not isinstance(manifest_digest, str):
             raise VerificationError(f"missing manifest digest for image: {image}")
-        if hasattr(client, "workflow_runs"):
-            runs = client.workflow_runs(repo, workflow_name, sha)
+        if ruleset_repositories:
+            # The plan has already downloaded this artifact and verified its
+            # native attestation. Do not rediscover or re-match a workflow run.
+            selected_run = dict(spec)
         else:
-            runs = client.build_runs(repo, workflow_name, sha)
-        selected_run = _successful_run(
-            runs, image, manifest_digest, repo, workflow_name, sha,
-            (expected_attempts or {}).get(image, spec.get("run_attempt")),
-            spec.get("run_id"), spec.get("caller", expected_caller),
-        )
-        if selected_run is None:
-            candidates = runs.get("runs", ()) if isinstance(runs, Mapping) else runs or ()
-            if any(_get(run, "status") not in ("completed", None)
-                   and _get(run, "head_sha") == sha
-                   and _get(run, "repository", repo) == repo
-                   and _workflow_matches(_get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow_name))), workflow_name)
-                   for run in candidates):
-                return "pending"
-            raise VerificationError(f"no exact successful build for image: {image}")
+            if hasattr(client, "workflow_runs"):
+                runs = client.workflow_runs(repo, workflow_name, sha)
+            else:
+                runs = client.build_runs(repo, workflow_name, sha)
+            selected_run = _successful_run(
+                runs, image, manifest_digest, repo, workflow_name, sha,
+                (expected_attempts or {}).get(image, spec.get("run_attempt")),
+                spec.get("run_id"), spec.get("caller", expected_caller),
+            )
+            if selected_run is None:
+                candidates = runs.get("runs", ()) if isinstance(runs, Mapping) else runs or ()
+                if any(_get(run, "status") not in ("completed", None)
+                       and _get(run, "head_sha") == sha
+                       and _get(run, "repository", repo) == repo
+                       and _workflow_matches(_get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow_name))), workflow_name)
+                       for run in candidates):
+                    return "pending"
+                raise VerificationError(f"no exact successful build for image: {image}")
         digest = provenance.get("image_ref", provenance.get("manifest_digest"))
         if not isinstance(digest, str) or "@sha256:" not in digest:
             registry = provenance.get("registry", "ghcr.io/example")

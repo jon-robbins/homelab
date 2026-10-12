@@ -67,6 +67,15 @@ class GitHubClient:
         path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs{query}"
         return self.request("GET", path)
 
+    def rulesets(self, repository: str) -> Any:
+        return self.request("GET", f"/repos/{self._repo(repository)}/rulesets?includes_parents=true")
+
+    def ruleset(self, repository: str, ruleset_id: int) -> Any:
+        return self.request("GET", f"/repos/{self._repo(repository)}/rulesets/{ruleset_id}")
+
+    def compare_commits(self, repository: str, base: str, head: str) -> Any:
+        return self.request("GET", f"/repos/{self._repo(repository)}/compare/{quote(base, safe='')}...{quote(head, safe='')}")
+
     def commits(self, repository: str, branch: str) -> list[Mapping[str, Any]]:
         path = f"/repos/{self._repo(repository)}/commits?sha={quote(branch, safe='')}&per_page=100"
         commits: list[Mapping[str, Any]] = []

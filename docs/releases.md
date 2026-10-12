@@ -19,6 +19,36 @@ heads, trust map, and newest successful build; proves the signing key against
 the trust map with a throwaway message; and checks feed read and push access.
 Scheduled runs always use reconcile mode.
 
+## Release authority policy
+
+The public `jon-robbins/homelab` source is released only from a commit on
+`main` that is in the workflow run's `github.sha` ancestry. The plan job uses
+the workflow's `github.token` to require that the `main` ruleset is active,
+targets `main`, requires pull requests, blocks force-push and branch deletion,
+and has no bypass actors. The plan does not use an owner-merged-PR API check
+for this public repository.
+
+`jon-robbins/homelab-site` and `jon-robbins/tracker-integrations` are private
+repositories on GitHub Free, so they have no rulesets. Their `main` heads must
+still be merge commits from pull requests merged into `main` by a configured
+release owner. A non-owner merge, wrong base, direct commit, or mismatched merge
+SHA is denied.
+
+Each OCI archive is attested in the reusable build job with
+`actions/attest-build-provenance`, pinned by commit SHA. The build job alone
+has `id-token: write` and `attestations: write`; all other jobs retain their
+existing permissions. During planning, every downloaded OCI archive is checked
+with:
+
+```text
+gh attestation verify <archive> --repo jon-robbins/homelab \
+  --signer-workflow jon-robbins/homelab/.github/workflows/post-merge-build.yml \
+  --source-digest <release-sha>
+```
+
+Thus the signed artifact, signer workflow, and source commit must all match
+the release before its manifest digest is admitted.
+
 The plan selects the newest `main` commit absent from the feed, admits only
 images present in that commit's successful post-merge build, and records each
 image's artifact name, manifest digest, and approved GHCR destination. It also

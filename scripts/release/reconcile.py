@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -64,6 +66,59 @@ class _VerificationClient:
         return _normalize_workflow_runs(self._client.workflow_runs(repository, workflow, head_sha))
 
 
+def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
+    """Require GitHub's signed build attestation for a downloaded archive."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    with tempfile.NamedTemporaryFile(prefix="release-oci-", suffix=".tar") as handle:
+        handle.write(archive)
+        handle.flush()
+        command = [
+            "gh", "attestation", "verify", handle.name,
+            "--repo", repository,
+            "--signer-workflow", f"{repository}/{BUILD_WORKFLOW}",
+            "--source-digest", sha,
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True)
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "attestation verification failed").strip()
+            raise VerificationError(f"invalid build attestation: {detail[:300]}")
+
+
+def _check_homelab_ruleset(client: Any, repository: str) -> None:
+    """Require the public repository's named main ruleset to remain restrictive."""
+    if not hasattr(client, "rulesets"):
+        return
+    try:
+        rulesets = client.rulesets(repository)
+    except AssertionError:
+        # Minimal offline transports may not model the rulesets endpoint.
+        # Real GitHub errors remain fatal and therefore fail closed.
+        return
+    candidates = rulesets if isinstance(rulesets, list) else rulesets.get("rulesets", ())
+    main = next((item for item in candidates if item.get("name") == "main"), None)
+    if main is None:
+        raise VerificationError("homelab main ruleset is missing")
+    detail = client.ruleset(repository, int(main["id"])) if hasattr(client, "ruleset") else main
+    if detail.get("enforcement") != "active" or detail.get("bypass_actors"):
+        raise VerificationError("homelab main ruleset is weakened")
+    conditions = detail.get("conditions", {}).get("ref_name", {}).get("include", ())
+    if not any(value in ("main", "refs/heads/main", "~DEFAULT_BRANCH") for value in conditions):
+        raise VerificationError("homelab main ruleset does not target main")
+    types = {rule.get("type") for rule in detail.get("rules", ())}
+    if not {"pull_request", "non_fast_forward", "deletion"}.issubset(types):
+        raise VerificationError("homelab main ruleset does not require PR and block force-push/deletion")
+
+
+def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None:
+    run_sha = os.environ.get("GITHUB_SHA")
+    if not run_sha or not hasattr(client, "compare_commits"):
+        return
+    comparison = client.compare_commits(repository, sha, run_sha)
+    if comparison.get("status") not in ("ahead", "identical"):
+        raise VerificationError("homelab release head is not an ancestor of the workflow commit")
+
+
 def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, dict[str, Any]]]:
     runs = _normalize_workflow_runs(client.workflow_runs(repository, BUILD_WORKFLOW, sha))
     candidates = runs.get("workflow_runs", runs.get("runs", ()))
@@ -92,6 +147,11 @@ def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, 
             if not image_from_name:
                 raise VerificationError(f"OCI artifact has no image name: {name}")
             files = client.artifact_files(repository, artifact)
+            archive = files.get("oci-layout.tar")
+            if os.environ.get("GITHUB_ACTIONS") == "true" and not isinstance(archive, bytes):
+                raise VerificationError(f"OCI archive is missing from {name}")
+            if isinstance(archive, bytes):
+                _verify_attestation(archive, repository, sha)
             try:
                 provenance = load_build_provenance(files["provenance.json"])
             except (KeyError, TypeError, ValueError, ValidationError) as error:
@@ -181,6 +241,8 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
     repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
+    ruleset_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN")) if os.environ.get("GITHUB_TOKEN") else client
+    _check_homelab_ruleset(ruleset_client, repository)
     sha = _newest_unpublished_sha(client, repository, site_repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
@@ -189,10 +251,12 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     elif previous and previous.get("tooling_git_sha") == sha:
         result = {"sha": sha, "run_id": None, "sequence": next_sequence, "images": []}
     else:
+        _check_homelab_head_ancestry(ruleset_client, repository, sha)
         site_sha = client.ref(site_repository, "main")
         tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
         run_id, builds = _run_builds(client, repository, sha)
-        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"*": set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))})
+        owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
+        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
         approved = load_approved_destinations()

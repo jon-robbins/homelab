@@ -34,6 +34,7 @@ jobs:
       actions: read
     env:
       PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
