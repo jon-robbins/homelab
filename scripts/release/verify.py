@@ -134,6 +134,18 @@ def verify_release(
         sha = _repository(heads, head_key)
         repo = repositories.get(name, repositories.get(head_key, name))
         verified_repository_heads[repo] = sha
+        bootstrap = set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ())))
+        if sha in bootstrap:
+            sources.append(sha)
+            continue
+        # The PR-list API is only an alternate way to find the PR; it must
+        # not bypass commit existence and merge validation.
+        commit = client.commit(repo, sha)
+        if commit is None:
+            raise VerificationError(f"unknown head: {repo}@{sha}")
+        parents = _get(commit, "parents", ())
+        if not isinstance(parents, (list, tuple)) or len(parents) < 2:
+            raise VerificationError(f"head is not a merge commit: {repo}@{sha}")
         if hasattr(client, "pull_requests_for_commit"):
             prs = client.pull_requests_for_commit(repo, sha)
             if isinstance(owners, Mapping):

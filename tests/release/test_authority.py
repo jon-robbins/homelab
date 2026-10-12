@@ -41,6 +41,11 @@ class GitHubFake:
         return self.runs
 
 
+class PullRequestListFake(GitHubFake):
+    def pull_requests_for_commit(self, repository, sha):
+        return [self.pull] if self.pull is not None else []
+
+
 _MISSING = object()
 
 
@@ -89,6 +94,17 @@ def test_denies_direct_head():
     fake = valid_github()
     fake.commit = lambda repository, sha: {"parents": [{"sha": "one"}]}
     with pytest.raises(VerificationError, match="merge commit"):
+        verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
+
+
+@pytest.mark.parametrize("commit, message", [
+    (None, "unknown head"),
+    ({"parents": [{"sha": "one"}]}, "merge commit"),
+])
+def test_pull_request_list_path_still_checks_head(commit, message):
+    fake = PullRequestListFake(**valid_github().__dict__)
+    fake.commit = lambda repository, sha: commit
+    with pytest.raises(VerificationError, match=message):
         verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
 
 
