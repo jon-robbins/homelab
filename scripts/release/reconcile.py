@@ -111,12 +111,13 @@ def _check_homelab_ruleset(client: Any, repository: str) -> None:
 
 
 def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None:
-    run_sha = os.environ.get("GITHUB_SHA")
-    if not run_sha or not hasattr(client, "compare_commits"):
+    """Ensure the run commit is still on main, allowing main to advance."""
+    if not hasattr(client, "compare_commits"):
         return
-    comparison = client.compare_commits(repository, sha, run_sha)
+    live_head = client.ref(repository, "main")
+    comparison = client.compare_commits(repository, sha, live_head)
     if comparison.get("status") not in ("ahead", "identical"):
-        raise VerificationError("homelab release head is not an ancestor of the workflow commit")
+        raise VerificationError("workflow commit is not an ancestor of the current homelab main")
 
 
 def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
@@ -283,7 +284,10 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     _check_homelab_ruleset(ruleset_client, repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
-    main_head = client.ref(repository, "main")
+    main_head = os.environ.get("GITHUB_SHA")
+    if not main_head:
+        raise VerificationError("release plan requires GITHUB_SHA (run inside the release workflow)")
+    _check_homelab_head_ancestry(ruleset_client, repository, main_head)
     sha = _next_tooling_sha(client, repository, main_head, previous)
     tooling_sha = sha or (previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
@@ -292,7 +296,6 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     if previous and previous.get("sources") == sources:
         result = {"release": False, "sha": tooling_sha, "sequence": next_sequence, "images": [], "image_refs": previous.get("images", {})}
     else:
-        _check_homelab_head_ancestry(ruleset_client, repository, main_head)
         approved = load_approved_destinations()
         all_images = _destination_images(approved)
         homelab_changed = sha is not None

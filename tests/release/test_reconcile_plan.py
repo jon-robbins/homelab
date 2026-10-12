@@ -34,6 +34,7 @@ def _record(sources, images, *, rollback_floor=4):
 
 
 def _setup(monkeypatch, images):
+    monkeypatch.setenv("GITHUB_SHA", "h2")
     monkeypatch.setattr(reconcile, "load_approved_destinations", lambda: {
         f"ghcr.io/jon-robbins/homelab/{image}" for image in images
     })
@@ -97,6 +98,7 @@ def test_site_only_change_preserves_full_image_map(monkeypatch):
     previous = _record(sources, image_map)
     client = Client(previous, {"homelab": "h1", "homelab-site": "s2", "tracker-integrations": "t1"})
     _setup(monkeypatch, images)
+    monkeypatch.setenv("GITHUB_SHA", "h1")
 
     result = reconcile.plan(client, repository="homelab", site_repository="site")
 
@@ -145,7 +147,8 @@ class HistoryClient(Client):
         return self.history[sha]
 
 
-def test_first_release_bootstraps_at_main_head():
+def test_first_release_bootstraps_at_run_head(monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "h3")
     history = {
         "h3": {"parents": [{"sha": "h2"}]},
         "h2": {"parents": [{"sha": "h1"}]},
@@ -154,7 +157,8 @@ def test_first_release_bootstraps_at_main_head():
     assert reconcile._next_tooling_sha(HistoryClient(None, {"homelab": "h3"}, history), "homelab", "h3", None) == "h3"
 
 
-def test_second_run_selects_oldest_commit_after_previous_position():
+def test_second_run_selects_oldest_commit_after_previous_position(monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "h3")
     history = {
         "h3": {"parents": [{"sha": "h2"}]},
         "h2": {"parents": [{"sha": "h1"}]},
@@ -180,6 +184,7 @@ def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch)
     }
     client = HistoryClient(previous, {"homelab": "h3", "homelab-site": "s1", "tracker-integrations": "t1"}, history)
     _setup(monkeypatch, images)
+    monkeypatch.setenv("GITHUB_SHA", "h3")
     monkeypatch.setattr(reconcile, "_attested_builds", lambda _client, _repository, sha: {
         "agent": {**_build("agent", "sha256:" + sha[-1] * 64), "head_sha": sha}
     })
@@ -192,6 +197,37 @@ def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch)
     second = reconcile.plan(client, repository="homelab", site_repository="site")
     assert second["sha"] == "h3"
     assert second["images"][0]["manifest_digest"] == "sha256:" + "3" * 64
+
+
+def test_live_main_ahead_of_run_commit_does_not_change_plan(monkeypatch):
+    previous = _record(
+        {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"},
+        {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64},
+    )
+    history = {
+        "h4": {"parents": [{"sha": "h3"}]},
+        "h3": {"parents": [{"sha": "h2"}]},
+        "h2": {"parents": [{"sha": "h1"}]},
+        "h1": {"parents": [{"sha": "h0"}]},
+        "h0": {"parents": []},
+    }
+    client = HistoryClient(previous, {"homelab": "h4", "homelab-site": "s1", "tracker-integrations": "t1"}, history)
+    _setup(monkeypatch, {"agent"})
+    monkeypatch.setenv("GITHUB_SHA", "h3")
+    monkeypatch.setattr(reconcile, "_attested_builds", lambda _client, _repository, sha: {
+        "agent": {**_build("agent", "sha256:" + sha[-1] * 64), "head_sha": sha}
+    })
+
+    result = reconcile.plan(client, repository="homelab", site_repository="site")
+
+    assert result["sha"] == "h3"
+
+
+def test_plan_requires_run_commit():
+    client = Client(None, {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"})
+
+    with pytest.raises(VerificationError, match="requires GITHUB_SHA"):
+        reconcile.plan(client, repository="homelab", site_repository="site")
 
 
 def test_rewritten_history_rejects_release():
@@ -287,6 +323,7 @@ def test_no_source_change_produces_no_release(monkeypatch):
     previous = _record(sources, image_map)
     client = Client(previous, sources)
     _setup(monkeypatch, {"agent"})
+    monkeypatch.setenv("GITHUB_SHA", "h1")
 
     result = reconcile.plan(client, repository="homelab", site_repository="site")
 
@@ -334,6 +371,7 @@ def test_verifies_archive_attestation_with_gh(monkeypatch):
 
 
 def test_plan_denies_unapproved_verified_destination(monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "h2")
     previous = _record(
         {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"},
         {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "b" * 64},
