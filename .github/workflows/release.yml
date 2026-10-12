@@ -1,0 +1,92 @@
+name: Release reconciler
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-reconciler
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify release inputs
+        run: python3 -m pytest -q tests/release/test_authority.py
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - homelab-agent
+          - homelab-mcp
+          - homelab-workers
+          - media-agent
+          - qwen-code-telegram
+          - qwen-serve
+          - caddy
+    uses: ./.github/workflows/reusable-publish.yml
+    with:
+      artifact-name: oci-${{ matrix.image }}
+      destination: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+      manifest-digest: ${{ needs.verify.outputs.manifest-digest }}
+    permissions:
+      contents: read
+      packages: write
+    environment: production-release
+
+  sign:
+    if: github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Sign release record
+        run: test -n "$RELEASE_SIGNING_KEY"
+
+  feed:
+    if: github.ref == 'refs/heads/main'
+    needs: sign
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Publish release feed
+        run: test -n "$SITE_FEED_TOKEN"

@@ -23,6 +23,12 @@ ALLOWED_TRIGGERS = {
 GITHUB_HOSTED_RUNNERS = {"ubuntu-latest"}
 FULL_COMMIT_SHA = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 SECRETS_CONTEXT = re.compile(r"\bsecrets\s*(?:\.|\[)", re.IGNORECASE)
+SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*|\[\s*['\"])([A-Z][A-Z0-9_]*)", re.IGNORECASE)
+RELEASE_SECRETS = {
+    "verify": "PRIVATE_INPUT_READ_TOKEN",
+    "sign": "RELEASE_SIGNING_KEY",
+    "feed": "SITE_FEED_TOKEN",
+}
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -168,6 +174,87 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertFalse(has_secrets_context_reference(value), value)
 
         assert_no_secrets(workflow)
+
+    def assert_release_policy(self, workflow: dict[str, Any]) -> None:
+        self.assertEqual(
+            workflow.get("on"),
+            {
+                "schedule": [{"cron": "7,22,37,52 * * * *"}],
+                "workflow_dispatch": {},
+            },
+        )
+        self.assertEqual(workflow.get("permissions"), {"contents": "read"})
+        self.assertEqual(
+            workflow.get("concurrency"),
+            {"group": "release-reconciler", "cancel-in-progress": "false"},
+        )
+        jobs = workflow.get("jobs", {})
+        self.assertEqual(set(jobs), {"verify", "publish", "sign", "feed"})
+
+        for job_name, job in jobs.items():
+            self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
+            self.assertEqual(job.get("environment"), "production-release")
+            self.assertIsInstance(job, dict)
+            if job_name == "publish":
+                self.assertEqual(job.get("uses"), "./.github/workflows/reusable-publish.yml")
+                self.assertEqual(
+                    job.get("permissions"),
+                    {"contents": "read", "packages": "write"},
+                )
+                continue
+
+            self.assertEqual(job.get("runs-on"), "ubuntu-latest")
+            if job_name == "verify":
+                self.assertEqual(
+                    job.get("permissions"),
+                    {"contents": "read", "actions": "read"},
+                )
+            else:
+                self.assertEqual(job.get("permissions"), {"contents": "read"})
+            actions = [step["uses"] for step in job.get("steps", []) if "uses" in step]
+            self.assertIn(
+                "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+                actions,
+            )
+            checkout = next(step for step in job["steps"] if step.get("name") == "Checkout tooling")
+            self.assertEqual(checkout.get("with", {}).get("ref"), "${{ github.sha }}")
+
+            references = []
+            for value in job.get("env", {}).values():
+                references.extend(SECRET_REFERENCE.findall(str(value)))
+            for step in job.get("steps", []):
+                for value in step.get("env", {}).values():
+                    references.extend(SECRET_REFERENCE.findall(str(value)))
+            self.assertEqual(references, [RELEASE_SECRETS[job_name]])
+
+    def test_release_workflow_policy(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_without_production_environment(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["sign"].pop("environment")
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_in_wrong_job(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["feed"]["env"] = {
+            "RELEASE_SIGNING_KEY": "${{ secrets.RELEASE_SIGNING_KEY }}"
+        }
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_outside_release_workflow(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "ci.yml")
+        workflow["jobs"]["validate"]["env"] = {
+            "TOKEN": "${{ secrets.SITE_FEED_TOKEN }}"
+        }
+
+        with self.assertRaises(AssertionError):
+            self.assert_no_legacy_authority(workflow)
 
     def assert_candidate_ci_policy(self, workflow: dict[str, Any]) -> None:
         self.assertEqual(
@@ -360,9 +447,13 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertTrue(paths)
         for path in paths:
             with self.subTest(workflow=path.name):
-                self.assert_no_legacy_authority(
-                    load_workflow(path), allow_package_write=path.name == "reusable-publish.yml"
-                )
+                workflow = load_workflow(path)
+                if path.name == "release.yml":
+                    self.assert_release_policy(workflow)
+                else:
+                    self.assert_no_legacy_authority(
+                        workflow, allow_package_write=path.name == "reusable-publish.yml"
+                    )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:
         """Same-repo calls use the local ./ form, which runs at the caller's own commit;
