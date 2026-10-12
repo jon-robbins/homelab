@@ -181,7 +181,17 @@ class WorkflowSecurityTests(unittest.TestCase):
             workflow.get("on"),
             {
                 "schedule": [{"cron": "7,22,37,52 * * * *"}],
-                "workflow_dispatch": {},
+                "workflow_dispatch": {
+                    "inputs": {
+                        "mode": {
+                            "description": "Release operation",
+                            "type": "choice",
+                            "options": ["reconcile", "check"],
+                            "default": "reconcile",
+                            "required": "true",
+                        }
+                    }
+                },
             },
         )
         self.assertEqual(workflow.get("permissions"), {"contents": "read"})
@@ -190,7 +200,7 @@ class WorkflowSecurityTests(unittest.TestCase):
             {"group": "release-reconciler", "cancel-in-progress": "false"},
         )
         jobs = workflow.get("jobs", {})
-        self.assertEqual(set(jobs), {"verify", "publish", "sign", "feed"})
+        self.assertEqual(set(jobs), {"verify", "publish", "sign", "feed", "check-read", "check-sign", "check-feed"})
 
         def secret_names(value: object) -> list[str]:
             if isinstance(value, dict):
@@ -205,8 +215,9 @@ class WorkflowSecurityTests(unittest.TestCase):
                 return result
             return SECRET_REFERENCE.findall(str(value)) if isinstance(value, str) else []
 
-        for job_name, job in jobs.items():
-            expected_if = "github.ref == 'refs/heads/main'"
+        for job_name in ("verify", "publish", "sign", "feed"):
+            job = jobs[job_name]
+            expected_if = "github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')"
             if job_name != "verify":
                 expected_if += " && needs.verify.outputs.has_images == 'true'"
             self.assertEqual(job.get("if"), expected_if)
@@ -255,6 +266,22 @@ class WorkflowSecurityTests(unittest.TestCase):
             jobs["sign"].get("env", {}).get("RELEASE_SIGNING_KEY_ID"),
             "${{ vars.RELEASE_SIGNING_KEY_ID }}",
         )
+
+        for job_name, secret_name in {
+            "check-read": "PRIVATE_INPUT_READ_TOKEN",
+            "check-sign": "RELEASE_SIGNING_KEY",
+            "check-feed": "SITE_FEED_TOKEN",
+        }.items():
+            job = jobs[job_name]
+            self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'")
+            self.assertEqual(job.get("environment"), "production-release")
+            self.assertEqual(job.get("runs-on"), "ubuntu-latest")
+            self.assertEqual(job.get("permissions"), {"contents": "read"} if job_name != "check-read" else {"contents": "read", "actions": "read"})
+            self.assertEqual(secret_names(job), [secret_name])
+            self.assertEqual(
+                [step["uses"] for step in job.get("steps", []) if "uses" in step].count("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
+                1,
+            )
 
     def test_release_workflow_policy(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")

@@ -3,7 +3,16 @@ name: Release reconciler
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Release operation
+        type: choice
+        options:
+          - reconcile
+          - check
+        default: reconcile
+        required: true
 
 permissions:
   contents: read
@@ -17,7 +26,7 @@ env:
 
 jobs:
   verify:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
@@ -54,7 +63,7 @@ jobs:
       has_images: ${{ steps.plan.outputs.has_images }}
 
   publish:
-    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
     needs: verify
     strategy:
       fail-fast: false
@@ -72,7 +81,7 @@ jobs:
       packages: write
 
   sign:
-    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
     needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
@@ -105,7 +114,7 @@ jobs:
           path: release-output
 
   feed:
-    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
     needs: [verify, sign]
     runs-on: ubuntu-latest
     environment: production-release
@@ -135,3 +144,82 @@ jobs:
       - name: Publish release feed
         run: >-
           "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile feed --directory release-output
+
+  check-read:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Check read credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope read
+      - name: Upload public trust map
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
+        with:
+          name: release-check-trust
+          path: release-check/trust/release-keys.json
+
+  check-sign:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    needs: check-read
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+      RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Download public trust map
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-check-trust
+          path: release-check/trust
+      - name: Check signing credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope sign --trust-map release-check/trust/release-keys.json
+
+  check-feed:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Check feed credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope feed

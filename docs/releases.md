@@ -7,6 +7,18 @@ protected publisher, signs the release record, and appends the signed record
 to the site feed. The workflow is serialized so a slow run is not cancelled by
 the next scheduled run.
 
+To exercise the production credentials without writing anything, run the live
+check on `main`:
+
+```sh
+gh workflow run release.yml -f mode=check
+```
+
+The check runs one protected job per credential. It reads the site and tracker
+heads, trust map, and newest successful build; proves the signing key against
+the trust map with a throwaway message; and checks feed read and push access.
+Scheduled runs always use reconcile mode.
+
 The plan selects the newest `main` commit absent from the feed, admits only
 images present in that commit's successful post-merge build, and records each
 image's artifact name, manifest digest, and approved GHCR destination. It also

@@ -61,9 +61,10 @@ class GitHubClient:
     def pull_requests_for_commit(self, repository: str, sha: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}/pulls")
 
-    def workflow_runs(self, repository: str, workflow: str, head_sha: str) -> Any:
+    def workflow_runs(self, repository: str, workflow: str, head_sha: str | None = None) -> Any:
         workflow_id = workflow.rsplit("/", 1)[-1]
-        path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs?head_sha={head_sha}&per_page=100"
+        query = f"?head_sha={quote(head_sha, safe='')}&per_page=100" if head_sha else "?per_page=100"
+        path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs{query}"
         return self.request("GET", path)
 
     def commits(self, repository: str, branch: str) -> list[Mapping[str, Any]]:
@@ -104,6 +105,9 @@ class GitHubClient:
         return value["object"]["sha"]
 
     branch_ref = ref
+
+    def repository(self, repository: str) -> Any:
+        return self.request("GET", f"/repos/{self._repo(repository)}")
 
     def read(self, repository: str, branch: str, path: str, allow_missing: bool = False) -> bytes | None:
         try:

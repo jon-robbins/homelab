@@ -8,12 +8,15 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from .bundle import bundle_sha256
 from .compile import compile_bundle
 from .contracts import ValidationError, load_build_provenance, load_release_record
 from .feed import FeedError, _verify_release_signature, publish_next
 from .github import GitHubClient
-from .sign import record_bytes, sign_record
+from .sign import _private, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 from .artifacts import load_approved_destinations
 from .trust import load_trusted_keys
@@ -22,6 +25,8 @@ SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
+CHECK_DOMAIN = b"homelab-release-check-v1\n"
+CHECK_MESSAGE = b"release-check-no-write\n"
 
 
 def _normalize_workflow_runs(value: Any) -> Any:
@@ -255,12 +260,122 @@ def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str])
         )
 
 
+def _check_line(scope: str, item: str, passed: bool, reason: str) -> bool:
+    print(f"{'PASS' if passed else 'FAIL'} {scope} {item}: {reason}")
+    return passed
+
+
+def _newest_successful_build(client: Any, repository: str) -> Mapping[str, Any]:
+    runs = _normalize_workflow_runs(client.workflow_runs(repository, BUILD_WORKFLOW))
+    candidates = runs.get("workflow_runs", runs.get("runs", ()))
+    successful = [
+        run for run in candidates
+        if run.get("status") == "completed" and run.get("conclusion") == "success"
+    ]
+    if not successful:
+        raise VerificationError("no successful post-merge build run")
+    return max(successful, key=lambda item: (item.get("created_at", ""), item.get("id", 0)))
+
+
+def check_read(client: Any | None = None, *, output: Path | None = None) -> list[bool]:
+    """Check read-token wiring and save the public trust map for the sign job."""
+    client = client or GitHubClient(token=os.environ.get("PRIVATE_INPUT_READ_TOKEN"))
+    results: list[bool] = []
+    heads: dict[str, str] = {}
+    for repository, label in ((SITE_REPOSITORY, "homelab-site head"), (TRACKER_REPOSITORY, "tracker-integrations head")):
+        try:
+            heads[repository] = client.ref(repository, "main")
+            results.append(_check_line("read", label, True, "default branch is readable"))
+        except Exception as error:
+            results.append(_check_line("read", label, False, f"{type(error).__name__}: {error}"))
+    trust_data: bytes | None = None
+    try:
+        if SITE_REPOSITORY not in heads:
+            raise VerificationError("site head was not readable")
+        trust_data = client.read(SITE_REPOSITORY, heads[SITE_REPOSITORY], "trust/release-keys.json")
+        if trust_data is None:
+            raise VerificationError("trust map is missing")
+        trust_path = Path(os.environ.get("RELEASE_CHECK_TRUST_MAP", str(output or "release-check/trust/release-keys.json")))
+        trust_path.parent.mkdir(parents=True, exist_ok=True)
+        trust_path.write_bytes(trust_data)
+        load_trusted_keys(trust_path)
+        results.append(_check_line("read", "trust map", True, "homelab-site trust/release-keys.json is valid"))
+    except Exception as error:
+        results.append(_check_line("read", "trust map", False, f"{type(error).__name__}: {error}"))
+    try:
+        run = _newest_successful_build(client, os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
+        artifacts = client.run_artifacts(os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"), int(run["id"])).get("artifacts", ())
+        names = sorted(str(artifact.get("name", "")) for artifact in artifacts)
+        if not names:
+            raise VerificationError(f"run {run['id']} has no artifacts")
+        results.append(_check_line("read", "post-merge build", True, f"newest successful run {run['id']} artifacts: {', '.join(names)}"))
+    except Exception as error:
+        results.append(_check_line("read", "post-merge build", False, f"{type(error).__name__}: {error}"))
+    return results
+
+
+def check_sign(*, trust_map: Path) -> list[bool]:
+    """Check the signing secret against the site trust map without a record."""
+    results: list[bool] = []
+    key_id = os.environ.get("RELEASE_SIGNING_KEY_ID")
+    trusted: dict[str, bytes] = {}
+    try:
+        trusted = load_trusted_keys(trust_map)
+        if not key_id or key_id not in trusted:
+            raise VerificationError(f"key ID is not in the trust map: {key_id or 'missing'}")
+        results.append(_check_line("sign", "key ID", True, "configured key ID is in the trust map"))
+    except Exception as error:
+        results.append(_check_line("sign", "key ID", False, f"{type(error).__name__}: {error}"))
+    private = None
+    try:
+        if not key_id or key_id not in trusted:
+            raise VerificationError("cannot compare a key absent from the trust map")
+        private = _private(os.environ.get("RELEASE_SIGNING_KEY", ""))
+        expected = serialization.load_pem_public_key(trusted[key_id])
+        if not isinstance(expected, Ed25519PublicKey) or private.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        ) != expected.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw):
+            raise VerificationError("private key does not match the trusted public key")
+        results.append(_check_line("sign", "key match", True, "private key matches the trusted public key"))
+    except Exception as error:
+        results.append(_check_line("sign", "key match", False, f"{type(error).__name__}: {error}"))
+    try:
+        if private is None:
+            raise VerificationError("cannot sign without a matching private key")
+        signature = private.sign(CHECK_DOMAIN + CHECK_MESSAGE)
+        private.public_key().verify(signature, CHECK_DOMAIN + CHECK_MESSAGE)
+        results.append(_check_line("sign", "fixed message", True, "signature verified with the matching public key"))
+    except Exception as error:
+        results.append(_check_line("sign", "fixed message", False, f"{type(error).__name__}: {error}"))
+    return results
+
+
+def check_feed(client: Any | None = None) -> list[bool]:
+    """Check feed-token read and push authorization; perform no mutation."""
+    client = client or GitHubClient(token=os.environ.get("SITE_FEED_TOKEN"))
+    results: list[bool] = []
+    try:
+        client.ref(SITE_REPOSITORY, "releases")
+        results.append(_check_line("feed", "releases ref", True, "homelab-site releases ref is readable"))
+    except Exception as error:
+        results.append(_check_line("feed", "releases ref", False, f"{type(error).__name__}: {error}"))
+    try:
+        permissions = client.repository(SITE_REPOSITORY).get("permissions", {})
+        if permissions.get("push") is not True:
+            raise VerificationError("GitHub reports permissions.push is not true")
+        results.append(_check_line("feed", "push permission", True, "GitHub reports permissions.push=true"))
+    except Exception as error:
+        results.append(_check_line("feed", "push permission", False, f"{type(error).__name__}: {error}"))
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     plan_parser = sub.add_parser("plan"); plan_parser.add_argument("--output", type=Path, default=Path("release-plan.json"))
     sign_parser = sub.add_parser("sign"); sign_parser.add_argument("--plan", type=Path, default=Path("release-plan.json")); sign_parser.add_argument("--output-dir", type=Path, default=Path("release-output"))
     feed_parser = sub.add_parser("feed"); feed_parser.add_argument("--directory", type=Path, default=Path("release-output"))
+    check_parser = sub.add_parser("check"); check_parser.add_argument("--scope", choices=("read", "sign", "feed"), required=True); check_parser.add_argument("--trust-map", type=Path, default=None)
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
@@ -269,7 +384,11 @@ def main(argv: list[str] | None = None) -> int:
             if output:
                 write_plan_outputs(value, output)
         elif args.command == "sign": sign_plan(args.plan, args.output_dir)
-        else: print(feed_plan(args.directory))
+        elif args.command == "feed": print(feed_plan(args.directory))
+        else:
+            trust_map = args.trust_map or Path(os.environ.get("RELEASE_CHECK_TRUST_MAP", "release-check/trust/release-keys.json"))
+            results = check_read(output=trust_map) if args.scope == "read" else check_sign(trust_map=trust_map) if args.scope == "sign" else check_feed()
+            return 0 if all(results) else 1
     except (OSError, ValueError, VerificationError) as error:
         print(f"release {args.command} failed: {error}")
         return 1
