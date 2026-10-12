@@ -50,16 +50,22 @@ gh attestation verify <archive> --repo jon-robbins/homelab \
 Thus the signed artifact, signer workflow, and source commit must all match
 the release before its manifest digest is admitted.
 
-The plan selects the newest `main` commit absent from the feed, downloads OCI
-artifacts from the Actions artifact store, and admits only archives whose
-native attestation verifies. The manifest digest is read from the verified
-archive's `index.json`; no custom provenance file participates in selection or
-digest admission. The plan records each image's artifact name, download run ID,
-manifest digest, and approved GHCR destination. It also
-copies the site's `compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`,
-and `files/` tree at the verified site SHA into the handoff artifact. Signing
-compiles only those copied inputs; an empty plan skips publication, signing,
-and feed work.
+The plan compares the current heads of `homelab`, `homelab-site`, and
+`tracker-integrations` with the previous record. Any source-head change creates
+a release because the bundle may have changed, even when no image needs to be
+published. OCI artifacts are selected only when their native attestation
+matches the current homelab head. The first release requires one verified
+artifact for every approved image; later records carry forward unchanged image
+digests and overlay newly verified builds. The manifest digest is read from the
+verified archive's `index.json`; no custom provenance file participates in
+selection or digest admission.
+
+The plan records each newly built image's artifact name, download run ID,
+manifest digest, and approved GHCR destination. It copies the site's
+`compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`, and `files/`
+tree at the verified site SHA into the handoff artifact. The record's `site_id`
+comes from that manifest and its `rollback_floor` is carried forward. A plan
+with no source changes produces no record.
 
 ## Feed layout
 

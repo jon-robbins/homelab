@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "properties": {
     "schema": { "type": "integer", "const": 1 },
+    "site_id": { "$ref": "#/$defs/name" },
     "applications": {
       "type": "array",
       "items": { "$ref": "#/$defs/application" }

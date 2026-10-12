@@ -13,7 +13,7 @@ from typing import Any, Mapping
 
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import ValidationError, load_release_record
+from .contracts import ValidationError, load_application_manifest, load_release_record
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient
 from .sign import COSIGN_VERSION, record_bytes, sign_record
@@ -88,6 +88,10 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
     candidates = []
     for artifact in artifacts or ():
         if not isinstance(artifact, Mapping) or artifact.get("expired"):
+            continue
+        workflow_run = artifact.get("workflow_run")
+        artifact_head = workflow_run.get("head_sha") if isinstance(workflow_run, Mapping) else None
+        if isinstance(artifact_head, str) and artifact_head != sha:
             continue
         name = artifact.get("name", "")
         if not isinstance(name, str) or not name.startswith("oci-"):
@@ -178,34 +182,66 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
     copy_directory("files")
 
 
+def _manifest_site_id(root: Path) -> str:
+    manifest = load_application_manifest((root / "manifest.yaml").read_bytes(), yaml=True)
+    site_id = manifest.get("site_id")
+    if not isinstance(site_id, str):
+        raise VerificationError("site manifest is missing site_id")
+    return site_id
+
+
+def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
+    prefix = "ghcr.io/jon-robbins/homelab/"
+    return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
+
+
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
     repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
     ruleset_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN")) if os.environ.get("GITHUB_TOKEN") else client
     _check_homelab_ruleset(ruleset_client, repository)
-    sha = _newest_unpublished_sha(client, repository, site_repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
-    if sha is None:
-        result = {"sha": "", "sequence": next_sequence, "images": []}
-    elif previous and previous.get("tooling_git_sha") == sha:
-        result = {"sha": sha, "sequence": next_sequence, "images": []}
+    sha = client.ref(repository, "main")
+    site_sha = client.ref(site_repository, "main")
+    tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
+    sources = {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}
+    if previous and previous.get("sources") == sources:
+        result = {"release": False, "sha": sha, "sequence": next_sequence, "images": [], "image_refs": previous.get("images", {})}
     else:
         _check_homelab_head_ancestry(ruleset_client, repository, sha)
-        site_sha = client.ref(site_repository, "main")
-        tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
-        builds = _attested_builds(client, repository, sha)
+        approved = load_approved_destinations()
+        all_images = _destination_images(approved)
+        homelab_changed = previous is None or sha != previous.get("sources", {}).get("homelab")
+        if homelab_changed:
+            try:
+                builds = _attested_builds(client, repository, sha)
+            except VerificationError:
+                builds = {}
+            builds = {image: spec for image, spec in builds.items() if spec.get("head_sha") == sha}
+        else:
+            builds = {}
+        required = all_images if previous is None else set(builds)
+        if previous is None and not all_images.issubset(builds):
+            missing = sorted(all_images - set(builds))
+            raise VerificationError(f"first release requires verified builds for all images; missing {missing[0]}")
+        if previous is not None and homelab_changed and not builds:
+            raise VerificationError("homelab source changed but no verified image builds were found")
         owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
-        verified = verify_release(client, {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
+        verified = verify_release(client, sources, builds, required_images=required, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
-        approved = load_approved_destinations()
         images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "run_id": builds[image]["run_id"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        result = {"sha": sha, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}}
+        image_refs = dict(previous.get("images", {}) if previous else {})
+        image_refs.update({item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in images})
+        if set(image_refs) != all_images:
+            missing = sorted(all_images - set(image_refs))
+            raise VerificationError(f"release record image map is incomplete; missing {missing[0]}")
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
+        result = {"release": True, "sha": sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return result
@@ -213,7 +249,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
 
 def sign_plan(plan_path: Path, output_dir: Path) -> None:
     plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
-    if not plan_data.get("images"):
+    if not plan_data.get("release", bool(plan_data.get("images"))):
         return
     input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -224,7 +260,8 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         # already materialized inputs under the explicit environment paths.
         inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
     digest = compile_bundle(*inputs, bundle_path)
-    record = {"schema": 1, "site_id": "home", "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data["images"]}, "bundle_sha256": digest, "rollback_floor": 0}
+    image_refs = plan_data.get("image_refs") or {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data.get("images", [])}
+    record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
     data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
 
@@ -255,7 +292,9 @@ def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str])
         stream.write(
             f"sha={value['sha']}\n"
             f"images={json.dumps(value['images'], separators=(',', ':'))}\n"
-            f"has_images={'true' if value['images'] else 'false'}\n"
+            f"has_images={'true' if value.get('release', bool(value['images'])) else 'false'}\n"
+            f"has_publish_images={'true' if value['images'] else 'false'}\n"
+            f"has_release={'true' if value.get('release', bool(value['images'])) else 'false'}\n"
         )
 
 

@@ -51,7 +51,11 @@ APPLICATION_FIELDS = {
     "semantic_probes": (True, "ProbeID[]"),
     "gpu": (False, "GPU"),
 }
-MANIFEST_FIELDS = {"schema": (True, "SchemaVersion"), "applications": (True, "Application[]")}
+MANIFEST_FIELDS = {
+    "schema": (True, "SchemaVersion"),
+    "site_id": (False, "Name"),
+    "applications": (True, "Application[]"),
+}
 SOURCES_FIELDS = {
     "homelab": (True, "GitSHA"),
     "homelab-site": (True, "GitSHA"),
@@ -294,6 +298,8 @@ def validate_application_manifest(
     if manifest["schema"] != 1 or isinstance(manifest["schema"], bool):
         raise ValidationError("$.schema", "unsupported schema version; expected 1")
     applications = manifest["applications"]
+    if "site_id" in manifest:
+        validate_name(manifest["site_id"], "$.site_id")
     if not isinstance(applications, list):
         raise ValidationError("$.applications", "expected array")
 

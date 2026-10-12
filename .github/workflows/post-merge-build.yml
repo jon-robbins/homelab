@@ -9,7 +9,68 @@ permissions:
   contents: read
 
 jobs:
+  changed-images:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Find changed images
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            homelab-agent:
+              - 'apps/homelab-agent/**'
+              - 'apps/homelab-agent/Dockerfile'
+            homelab-mcp:
+              - 'apps/homelab-mcp/**'
+              - 'apps/homelab-mcp/Dockerfile'
+              - 'apps/homelab-workers/**'
+            homelab-workers:
+              - 'apps/homelab-workers/**'
+              - 'apps/homelab-workers/Dockerfile'
+            media-agent:
+              - 'apps/media-agent/**'
+              - 'apps/media-agent/Dockerfile'
+            qwen-code-telegram:
+              - 'apps/qwen-code-telegram/**'
+              - 'apps/qwen-code-telegram/Dockerfile'
+            qwen-serve:
+              - 'apps/qwen-serve/**'
+              - 'apps/qwen-serve/Dockerfile'
+            caddy:
+              - 'config/caddy/**'
+              - 'config/caddy/Dockerfile'
+      - name: Create build matrix
+        id: matrix
+        env:
+          FILTER_HOMELAB_AGENT: ${{ steps.filter.outputs.homelab-agent }}
+          FILTER_HOMELAB_MCP: ${{ steps.filter.outputs.homelab-mcp }}
+          FILTER_HOMELAB_WORKERS: ${{ steps.filter.outputs.homelab-workers }}
+          FILTER_MEDIA_AGENT: ${{ steps.filter.outputs.media-agent }}
+          FILTER_QWEN_CODE_TELEGRAM: ${{ steps.filter.outputs.qwen-code-telegram }}
+          FILTER_QWEN_SERVE: ${{ steps.filter.outputs.qwen-serve }}
+          FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
+        run: |
+          matrix=$(jq -cn '[
+            {"dockerfile":"apps/homelab-agent/Dockerfile","context":"apps/homelab-agent","image":"homelab-agent","changed":env.FILTER_HOMELAB_AGENT},
+            {"dockerfile":"apps/homelab-mcp/Dockerfile","context":".","image":"homelab-mcp","changed":env.FILTER_HOMELAB_MCP},
+            {"dockerfile":"apps/homelab-workers/Dockerfile","context":"apps/homelab-workers","image":"homelab-workers","changed":env.FILTER_HOMELAB_WORKERS},
+            {"dockerfile":"apps/media-agent/Dockerfile","context":"apps/media-agent","image":"media-agent","changed":env.FILTER_MEDIA_AGENT},
+            {"dockerfile":"apps/qwen-code-telegram/Dockerfile","context":"apps/qwen-code-telegram","image":"qwen-code-telegram","changed":env.FILTER_QWEN_CODE_TELEGRAM},
+            {"dockerfile":"apps/qwen-serve/Dockerfile","context":"apps/qwen-serve","image":"qwen-serve","changed":env.FILTER_QWEN_SERVE},
+            {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY}
+          ] | map(select(.changed == "true") | del(.changed)) | {include:.}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: changed-images
+    if: needs.changed-images.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -17,29 +78,7 @@ jobs:
       attestations: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - dockerfile: apps/homelab-agent/Dockerfile
-            context: apps/homelab-agent
-            image: homelab-agent
-          - dockerfile: apps/homelab-mcp/Dockerfile
-            context: .
-            image: homelab-mcp
-          - dockerfile: apps/homelab-workers/Dockerfile
-            context: apps/homelab-workers
-            image: homelab-workers
-          - dockerfile: apps/media-agent/Dockerfile
-            context: apps/media-agent
-            image: media-agent
-          - dockerfile: apps/qwen-code-telegram/Dockerfile
-            context: apps/qwen-code-telegram
-            image: qwen-code-telegram
-          - dockerfile: apps/qwen-serve/Dockerfile
-            context: apps/qwen-serve
-            image: qwen-serve
-          - dockerfile: config/caddy/Dockerfile
-            context: config/caddy
-            image: caddy
+      matrix: ${{ fromJSON(needs.changed-images.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

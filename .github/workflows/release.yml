@@ -61,6 +61,8 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       images: ${{ steps.plan.outputs.images }}
       has_images: ${{ steps.plan.outputs.has_images }}
+      has_release: ${{ steps.plan.outputs.has_release }}
+      has_publish_images: ${{ steps.plan.outputs.has_publish_images }}
 
   publish:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'

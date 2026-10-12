@@ -45,11 +45,16 @@ jobs:
           run-id: ${{ inputs.run-id }}
           github-token: ${{ github.token }}
 
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+
       - name: Copy and verify OCI artifact
         env:
           GHCR_PUBLISH_TOKEN: ${{ github.token }}
         run: >-
-          python3 scripts/release/artifacts.py publish
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.artifacts publish
           --artifact artifact/oci-layout.tar
           --destination "${{ inputs.destination }}"
           --expected-manifest-digest "${{ inputs.manifest-digest }}"
