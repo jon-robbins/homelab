@@ -32,6 +32,17 @@ def _workflow_checks() -> dict[str, str]:
     }
 
 
+def _workflow_step_names() -> set[str]:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return {
+        step["name"]
+        for step in workflow["jobs"]["validate"]["steps"]
+        if "name" in step
+        and step["name"] not in SETUP_STEPS
+        and not step["name"].startswith("Create ")
+    }
+
+
 def _local_checks() -> dict[str, str]:
     source = LOCAL_GATE.read_text(encoding="utf-8").replace("\\\n", " ")
     matches = re.finditer(
@@ -43,6 +54,14 @@ def _local_checks() -> dict[str, str]:
         if not match.group(1).startswith("$")
         if match.group(1) != "Build local images"
     }
+
+
+def _local_step_names() -> set[str]:
+    return set(_local_checks())
+
+
+def test_validate_step_names_match_between_gates() -> None:
+    assert _local_step_names() == _workflow_step_names()
 
 
 def _signature(command: str, name: str) -> str:
