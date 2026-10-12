@@ -79,7 +79,7 @@ jobs:
       contents: read
     env:
       HOMELAB_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-      RELEASE_SIGNING_KEY_ID: release-v1
+      RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
       RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling
@@ -113,6 +113,7 @@ jobs:
       contents: read
     env:
       SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
+      RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

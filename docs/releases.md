@@ -29,8 +29,8 @@ records/<sequence>/bundle.tar
 `record.json` is the canonical JSON ReleaseRecord, ending with a newline.
 `record.sig` is canonical JSON containing `key_id` and a base64-encoded
 64-byte Ed25519 signature. The signature covers the release domain followed by
-the exact canonical `record.json` bytes. `config/release/release-keys.json`
-maps the key ID to the installed public-key file. `bundle.tar` is the exact
+the exact canonical `record.json` bytes. `trust/release-keys.json` in
+`homelab-site` maps each key ID to its PEM public key. `bundle.tar` is the exact
 compiled bundle referenced by `record.json` through `bundle_sha256`.
 
 Publication observes the current `releases` ref and commits the next sequence
@@ -42,6 +42,7 @@ Before enabling the workflow, the owner creates these three secrets in the
 `production-release` environment: `PRIVATE_INPUT_READ_TOKEN` (contents/actions
 read on `homelab-site` and `tracker-integrations`), `RELEASE_SIGNING_KEY`
 (visible only to signing), and `SITE_FEED_TOKEN` (contents write on
-`homelab-site`). The owner also replaces the placeholder in
-`config/release/release-signing.pub` with the matching Ed25519 public key and
-commits it. No private key is committed.
+`homelab-site`). Generate an Ed25519 key, store the private key as
+`RELEASE_SIGNING_KEY`, set `vars.RELEASE_SIGNING_KEY_ID`, and commit
+`trust/release-keys.json` with the matching public key to `homelab-site`.
+No private key is committed.

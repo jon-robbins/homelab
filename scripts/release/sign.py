@@ -61,7 +61,8 @@ def parse_signature(value: bytes) -> tuple[str, bytes]:
 
 
 def sign_record(record: Mapping[str, Any], *, env_var: str = "HOMELAB_RELEASE_SIGNING_KEY",
-                key_id_env: str = "RELEASE_SIGNING_KEY_ID") -> tuple[bytes, bytes]:
+                key_id_env: str = "RELEASE_SIGNING_KEY_ID",
+                trusted_keys: Mapping[str, bytes] | None = None) -> tuple[bytes, bytes]:
     """Read the key and key ID only here; return canonical record and envelope."""
     data = record_bytes(record)
     secret = os.environ.get(env_var)
@@ -71,7 +72,16 @@ def sign_record(record: Mapping[str, Any], *, env_var: str = "HOMELAB_RELEASE_SI
     if not key_id:
         raise ValueError(f"missing signing key ID environment variable: {key_id_env}")
     validate_name(key_id, "$.key_id")
-    return data, _signature_json(key_id, _private(secret).sign(DOMAIN + data))
+    private = _private(secret)
+    if trusted_keys is not None:
+        if key_id not in trusted_keys:
+            raise ValueError(f"unknown signing key ID: {key_id}")
+        expected = serialization.load_pem_public_key(trusted_keys[key_id])
+        if not isinstance(expected, Ed25519PublicKey) or private.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        ) != expected.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw):
+            raise ValueError(f"signing key does not match trusted public key: {key_id}")
+    return data, _signature_json(key_id, private.sign(DOMAIN + data))
 
 
 def verify_signature(record: bytes | Mapping[str, Any], signature: bytes, public_key: bytes | Ed25519PublicKey) -> bool:

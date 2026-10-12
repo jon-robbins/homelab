@@ -23,6 +23,7 @@ IMAGE_DIGEST = "sha256:" + "b" * 64
 FEED_KEY = Ed25519PrivateKey.generate()
 FEED_PUBLIC_KEY = FEED_KEY.public_key()
 FEED_KEYS = {"release-v1": FEED_PUBLIC_KEY}
+SITE_PRIVATE_KEY = bytes.fromhex("5e5ed75b05d493993afdc99609762aeee5f588da63346882dc3141936f83c983")
 
 
 def feed_signature(data):
@@ -232,6 +233,17 @@ def test_signature_is_domain_bound_and_tamper_evident(monkeypatch):
     assert not verify_signature(data + b"x", signature, public)
 
 
+@pytest.mark.parametrize("trusted, message", [
+    ({"other-key": FEED_PUBLIC_KEY.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)}, "unknown"),
+    ({"release-v1": FEED_PUBLIC_KEY.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)}, "does not match"),
+])
+def test_sign_rejects_unknown_or_mismatched_trusted_key(monkeypatch, trusted, message):
+    monkeypatch.setenv("HOMELAB_RELEASE_SIGNING_KEY", SITE_PRIVATE_KEY.hex())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
+    with pytest.raises(ValueError, match=message):
+        sign_record(record(), trusted_keys=trusted)
+
+
 class FeedFake:
     def __init__(self, latest=None, move=False):
         self.latest, self.ref_value, self.move, self.commits = latest, "ref-1", move, []
@@ -311,10 +323,13 @@ def test_feed_rejects_unknown_key_id_and_malformed_signature():
         publish_feed(FeedFake(), record(2), b"{not-json", b"bundle", public_key=FEED_KEYS)
 
 
-def test_feed_rejects_placeholder_public_key(tmp_path):
-    (tmp_path / "release-signing.pub").write_text("PLACEHOLDER", encoding="utf-8")
-    with pytest.raises(ValueError, match="placeholder"):
-        feed_plan(tmp_path, tmp_path / "release-signing.pub")
+def test_feed_rejects_invalid_trust_map(tmp_path, monkeypatch):
+    trust = tmp_path / "release-inputs" / "trust"
+    trust.mkdir(parents=True)
+    (trust / "release-keys.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
+    with pytest.raises(ValueError, match="trust map"):
+        feed_plan(tmp_path)
 
 
 class RestReleaseFake:
@@ -380,24 +395,23 @@ class RestReleaseFake:
                 for item in sorted(directory.iterdir())] if directory.is_dir() else None
 
 def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
-    key = Ed25519PrivateKey.generate()
-    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    key = Ed25519PrivateKey.from_private_bytes(SITE_PRIVATE_KEY)
+    raw_key = SITE_PRIVATE_KEY
     monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
     monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
     fake = RestReleaseFake()
 
     planned = reconcile_plan(fake, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
     assert [item["image"] for item in planned["images"]] == ["caddy", "homelab-agent"]
     output = tmp_path / "release-output"
     sign_plan(tmp_path / "release-plan.json", output)
-    public_key = tmp_path / "release-signing.pub"
-    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
     assert (output / "record.json").is_file()
     assert (output / "record.sig").is_file()
     assert (output / "bundle.tar").is_file()
-    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), public_key.read_bytes())
-    assert feed_plan(output, public_key, client=fake) == "published"
+    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), key.public_key())
+    assert feed_plan(output, client=fake) == "published"
     assert fake.commits
 
 
@@ -425,10 +439,10 @@ def test_reconcile_denies_mismatched_artifact_provenance():
 
 
 def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
-    key = Ed25519PrivateKey.generate()
-    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    raw_key = SITE_PRIVATE_KEY
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
     monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
     fake = RestReleaseFake()
     planned = reconcile_plan(fake, repository="jon-robbins/homelab")
     for name, value in {
@@ -441,18 +455,17 @@ def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
     plan_path.write_text(json.dumps(planned), encoding="utf-8")
     sign_plan(plan_path, output)
     (output / "record.sig").write_bytes(b"bad signature")
-    public_key = tmp_path / "release-signing.pub"
-    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
     with pytest.raises(FeedError, match="signature"):
-        feed_plan(output, public_key, client=fake)
+        feed_plan(output, client=fake)
 
 
-def test_reconcile_feed_denies_noncanonical_record_before_parsing(tmp_path):
+def test_reconcile_feed_denies_noncanonical_record_before_parsing(tmp_path, monkeypatch):
     value = record()
     data = record_bytes(value)
-    public_key = tmp_path / "release-signing.pub"
-    public_key.write_bytes(FEED_PUBLIC_KEY.public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    trust = tmp_path / "release-inputs" / "trust"
+    trust.mkdir(parents=True)
+    trust.joinpath("release-keys.json").write_text(json.dumps({"schema": 1, "keys": {"release-v1": FEED_PUBLIC_KEY.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()}}), encoding="utf-8")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
     output = tmp_path / "release-output"
     output.mkdir()
     (output / "record.json").write_bytes(data.replace(b'{"', b'{\n"', 1))
@@ -460,15 +473,16 @@ def test_reconcile_feed_denies_noncanonical_record_before_parsing(tmp_path):
     (output / "bundle.tar").write_bytes(b"bundle")
 
     with pytest.raises(FeedError, match="signature"):
-        feed_plan(output, public_key, client=FeedFake())
+        feed_plan(output, client=FeedFake())
 
 
-def test_reconcile_feed_denies_cryptographically_invalid_signature_envelope(tmp_path):
+def test_reconcile_feed_denies_cryptographically_invalid_signature_envelope(tmp_path, monkeypatch):
     value = record()
     data = record_bytes(value)
-    public_key = tmp_path / "release-signing.pub"
-    public_key.write_bytes(FEED_PUBLIC_KEY.public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    trust = tmp_path / "release-inputs" / "trust"
+    trust.mkdir(parents=True)
+    trust.joinpath("release-keys.json").write_text(json.dumps({"schema": 1, "keys": {"release-v1": FEED_PUBLIC_KEY.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()}}), encoding="utf-8")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
     output = tmp_path / "release-output"
     output.mkdir()
     (output / "record.json").write_bytes(data)
@@ -479,7 +493,7 @@ def test_reconcile_feed_denies_cryptographically_invalid_signature_envelope(tmp_
     (output / "bundle.tar").write_bytes(b"bundle")
 
     with pytest.raises(FeedError, match="signature"):
-        feed_plan(output, public_key, client=FeedFake())
+        feed_plan(output, client=FeedFake())
 
 
 class _OfflineHTTPResponse:
@@ -566,6 +580,8 @@ class _OfflineGitHub:
                 return self._file(self.site_root / "files/settings.ini")
             if content_path in {"compose.json", "manifest.yaml", "probes.json", "policy.yaml"}:
                 return self._file(self.site_root / content_path)
+            if content_path == "trust/release-keys.json":
+                return self._file(self.site_root / content_path)
             return self._not_found(path)
         if path.endswith("/git/commits/release-ref"):
             return self._json({"tree": {"sha": "tree-ref"}})
@@ -595,11 +611,12 @@ class _OfflineGitHub:
 
 
 def test_reconcile_plan_sign_feed_uses_real_github_client(tmp_path, monkeypatch):
-    key = Ed25519PrivateKey.generate()
-    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    key = Ed25519PrivateKey.from_private_bytes(SITE_PRIVATE_KEY)
+    raw_key = SITE_PRIVATE_KEY
     monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
     monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
     transport = _OfflineGitHub(SHA, Path(__file__).parent / "fixtures" / "site")
     monkeypatch.setattr("scripts.release.github.urlopen", transport)
     client = GitHubClient("offline-token")
@@ -608,7 +625,5 @@ def test_reconcile_plan_sign_feed_uses_real_github_client(tmp_path, monkeypatch)
     assert {item["image"] for item in planned["images"]} == {"caddy", "homelab-agent"}
     output = tmp_path / "release-output"
     sign_plan(tmp_path / "release-plan.json", output)
-    public_key = tmp_path / "release-signing.pub"
-    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
-    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), public_key.read_bytes())
-    assert feed_plan(output, public_key, client=client) == "published"
+    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), key.public_key())
+    assert feed_plan(output, client=client) == "published"

@@ -16,6 +16,7 @@ from .github import GitHubClient
 from .sign import record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 from .artifacts import load_approved_destinations
+from .trust import load_trusted_keys
 
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
@@ -132,7 +133,7 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
     """Copy the exact site inputs at *ref* for the signing job artifact."""
     if not hasattr(client, "contents"):
         return
-    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml")
+    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "trust/release-keys.json")
     for name in files:
         data = client.read(repository, ref, name)
         if data is None:
@@ -140,6 +141,11 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+
+    try:
+        load_trusted_keys(root / "trust/release-keys.json")
+    except ValueError as error:
+        raise VerificationError(str(error)) from error
 
     def copy_directory(path: str) -> None:
         entries = client.contents(repository, ref, path)
@@ -199,9 +205,10 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
     if not plan_data.get("images"):
         return
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+    trusted_keys = load_trusted_keys(input_root / "trust/release-keys.json")
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "bundle.tar"
-    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
     inputs = [input_root / name for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "files")]
     if not all(path.exists() for path in inputs):
         # Keep the command useful for local operators and older callers that
@@ -210,24 +217,14 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     digest = compile_bundle(*inputs, bundle_path)
     record = {"schema": 1, "site_id": "home", "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data["images"]}, "bundle_sha256": digest, "rollback_floor": 0}
     signing_env = "HOMELAB_RELEASE_SIGNING_KEY" if os.environ.get("HOMELAB_RELEASE_SIGNING_KEY") else "RELEASE_SIGNING_KEY"
-    data, signature = sign_record(record, env_var=signing_env)
+    data, signature = sign_record(record, env_var=signing_env, trusted_keys=trusted_keys)
     (output_dir / "record.json").write_bytes(data)
     (output_dir / "record.sig").write_bytes(signature)
 
 
-def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOSITORY, client: Any | None = None) -> str:
-    key = public_key.read_bytes()
-    if b"PLACEHOLDER" in key:
-        raise ValueError("release public key is still a placeholder; commit config/release/release-signing.pub")
-    key_id = os.environ.get("RELEASE_SIGNING_KEY_ID", "release-v1")
-    key_map_path = public_key.with_name("release-keys.json")
-    if key_map_path.exists():
-        key_map = json.loads(key_map_path.read_text(encoding="utf-8"))
-        key_map = key_map.get("keys", key_map) if isinstance(key_map, dict) else {}
-        key_map = {name: key for name, path in key_map.items()
-                   if name == key_id and path == public_key.name}
-    else:
-        key_map = {key_id: key}
+def feed_plan(directory: Path, *, repository: str = SITE_REPOSITORY, client: Any | None = None) -> str:
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+    key_map = load_trusted_keys(input_root / "trust/release-keys.json")
     record_data = (directory / "record.json").read_bytes()
     client = client or GitHubClient()
     signature = (directory / "record.sig").read_bytes()
@@ -262,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     plan_parser = sub.add_parser("plan"); plan_parser.add_argument("--output", type=Path, default=Path("release-plan.json"))
     sign_parser = sub.add_parser("sign"); sign_parser.add_argument("--plan", type=Path, default=Path("release-plan.json")); sign_parser.add_argument("--output-dir", type=Path, default=Path("release-output"))
-    feed_parser = sub.add_parser("feed"); feed_parser.add_argument("--directory", type=Path, default=Path("release-output")); feed_parser.add_argument("--public-key", type=Path, default=Path("config/release/release-signing.pub"))
+    feed_parser = sub.add_parser("feed"); feed_parser.add_argument("--directory", type=Path, default=Path("release-output"))
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
@@ -271,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
             if output:
                 write_plan_outputs(value, output)
         elif args.command == "sign": sign_plan(args.plan, args.output_dir)
-        else: print(feed_plan(args.directory, args.public_key))
+        else: print(feed_plan(args.directory))
     except (OSError, ValueError, VerificationError) as error:
         print(f"release {args.command} failed: {error}")
         return 1
