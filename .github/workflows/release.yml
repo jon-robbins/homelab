@@ -29,7 +29,19 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Verify release inputs
-        run: python3 -m pytest -q tests/release/test_authority.py
+        id: plan
+        run: python3 -m scripts.release.reconcile plan --output release-plan.json
+      - name: Upload release plan
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
+        with:
+          name: release-plan
+          path: release-plan.json
+
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      run_id: ${{ steps.plan.outputs.run_id }}
+      images: ${{ steps.plan.outputs.images }}
+      has-images: ${{ steps.plan.outputs.has_images }}
 
   publish:
     if: github.ref == 'refs/heads/main'
@@ -37,27 +49,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - homelab-agent
-          - homelab-mcp
-          - homelab-workers
-          - media-agent
-          - qwen-code-telegram
-          - qwen-serve
-          - caddy
+        image: ${{ fromJSON(needs.verify.outputs.images) }}
     uses: ./.github/workflows/reusable-publish.yml
     with:
-      artifact-name: oci-${{ matrix.image }}
-      destination: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
-      manifest-digest: ${{ needs.verify.outputs.manifest-digest }}
+      artifact-name: ${{ matrix.image.artifact_name }}
+      destination: ${{ matrix.image.destination }}
+      manifest-digest: ${{ matrix.image.manifest_digest }}
+      run-id: ${{ needs.verify.outputs.run_id }}
     permissions:
       contents: read
+      actions: read
       packages: write
     environment: production-release
 
   sign:
     if: github.ref == 'refs/heads/main'
-    needs: publish
+    needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
@@ -70,8 +77,17 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Sign release record
-        run: test -n "$RELEASE_SIGNING_KEY"
+      - name: Download release plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-plan
+      - name: Build and sign release record
+        run: python3 -m scripts.release.reconcile sign --plan release-plan.json --output-dir release-output
+      - name: Upload signed release
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
+        with:
+          name: signed-release
+          path: release-output
 
   feed:
     if: github.ref == 'refs/heads/main'
@@ -88,5 +104,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Download signed release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: signed-release
+          path: release-output
       - name: Publish release feed
-        run: test -n "$SITE_FEED_TOKEN"
+        run: python3 -m scripts.release.reconcile feed --directory release-output

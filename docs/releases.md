@@ -28,7 +28,10 @@ with compare-and-swap semantics. A ref race is retried; the workflow never
 force-pushes or overwrites an existing sequence. Consumers must verify the
 record schema, signature, and bundle digest before using a release.
 
-The `production-release` environment owns the workflow credentials:
-`PRIVATE_INPUT_READ_TOKEN` is limited to verification reads,
-`RELEASE_SIGNING_KEY` is visible only to signing, and `SITE_FEED_TOKEN` is
-visible only to feed publication.
+Before enabling the workflow, the owner creates these three secrets in the
+`production-release` environment: `PRIVATE_INPUT_READ_TOKEN` (contents/actions
+read on `homelab-site` and `tracker-integrations`), `RELEASE_SIGNING_KEY`
+(visible only to signing), and `SITE_FEED_TOKEN` (contents write on
+`homelab-site`). The owner also replaces the placeholder in
+`config/release/release-signing.pub` with the matching Ed25519 public key and
+commits it. No private key is committed.

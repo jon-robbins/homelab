@@ -12,6 +12,9 @@ on:
       manifest-digest:
         required: true
         type: string
+      run-id:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -25,6 +28,7 @@ jobs:
     # here, on main, inside the branch-restricted production-release environment.
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
       - name: Checkout
@@ -38,6 +42,8 @@ jobs:
         with:
           name: ${{ inputs.artifact-name }}
           path: artifact
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
 
       - name: Copy and verify OCI artifact
         env:

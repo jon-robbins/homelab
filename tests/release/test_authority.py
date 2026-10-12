@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from scripts.release.bundle import bundle_sha256
 from scripts.release.feed import FeedError, publish_feed, publish_next
 from scripts.release.sign import DOMAIN, record_bytes, sign_record, verify_signature
+from scripts.release.reconcile import feed_plan
 from scripts.release.verify import VerificationError, VerificationResult, verify_release
 
 
@@ -285,3 +286,9 @@ def test_feed_rejects_invalid_signature():
     data = record_bytes(record(2))
     with pytest.raises(FeedError, match="signature"):
         publish_feed(FeedFake(), record(2), b"invalid", b"bundle", public_key=FEED_PUBLIC_KEY)
+
+
+def test_feed_rejects_placeholder_public_key(tmp_path):
+    (tmp_path / "release-signing.pub").write_text("PLACEHOLDER", encoding="utf-8")
+    with pytest.raises(ValueError, match="placeholder"):
+        feed_plan(tmp_path, tmp_path / "release-signing.pub")

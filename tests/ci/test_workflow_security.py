@@ -147,7 +147,7 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertIn(job.get("runs-on"), GITHUB_HOSTED_RUNNERS)
             if "permissions" in job:
                 if allow_package_write and job["permissions"].get("packages") == "write":
-                    self.assertEqual(job["permissions"], {"contents": "read", "packages": "write"})
+                    self.assertEqual(job["permissions"], {"contents": "read", "actions": "read", "packages": "write"})
                     self.assertEqual(job.get("environment"), "production-release")
                     self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
                 else:
@@ -199,7 +199,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertEqual(job.get("uses"), "./.github/workflows/reusable-publish.yml")
                 self.assertEqual(
                     job.get("permissions"),
-                    {"contents": "read", "packages": "write"},
+                    {"contents": "read", "actions": "read", "packages": "write"},
                 )
                 continue
 
@@ -226,6 +226,23 @@ class WorkflowSecurityTests(unittest.TestCase):
                 for value in step.get("env", {}).values():
                     references.extend(SECRET_REFERENCE.findall(str(value)))
             self.assertEqual(references, [RELEASE_SECRETS[job_name]])
+
+            # A protected job may expose exactly its mapped environment secret;
+            # this also covers secrets accidentally placed in a run/with field.
+            def secret_names(value: object) -> list[str]:
+                if isinstance(value, dict):
+                    result: list[str] = []
+                    for child in value.values():
+                        result.extend(secret_names(child))
+                    return result
+                if isinstance(value, list):
+                    result = []
+                    for child in value:
+                        result.extend(secret_names(child))
+                    return result
+                return SECRET_REFERENCE.findall(str(value)) if isinstance(value, str) else []
+
+            self.assertEqual(secret_names(job), [RELEASE_SECRETS[job_name]])
 
     def test_release_workflow_policy(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")
