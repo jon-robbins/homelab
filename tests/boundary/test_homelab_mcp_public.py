@@ -11,8 +11,17 @@ FORBIDDEN_POLICY_NAMES = ("tracker_integrations", "tracker-integrations", "track
 
 def test_homelab_mcp_has_no_private_tracker_integrations_or_policy_names() -> None:
     offenders: list[str] = []
-    for path in MCP_SOURCE.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
+    for path in MCP_SOURCE.rglob("*"):
+        if (
+            not path.is_file()
+            or any(part.startswith(".") for part in path.relative_to(MCP_SOURCE).parts)
+            or "__pycache__" in path.parts
+        ):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
         if FORBIDDEN_IMPORT.search(text) or any(name in text for name in FORBIDDEN_POLICY_NAMES):
             offenders.append(str(path.relative_to(MCP_SOURCE)))
     assert offenders == []

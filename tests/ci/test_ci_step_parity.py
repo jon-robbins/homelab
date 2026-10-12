@@ -22,9 +22,10 @@ SETUP_STEPS = {
 
 def _workflow_checks() -> dict[str, str]:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    validate = workflow["jobs"]["validate"]
     return {
         step["name"]: _signature(step.get("run", ""), step["name"])
-        for step in workflow["jobs"]["validate"]["steps"]
+        for step in validate["steps"]
         if "name" in step
         and step["name"] not in SETUP_STEPS
         and not step["name"].startswith("Create ")
@@ -72,6 +73,8 @@ def _signature(command: str, name: str) -> str:
 
 
 def test_validate_step_names_and_commands_match_between_gates() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert "validate" in workflow["jobs"]
     workflow_checks = _workflow_checks()
     local_checks = _local_checks()
 
