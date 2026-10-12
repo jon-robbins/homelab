@@ -251,6 +251,11 @@ class WorkflowSecurityTests(unittest.TestCase):
             # this also covers secrets accidentally placed in a run/with field.
             self.assertEqual(secret_names(job), [RELEASE_SECRETS[job_name]])
 
+        self.assertEqual(
+            jobs["sign"].get("env", {}).get("RELEASE_SIGNING_KEY_ID"),
+            "${{ vars.RELEASE_SIGNING_KEY_ID }}",
+        )
+
     def test_release_workflow_policy(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")
         self.assert_release_policy(workflow)
@@ -258,6 +263,13 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_release_policy_rejects_secret_without_production_environment(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")
         workflow["jobs"]["sign"].pop("environment")
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_hard_coded_signing_key_id(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["sign"]["env"]["RELEASE_SIGNING_KEY_ID"] = "release-v1"
 
         with self.assertRaises(AssertionError):
             self.assert_release_policy(workflow)

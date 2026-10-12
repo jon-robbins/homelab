@@ -415,6 +415,23 @@ def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
     assert fake.commits
 
 
+def test_reconcile_sign_rejects_missing_trust_map_before_output(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
+    monkeypatch.setenv("RELEASE_SIGNING_KEY", SITE_PRIVATE_KEY.hex())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(tmp_path / "release-inputs"))
+    fake = RestReleaseFake()
+
+    reconcile_plan(fake, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
+    (tmp_path / "release-inputs" / "trust" / "release-keys.json").unlink()
+
+    with pytest.raises(ValueError, match="invalid release trust map"):
+        sign_plan(tmp_path / "release-plan.json", tmp_path / "release-output")
+
+    assert not (tmp_path / "release-output").exists()
+    assert not fake.commits
+
+
 def test_reconcile_denies_unapproved_destination():
     with pytest.raises(VerificationError, match="unapproved"):
         reconcile_plan(RestReleaseFake(("not-approved",)), repository="jon-robbins/homelab")
