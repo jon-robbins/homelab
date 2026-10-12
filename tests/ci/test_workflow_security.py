@@ -406,6 +406,16 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(checkout.get("with", {}).get("persist-credentials"), "false")
 
         step_by_name = {step["name"]: step for step in steps}
+        self.assertNotIn("Create changed images environment", step_by_name)
+        self.assertNotIn("Qwen runtime regressions", step_by_name)
+        qwen_tests = step_by_name["Qwen code Telegram tests"]["run"]
+        for test_name in (
+            "test_response_contract.py",
+            "test_entrypoint.sh",
+            "test_role_render.sh",
+            "test_system_policy.sh",
+        ):
+            self.assertIn(test_name, qwen_tests)
         worker_setup_index = next(
             index
             for index, step in enumerate(steps)

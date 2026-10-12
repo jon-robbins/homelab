@@ -16,7 +16,6 @@ SETUP_STEPS = {
     "Create homelab agent environment",
     "Create media agent environment",
     "Create qwen code Telegram environment",
-    "Create changed images environment",
 }
 
 

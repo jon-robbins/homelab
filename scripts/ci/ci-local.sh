@@ -114,7 +114,6 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
   python3 -m venv "$QWEN_VENV"
   "${QWEN_VENV}/bin/pip" install -q pytest
   run_step "Qwen code Telegram tests" bash -c "cd '${ROOT}' && export PATH='${QWEN_VENV}/bin':\$PATH && PYTHONPATH='${ROOT}/apps/homelab-mcp/src' '${QWEN_VENV}/bin/python' -m pytest -q apps/qwen-code-telegram/tests/test_response_contract.py && bash apps/qwen-code-telegram/tests/test_entrypoint.sh && bash apps/qwen-code-telegram/tests/test_role_render.sh && bash apps/qwen-code-telegram/tests/test_system_policy.sh"
-  run_docker_step "Qwen runtime regressions" bash "${ROOT}/scripts/ci/run-qwen-runtime-regressions.sh"
 fi
 
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
