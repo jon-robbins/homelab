@@ -228,7 +228,11 @@ class WorkflowSecurityTests(unittest.TestCase):
             if job_name == "publish":
                 expected_if += " && needs.verify.outputs.has_publish_images == 'true'"
             elif job_name != "verify":
-                expected_if = "always() && " + expected_if + " && needs.verify.outputs.has_release == 'true'"
+                expected_if = (
+                    "always() && " + expected_if
+                    + " && needs.verify.outputs.has_release == 'true'"
+                    + " && (needs.publish.result == 'success' || needs.publish.result == 'skipped')"
+                )
             self.assertEqual(job.get("if"), expected_if)
             self.assertIsInstance(job, dict)
             if job_name == "publish":

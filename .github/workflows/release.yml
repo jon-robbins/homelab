@@ -83,7 +83,7 @@ jobs:
       packages: write
 
   sign:
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true'
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
@@ -116,8 +116,8 @@ jobs:
           path: release-output
 
   feed:
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true'
-    needs: [verify, sign]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    needs: [verify, publish, sign]
     runs-on: ubuntu-latest
     environment: production-release
     permissions:

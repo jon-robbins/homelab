@@ -7,7 +7,6 @@
   "properties": {
     "schema": { "type": "integer", "const": 1 },
     "site_id": { "$ref": "#/$defs/name" },
-    "site_id": { "$ref": "#/$defs/name" },
     "sequence": { "$ref": "#/$defs/sequence" },
     "tooling_git_sha": { "$ref": "#/$defs/gitSha" },
     "sources": { "$ref": "#/$defs/sources" },
