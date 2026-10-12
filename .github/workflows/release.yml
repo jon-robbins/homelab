@@ -50,7 +50,7 @@ jobs:
         run: >-
           "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile plan --output release-plan.json
       - name: Upload release plan
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: release-plan
           path: |
