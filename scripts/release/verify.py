@@ -115,7 +115,6 @@ def verify_release(
     ``required_images`` may map image names to immutable image references; when
     it is a collection, the build provenance must provide ``image_ref``.
     """
-    repositories_configured = repositories is not None
     repositories = repositories or {name: name for name in heads}
     bootstrap_shas = bootstrap_shas or {}
     # The public source names follow repository names; accept underscore aliases
@@ -177,10 +176,6 @@ def verify_release(
         spec = builds[image]
         repo = spec.get("repository", repositories.get("homelab", "homelab"))
         sha = verified_repository_heads.get(repo)
-        if sha is None and not repositories_configured:
-            # Legacy callers used a repository label different from the source
-            # key; image builds in that API still belong to homelab.
-            sha = heads.get("homelab", heads.get("homelab_site"))
         if not isinstance(sha, str):
             raise VerificationError(f"build repository has no verified source head: {repo}")
         requested_sha = spec.get("head_sha")

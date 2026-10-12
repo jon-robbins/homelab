@@ -54,14 +54,14 @@ def valid_github(runs=None, pull=_MISSING):
         pull = {"merged": True, "base": "main", "merge_commit_sha": SHA,
                 "merged_by": {"login": "owner"}}
     run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
-           "repository": "org/homelab", "workflow": "build.yml", "run_attempt": 1,
+           "repository": "homelab", "workflow": "build.yml", "run_attempt": 1,
            "image": "web", "manifest_digest": IMAGE_DIGEST}
     return GitHubFake(pull=pull, runs=runs if runs is not None else [run])
 
 
 def verify_args(client):
     return client, {"homelab": SHA, "homelab_site": SHA}, {"web": {
-        "repository": "org/homelab", "workflow": "build.yml", "head_sha": SHA,
+        "repository": "homelab", "workflow": "build.yml", "head_sha": SHA,
         "run_attempt": 1, "image_ref": "ghcr.io/example/web@" + IMAGE_DIGEST,
     }}
 
@@ -186,6 +186,14 @@ def test_denies_missing_manifest_digest_and_unverified_image_repository():
     with pytest.raises(VerificationError, match="no verified source head"):
         verify_release(*args, owners={"owner"}, required_images={"web"},
                        repositories={"homelab": "org/homelab", "homelab-site": "org/site"})
+
+
+def test_denies_unmapped_image_repository_without_repositories():
+    args = list(verify_args(valid_github()))
+    args[2]["web"]["repository"] = "org/other"
+    args[0].runs[0]["repository"] = "org/other"
+    with pytest.raises(VerificationError, match="no verified source head"):
+        verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
 @pytest.mark.parametrize("field, value", [("caller", "untrusted"), ("id", 99), ("workflow", "other.yml"), ("head_sha", "d" * 40)])
