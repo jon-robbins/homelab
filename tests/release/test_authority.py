@@ -5,8 +5,9 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from scripts.release.feed import FeedError, publish_feed
-from scripts.release.sign import record_bytes, sign_record, verify_signature
+from scripts.release.bundle import bundle_sha256
+from scripts.release.feed import FeedError, publish_feed, publish_next
+from scripts.release.sign import DOMAIN, record_bytes, sign_record, verify_signature
 from scripts.release.verify import VerificationError, VerificationResult, verify_release
 
 
@@ -19,7 +20,7 @@ def record(sequence=1):
         "schema": 1, "site_id": "home", "sequence": sequence, "tooling_git_sha": SHA,
         "sources": {"homelab": SHA, "homelab_site": SHA},
         "images": {"web": "ghcr.io/example/web@" + IMAGE_DIGEST},
-        "bundle_sha256": "sha256:" + "c" * 64, "rollback_floor": 0,
+        "bundle_sha256": bundle_sha256(b"bundle"), "rollback_floor": 0,
     }
 
 
@@ -183,3 +184,21 @@ def test_feed_noop_and_cas_retry_never_force_pushes():
 def test_feed_never_rewrites_sequence():
     with pytest.raises(FeedError, match="different"):
         publish_feed(FeedFake(latest=json.dumps(record(2)).encode()), record(2), b"sig", b"bundle")
+
+
+def test_feed_rejects_signer_bytes_different_from_canonical_record():
+    key = Ed25519PrivateKey.generate()
+
+    def signer(next_record):
+        altered = dict(next_record)
+        altered["site_id"] = "other"
+        data = record_bytes(altered)
+        return data, key.sign(DOMAIN + data)
+
+    with pytest.raises(FeedError, match="canonical record"):
+        publish_next(FeedFake(), record(), signer, b"bundle")
+
+
+def test_feed_rejects_mismatched_bundle_digest():
+    with pytest.raises(FeedError, match="bundle_sha256"):
+        publish_feed(FeedFake(), record(2), b"sig", b"different bundle")

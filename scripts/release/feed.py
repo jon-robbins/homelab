@@ -108,11 +108,20 @@ def publish_next(
     record_data, signature = sign(next_record)
     if not isinstance(record_data, bytes) or not isinstance(signature, bytes):
         raise FeedError("signer must return record bytes and signature bytes")
+    canonical_data = record_bytes(next_record)
+    try:
+        signed_record = load_release_record(record_data)
+    except (TypeError, ValueError) as error:
+        raise FeedError("signer returned invalid record bytes") from error
+    if signed_record != next_record or record_data != canonical_data:
+        raise FeedError("signer returned record bytes different from the canonical record")
     return publish_feed(client, next_record, signature, bundle, repository=repository, branch=branch, max_retries=max_retries)
 
 
 def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundle: bytes, *, repository: str = "homelab-site", branch: str = "releases", max_retries: int = 8) -> str:
     """Append one release using an observed-ref CAS; never force-pushes."""
+    if record.get("bundle_sha256") != bundle_sha256(bundle):
+        raise FeedError("record bundle_sha256 does not match bundle bytes")
     record_data = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
     load_release_record(record_data)
     sequence = record["sequence"]
