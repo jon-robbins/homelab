@@ -153,6 +153,57 @@ def test_reads_manifest_digest_with_skopeo(monkeypatch):
     assert calls[0][0][4].startswith("oci-archive:")
 
 
+def test_verifies_archive_attestation_with_gh(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout="verified\n", stderr="")
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(reconcile.subprocess, "run", fake_run)
+    reconcile._verify_attestation(b"archive", "owner/repo", "a" * 40)
+
+    command, kwargs = calls[0]
+    assert command[:3] == ["gh", "attestation", "verify"]
+    assert command[4:] == [
+        "--repo", "owner/repo",
+        "--signer-workflow", "owner/repo/.github/workflows/post-merge-build.yml",
+        "--source-digest", "a" * 40,
+    ]
+    assert "check" not in kwargs
+
+
+def test_plan_denies_unapproved_verified_destination(monkeypatch):
+    previous = _record(
+        {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"},
+        {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "b" * 64},
+    )
+    client = Client(previous, {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"})
+    monkeypatch.setattr(
+        reconcile,
+        "load_approved_destinations",
+        lambda: {"ghcr.io/jon-robbins/homelab/agent"},
+    )
+    monkeypatch.setattr(reconcile, "_materialize_site_inputs", lambda *_args: None)
+    monkeypatch.setattr(reconcile, "_manifest_site_id", lambda _root: "lab")
+    monkeypatch.setattr(
+        reconcile,
+        "_attested_builds",
+        lambda *_args: {"rogue": _build("rogue", "sha256:" + "a" * 64)},
+    )
+    monkeypatch.setattr(
+        reconcile,
+        "verify_release",
+        lambda *_args, **_kwargs: VerificationResult(
+            (), {"rogue": "sha256:" + "a" * 64}, {"rogue": _build("rogue", "sha256:" + "a" * 64)},
+        ),
+    )
+
+    with pytest.raises(VerificationError, match="unapproved destination"):
+        reconcile.plan(client, repository="homelab", site_repository="site")
+
+
 def test_approved_destinations_loader_remains_strict(tmp_path):
     config = tmp_path / "approved.json"
     config.write_text('{"destinations": ["ghcr.io/acme/homelab/web"]}')
