@@ -448,6 +448,32 @@ def test_reconcile_denies_missing_or_weakened_homelab_ruleset(rulesets, detail):
         _check_homelab_ruleset(RulesetClient(), "jon-robbins/homelab")
 
 
+@pytest.mark.parametrize("target, include", [
+    ("tag", ["refs/heads/main"]),
+    ("branch", ["~DEFAULT_BRANCH"]),
+])
+def test_reconcile_denies_ruleset_not_exact_main_branch(target, include):
+    class RulesetClient:
+        def rulesets(self, repository):
+            return {"rulesets": [{"id": 7, "name": "main"}]}
+
+        def ruleset(self, repository, ruleset_id):
+            return {
+                "enforcement": "active",
+                "bypass_actors": [],
+                "target": target,
+                "conditions": {"ref_name": {"include": include}},
+                "rules": [
+                    {"type": "pull_request"},
+                    {"type": "non_fast_forward"},
+                    {"type": "deletion"},
+                ],
+            }
+
+    with pytest.raises(VerificationError):
+        _check_homelab_ruleset(RulesetClient(), "jon-robbins/homelab")
+
+
 @pytest.mark.parametrize("failure", ["wrong signer workflow", "wrong source commit"])
 def test_reconcile_denies_invalid_native_attestation(monkeypatch, failure):
     calls = []
