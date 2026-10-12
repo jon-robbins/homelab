@@ -133,23 +133,19 @@ def verify_release(
     """
     repositories = repositories or {name: name for name in heads}
     bootstrap_shas = bootstrap_shas or {}
-    # The public source names follow repository names; accept underscore aliases
-    # because they are the keys used by ReleaseRecord.sources.
-    aliases = {"homelab": "homelab", "homelab-site": "homelab_site", "tracker-integrations": "tracker_integrations"}
     source_names = ("homelab", "homelab-site", "tracker-integrations")
     sources = []
     verified_repository_heads: dict[str, str] = {}
     for name in source_names:
-        head_key = name if name in heads else aliases[name]
-        if head_key not in heads:
+        if name not in heads:
             # Legacy ReleaseRecord callers omitted the optional tracker source.
-            if name == "tracker-integrations" and "homelab_site" in heads:
+            if name == "tracker-integrations" and "homelab-site" in heads:
                 continue
             raise VerificationError(f"missing source head: {name}")
-        sha = _repository(heads, head_key)
-        repo = repositories.get(name, repositories.get(head_key, name))
+        sha = _repository(heads, name)
+        repo = repositories.get(name, name)
         verified_repository_heads[repo] = sha
-        bootstrap = set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ())))
+        bootstrap = set(bootstrap_shas.get(name, ()))
         if sha in bootstrap:
             sources.append(sha)
             continue
@@ -164,20 +160,20 @@ def verify_release(
         if hasattr(client, "pull_requests_for_commit"):
             prs = client.pull_requests_for_commit(repo, sha)
             if isinstance(owners, Mapping):
-                owner_policy = owners.get(name, owners.get(head_key, owners.get("*", ())))
+                owner_policy = owners.get(name, owners.get("*", ()))
             else:
                 owner_policy = owners
-            if not owner_policy and sha not in set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))):
+            if not owner_policy and sha not in set(bootstrap_shas.get(name, ())):
                 raise VerificationError(f"owner policy is not configured: {name}@{sha}")
             if not any(_get(pr, "merged", _get(pr, "merged_at", False))
                        and _get(_get(pr, "base_ref", _get(pr, "base", "")), "ref", _get(pr, "base_ref", _get(pr, "base", ""))) == "main"
                        and _get(pr, "merge_commit_sha", _get(pr, "merge_sha")) == sha
                        and _get(_get(pr, "merged_by"), "login", _get(pr, "merged_by")) in owner_policy
-                       for pr in prs) and sha not in set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))):
+                       for pr in prs) and sha not in set(bootstrap_shas.get(name, ())):
                 raise VerificationError(f"head has no owner-merged PR: {name}@{sha}")
         else:
-            owner_policy = owners.get(name, owners.get(head_key, owners.get("*", ()))) if isinstance(owners, Mapping) else owners
-            _check_head(client, repo, sha, set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))), set(owner_policy))
+            owner_policy = owners.get(name, owners.get("*", ())) if isinstance(owners, Mapping) else owners
+            _check_head(client, repo, sha, set(bootstrap_shas.get(name, ())), set(owner_policy))
         sources.append(sha)
 
     wanted = set(required_images) if not isinstance(required_images, Mapping) else set(required_images)

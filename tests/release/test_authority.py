@@ -34,7 +34,7 @@ def feed_signature(data):
 def record(sequence=1):
     return {
         "schema": 1, "site_id": "home", "sequence": sequence, "tooling_git_sha": SHA,
-        "sources": {"homelab": SHA, "homelab_site": SHA},
+        "sources": {"homelab": SHA, "homelab-site": SHA},
         "images": {"web": "ghcr.io/example/web@" + IMAGE_DIGEST},
         "bundle_sha256": bundle_sha256(b"bundle"), "rollback_floor": 0,
     }
@@ -74,7 +74,7 @@ def valid_github(runs=None, pull=_MISSING):
 
 
 def verify_args(client):
-    return client, {"homelab": SHA, "homelab_site": SHA}, {"web": {
+    return client, {"homelab": SHA, "homelab-site": SHA}, {"web": {
         "repository": "homelab", "workflow": "build.yml", "head_sha": SHA,
         "run_attempt": 1, "image_ref": "ghcr.io/example/web@" + IMAGE_DIGEST,
     }}
@@ -140,7 +140,7 @@ def test_denies_unknown_head_and_missing_source_head():
 
 
 def test_bootstrap_head_is_allowed():
-    result = verify_release(*verify_args(valid_github()), bootstrap_shas={"homelab": [SHA], "homelab_site": [SHA]}, required_images={"web"})
+    result = verify_release(*verify_args(valid_github()), bootstrap_shas={"homelab": [SHA], "homelab-site": [SHA]}, required_images={"web"})
     assert isinstance(result, VerificationResult)
 
 

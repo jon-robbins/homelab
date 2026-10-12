@@ -21,6 +21,7 @@ from .trust import load_trusted_keys
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
+RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
 
 
 def _normalize_workflow_runs(value: Any) -> Any:
@@ -186,15 +187,15 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         site_sha = client.ref(site_repository, "main")
         tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
         run_id, builds = _run_builds(client, repository, sha)
-        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab_site": site_sha, "tracker_integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"*": set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))})
+        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"*": set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
         approved = load_approved_destinations()
         images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        result = {"sha": sha, "run_id": run_id, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab_site": site_sha, "tracker_integrations": tracker_sha}}
-        input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+        result = {"sha": sha, "run_id": run_id, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}}
+        input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -205,7 +206,7 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
     if not plan_data.get("images"):
         return
-    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     trusted_keys = load_trusted_keys(input_root / "trust/release-keys.json")
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "bundle.tar"
@@ -223,7 +224,7 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
 
 
 def feed_plan(directory: Path, *, repository: str = SITE_REPOSITORY, client: Any | None = None) -> str:
-    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     key_map = load_trusted_keys(input_root / "trust/release-keys.json")
     record_data = (directory / "record.json").read_bytes()
     client = client or GitHubClient()

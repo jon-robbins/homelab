@@ -52,7 +52,7 @@ def release_record(**overrides):
         "site_id": "home",
         "sequence": 3,
         "tooling_git_sha": GIT_SHA,
-        "sources": {"homelab": GIT_SHA, "homelab_site": "b" * 40},
+        "sources": {"homelab": GIT_SHA, "homelab-site": "b" * 40},
         "images": {"web": IMAGE},
         "bundle_sha256": "sha256:" + "c" * 64,
         "rollback_floor": 2,
@@ -179,11 +179,11 @@ def test_release_record_rejects_invalid_rollback_floor(rollback_floor):
         load_release_record(json.dumps(release_record(rollback_floor=rollback_floor)))
 
 
-def test_release_record_sources_require_homelab_and_allow_tracker_integrations():
+def test_release_record_sources_require_homelab_and_allow_optional_tracker_source():
     with pytest.raises(ValidationError, match=r"^\$\.sources\.homelab"):
-        load_release_record(json.dumps(release_record(sources={"homelab_site": GIT_SHA})))
-    document = release_record(sources={"homelab": GIT_SHA, "homelab_site": GIT_SHA, "tracker_integrations": GIT_SHA})
-    assert load_release_record(json.dumps(document))["sources"]["tracker_integrations"] == GIT_SHA
+        load_release_record(json.dumps(release_record(sources={"homelab-site": GIT_SHA})))
+    document = release_record(sources={"homelab": GIT_SHA, "homelab-site": GIT_SHA, "tracker-integrations": GIT_SHA})
+    assert load_release_record(json.dumps(document))["sources"]["tracker-integrations"] == GIT_SHA
 
 
 def test_valid_probe_result_accepted():

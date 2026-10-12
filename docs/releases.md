@@ -33,6 +33,9 @@ the exact canonical `record.json` bytes. `trust/release-keys.json` in
 `homelab-site` maps each key ID to its PEM public key. `bundle.tar` is the exact
 compiled bundle referenced by `record.json` through `bundle_sha256`.
 
+The `sources` object uses the exact GitHub repository names: `homelab`,
+`homelab-site`, and optional `tracker-integrations`.
+
 Publication observes the current `releases` ref and commits the next sequence
 with compare-and-swap semantics. A ref race is retried; the workflow never
 force-pushes or overwrites an existing sequence. Consumers must verify the

@@ -54,8 +54,8 @@ APPLICATION_FIELDS = {
 MANIFEST_FIELDS = {"schema": (True, "SchemaVersion"), "applications": (True, "Application[]")}
 SOURCES_FIELDS = {
     "homelab": (True, "GitSHA"),
-    "homelab_site": (True, "GitSHA"),
-    "tracker_integrations": (False, "GitSHA"),
+    "homelab-site": (True, "GitSHA"),
+    "tracker-integrations": (False, "GitSHA"),
 }
 RELEASE_RECORD_FIELDS = {
     "schema": (True, "SchemaVersion"),

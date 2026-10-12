@@ -12,6 +12,9 @@ concurrency:
   group: release-reconciler
   cancel-in-progress: false
 
+env:
+  RELEASE_INPUTS_DIR: release-inputs
+
 jobs:
   verify:
     if: github.ref == 'refs/heads/main'
@@ -34,8 +37,6 @@ jobs:
           "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
       - name: Verify release inputs
         id: plan
-        env:
-          RELEASE_INPUTS_DIR: release-inputs
         run: >-
           "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile plan --output release-plan.json
       - name: Upload release plan
@@ -80,7 +81,6 @@ jobs:
     env:
       HOMELAB_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
       RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
-      RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -113,7 +113,6 @@ jobs:
       contents: read
     env:
       SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
-      RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
