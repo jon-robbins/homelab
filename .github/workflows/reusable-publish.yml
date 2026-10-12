@@ -52,14 +52,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          INPUT_DESTINATION: ${{ inputs.destination }}
+          INPUT_RELEASE_SHA: ${{ inputs.release-sha }}
+          INPUT_MANIFEST_DIGEST: ${{ inputs.manifest-digest }}
         run: |
           set -euo pipefail
           source="oci-archive:artifact/oci-layout.tar"
-          destination="docker://${{ inputs.destination }}:sha-${{ inputs.release-sha }}"
+          destination="docker://${INPUT_DESTINATION}:sha-${INPUT_RELEASE_SHA}"
           gh attestation verify artifact/oci-layout.tar \
-            --repo jon-robbins/homelab \
-            --signer-workflow jon-robbins/homelab/.github/workflows/post-merge-build.yml \
-            --source-digest '${{ inputs.release-sha }}'
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/post-merge-build.yml" \
+            --source-digest "$INPUT_RELEASE_SHA"
           skopeo copy --preserve-digests --dest-creds "github-actions:${GITHUB_TOKEN}" "$source" "$destination"
           actual="$(skopeo inspect --creds "github-actions:${GITHUB_TOKEN}" --format '{{.Digest}}' "$destination")"
-          test "$actual" = '${{ inputs.manifest-digest }}'
+          test "$actual" = "$INPUT_MANIFEST_DIGEST"

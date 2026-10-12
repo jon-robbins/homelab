@@ -93,6 +93,13 @@ class GitHubClient:
     def artifacts(self, repository: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/actions/artifacts?per_page=100")
 
+    def workflow_runs(self, repository: str, workflow: str, sha: str) -> Any:
+        return self.request(
+            "GET",
+            f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow, safe='/')}/runs"
+            f"?head_sha={quote(sha, safe='')}&per_page=100",
+        )
+
     def artifact_zip(self, repository: str, artifact_id: int) -> bytes:
         return self.request("GET", f"/repos/{self._repo(repository)}/actions/artifacts/{artifact_id}/zip", accept="application/octet-stream")
 

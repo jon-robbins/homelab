@@ -45,7 +45,9 @@ def test_publish_verifies_with_gh_and_rejects_promoted_digest_mismatch(tmp_path)
         ["bash", "-c", script],
         cwd=tmp_path,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CALL_LOG": str(log),
-             "INSPECT_DIGEST": "sha256:" + "c" * 64, "GITHUB_TOKEN": "test-token"},
+             "INSPECT_DIGEST": "sha256:" + "c" * 64, "GITHUB_TOKEN": "test-token",
+             "GITHUB_REPOSITORY": "jon-robbins/homelab", "INPUT_DESTINATION": "ghcr.io/acme/homelab/web",
+             "INPUT_RELEASE_SHA": "b" * 40, "INPUT_MANIFEST_DIGEST": expected},
         capture_output=True,
         text=True,
     )

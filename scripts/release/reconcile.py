@@ -121,6 +121,13 @@ def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None
 
 def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
     """Download OCI artifacts and make their native attestations authoritative."""
+    runs_method = getattr(client, "workflow_runs", None)
+    if callable(runs_method):
+        response = runs_method(repository, BUILD_WORKFLOW, sha)
+        runs = response.get("workflow_runs", ()) if isinstance(response, Mapping) else response
+        exact_runs = [run for run in runs or () if isinstance(run, Mapping) and run.get("head_sha") == sha]
+        if exact_runs and not any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in exact_runs):
+            raise VerificationError(f"post-merge build for {sha} is still running or failed; waiting")
     response = client.artifacts(repository)
     artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response
     candidates = []
@@ -129,8 +136,12 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
             continue
         workflow_run = artifact.get("workflow_run")
         artifact_head = workflow_run.get("head_sha") if isinstance(workflow_run, Mapping) else None
-        if isinstance(artifact_head, str) and artifact_head != sha:
+        if artifact_head != sha:
             continue
+        if isinstance(workflow_run, Mapping) and (
+            workflow_run.get("status") != "completed" or workflow_run.get("conclusion") != "success"
+        ):
+            raise VerificationError(f"post-merge build for {sha} is still running or failed; waiting")
         name = artifact.get("name", "")
         if not isinstance(name, str) or not name.startswith("oci-"):
             continue
@@ -160,23 +171,40 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
             "image": image,
             "manifest_digest": manifest_digest,
         }
-    if not images:
-        raise VerificationError(f"no attested OCI artifacts for {sha}")
     return images
 
 
-def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) -> str | None:
-    commits_method = getattr(client, "commits", None)
-    commits = commits_method(repository, "main") if callable(commits_method) else []
-    if not commits:
-        return client.ref(repository, "main")
-    published = (client.published_tooling_shas(site_repository, "releases")
-                 if hasattr(client, "published_tooling_shas") else set())
-    for commit in commits:
-        sha = commit.get("sha") if isinstance(commit, Mapping) else None
-        if isinstance(sha, str) and sha not in published:
-            return sha
-    return None
+def _next_tooling_sha(client: Any, repository: str, head: str, previous: Mapping[str, Any] | None) -> str | None:
+    """Return the oldest unreleased first-parent commit, or the head at bootstrap."""
+    if previous is None:
+        return head
+    position = previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab")
+    if not isinstance(position, str):
+        raise VerificationError("previous release has no homelab tooling position")
+    if position == head:
+        return None
+    if hasattr(client, "compare_commits"):
+        comparison = client.compare_commits(repository, position, head)
+        if comparison.get("status") not in ("ahead", "identical"):
+            raise VerificationError("previous homelab release position is not an ancestor of main; refusing release")
+    read_commit = getattr(client, "read_commit", None)
+    if not callable(read_commit):
+        return head
+    sha = head
+    after_position: list[str] = []
+    while sha != position:
+        commit = read_commit(repository, sha)
+        if not isinstance(commit, Mapping):
+            raise VerificationError(f"cannot read homelab first-parent history at {sha}")
+        after_position.append(sha)
+        parents = commit.get("parents")
+        if not isinstance(parents, (list, tuple)) or not parents:
+            raise VerificationError("previous homelab release position is not an ancestor of main; refusing release")
+        parent = parents[0]
+        sha = parent.get("sha") if isinstance(parent, Mapping) else parent
+        if not isinstance(sha, str):
+            raise VerificationError("homelab main has an invalid first-parent link")
+    return after_position[-1]
 
 
 def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path) -> None:
@@ -237,21 +265,25 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     _check_homelab_ruleset(ruleset_client, repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
-    sha = client.ref(repository, "main")
+    main_head = client.ref(repository, "main")
+    sha = _next_tooling_sha(client, repository, main_head, previous)
+    tooling_sha = sha or (previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
     tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
-    sources = {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}
+    sources = {"homelab": tooling_sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}
     if previous and previous.get("sources") == sources:
-        result = {"release": False, "sha": sha, "sequence": next_sequence, "images": [], "image_refs": previous.get("images", {})}
+        result = {"release": False, "sha": tooling_sha, "sequence": next_sequence, "images": [], "image_refs": previous.get("images", {})}
     else:
-        _check_homelab_head_ancestry(ruleset_client, repository, sha)
+        _check_homelab_head_ancestry(ruleset_client, repository, main_head)
         approved = load_approved_destinations()
         all_images = _destination_images(approved)
-        homelab_changed = previous is None or sha != previous.get("sources", {}).get("homelab")
+        homelab_changed = sha is not None
         if homelab_changed:
             try:
                 builds = _attested_builds(client, repository, sha)
-            except VerificationError:
+            except VerificationError as error:
+                if "still running or failed" in str(error):
+                    raise
                 builds = {}
             builds = {image: spec for image, spec in builds.items() if spec.get("head_sha") == sha}
         else:
@@ -274,7 +306,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
             raise VerificationError(f"release record image map is incomplete; missing {missing[0]}")
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
-        result = {"release": True, "sha": sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
+        result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return result
