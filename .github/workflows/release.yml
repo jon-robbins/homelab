@@ -71,16 +71,16 @@ jobs:
       contents: read
     env:
       RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-      RELEASE_COMPOSE: tests/release/fixtures/site/compose.json
-      RELEASE_MANIFEST: tests/release/fixtures/site/manifest.yaml
-      RELEASE_PROBES: tests/release/fixtures/site/probes.json
-      RELEASE_POLICY: tests/release/fixtures/site/policy.yaml
-      RELEASE_FILES: tests/release/fixtures/site/files
+      RELEASE_COMPOSE: release/compose.json
+      RELEASE_MANIFEST: release/manifest.yaml
+      RELEASE_PROBES: release/probes.json
+      RELEASE_POLICY: release/policy.yaml
+      RELEASE_FILES: release/files
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: false
       - name: Download release plan
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

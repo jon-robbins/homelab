@@ -16,7 +16,7 @@ class VerificationError(ValueError):
 
 
 class GitHubClient(Protocol):
-    def commit(self, repository: str, sha: str) -> Any: ...
+    def read_commit(self, repository: str, sha: str) -> Any: ...
     def pull_request(self, repository: str, sha: str) -> Any | None: ...
     def build_runs(self, repository: str, workflow: str, head_sha: str) -> Any: ...
 
@@ -48,7 +48,7 @@ def _repository(heads: Mapping[str, str], name: str) -> str:
 def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[str], owners: set[str]) -> None:
     if sha in bootstrap:
         return
-    commit = client.commit(repository, sha)
+    commit = client.read_commit(repository, sha)
     if commit is None:
         raise VerificationError(f"unknown head: {repository}@{sha}")
     parents = _get(commit, "parents", ())
@@ -139,7 +139,7 @@ def verify_release(
             continue
         # The PR-list API is only an alternate way to find the PR; it must
         # not bypass commit existence and merge validation.
-        commit = client.commit(repo, sha)
+        commit = client.read_commit(repo, sha)
         if commit is None:
             raise VerificationError(f"unknown head: {repo}@{sha}")
         parents = _get(commit, "parents", ())

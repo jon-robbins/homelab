@@ -48,7 +48,7 @@ class GitHubClient:
     def _repo(repository: str) -> str:
         return quote(repository, safe="/")
 
-    def commit(self, repository: str, sha: str) -> Any:
+    def read_commit(self, repository: str, sha: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}")
 
     def pull_requests_for_commit(self, repository: str, sha: str) -> Any:
@@ -111,4 +111,3 @@ class GitHubClient:
         except GitHubError as error:
             raise RuntimeError("CAS ref changed") from error
         return commit["sha"]
-

@@ -33,7 +33,7 @@ class GitHubFake:
         self.pull = pull
         self.runs = runs or []
 
-    def commit(self, repository, sha):
+    def read_commit(self, repository, sha):
         return {"parents": [{"sha": "1"}, {"sha": "2"}]}
 
     def pull_request(self, repository, sha):
@@ -94,7 +94,7 @@ def test_denies_non_owner_without_configured_owner_policy(owners):
 
 def test_denies_direct_head():
     fake = valid_github()
-    fake.commit = lambda repository, sha: {"parents": [{"sha": "one"}]}
+    fake.read_commit = lambda repository, sha: {"parents": [{"sha": "one"}]}
     with pytest.raises(VerificationError, match="merge commit"):
         verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
 
@@ -105,7 +105,7 @@ def test_denies_direct_head():
 ])
 def test_pull_request_list_path_still_checks_head(commit, message):
     fake = PullRequestListFake(**valid_github().__dict__)
-    fake.commit = lambda repository, sha: commit
+    fake.read_commit = lambda repository, sha: commit
     with pytest.raises(VerificationError, match=message):
         verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
 
@@ -119,7 +119,7 @@ def test_denies_pr_with_different_merge_commit():
 
 def test_denies_unknown_head_and_missing_source_head():
     fake = valid_github()
-    fake.commit = lambda repository, sha: None
+    fake.read_commit = lambda repository, sha: None
     with pytest.raises(VerificationError, match="unknown head"):
         verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
     with pytest.raises(VerificationError, match="missing source head"):
@@ -237,7 +237,7 @@ class FeedFake:
     def last_record(self, repo, branch):
         return record(self.latest) if isinstance(self.latest, int) else self.latest
 
-    def commit(self, repo, branch, ref, files, message):
+    def commit_files(self, repo, branch, ref, files, message):
         if self.move and not self.commits:
             self.ref_value = "ref-2"
             self.move = False
@@ -327,10 +327,11 @@ class RestReleaseFake:
         digest = "sha256:" + ("1" if image == "homelab-agent" else "2") * 64
         return {"provenance.json": json.dumps({"image": image, "manifest_digest": digest}).encode()}
 
-    def commit(self, repository, value, *args):
-        if not args:
-            return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
-        self.commits.append((repository, value, *args))
+    def read_commit(self, repository, value):
+        return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
+
+    def commit_files(self, repository, branch, ref, files, message):
+        self.commits.append((repository, branch, ref, files, message))
         return "published-commit"
 
     def pull_requests_for_commit(self, repository, sha):

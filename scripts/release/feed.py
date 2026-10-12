@@ -23,6 +23,16 @@ class Publication:
         self.sequence, self.commit_sha, self.noop = sequence, commit_sha, noop
 
 
+def _record(value: Any) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, (bytes, bytearray, str)):
+        return load_release_record(value)
+    raise FeedError("client returned an invalid release record")
+
+
 def _previous(client: Any, repository: str, branch: str, ref: str) -> Mapping[str, Any] | None:
     latest = getattr(client, "latest_record", None)
     if latest is not None:
@@ -37,7 +47,7 @@ def _previous(client: Any, repository: str, branch: str, ref: str) -> Mapping[st
     data = client.read_file(repository, f"records/{sequence}/record.json", ref)
     if data is None:
         raise FeedError(f"record sequence {sequence} has no record.json")
-    return load_release_record(data)
+    return _record(data)
 
 
 def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
@@ -93,7 +103,9 @@ def allocate_sequence(client: Any, *, repository: str = "homelab-site", branch: 
     latest = _call(client, ("last_record",), repository, branch)
     if latest is None:
         return 1
-    value = load_release_record(latest if isinstance(latest, bytes) else latest.encode())
+    value = _record(latest)
+    if value is None:
+        raise FeedError("client returned no release record")
     return value["sequence"] + 1
 
 
@@ -148,12 +160,14 @@ def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundl
             return "noop"
         latest = _call(client, ("last_record",), repository, branch)
         if latest is not None:
-            latest_record = load_release_record(latest if isinstance(latest, bytes) else latest.encode())
+            latest_record = _record(latest)
+            if latest_record is None:
+                raise FeedError("client returned no release record")
             if record["sequence"] <= latest_record["sequence"]:
                 raise FeedError("sequence is not strictly greater than published sequence")
         files = {f"records/{sequence}/record.json": record_data, f"records/{sequence}/record.sig": signature, f"records/{sequence}/bundle.tar": bundle}
         try:
-            _call(client, ("commit", "create_commit"), repository, branch, ref, files, f"release: publish {sequence}")
+            _call(client, ("commit_files",), repository, branch, ref, files, f"release: publish {sequence}")
             return "published"
         except (RuntimeError, ValueError) as error:
             if "changed" not in str(error).lower() and "cas" not in str(error).lower():
