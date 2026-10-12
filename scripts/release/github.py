@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from typing import Any, Mapping
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -26,25 +27,29 @@ class GitHubClient:
             raise GitHubError("a GitHub token is required")
         self.api = api.rstrip("/")
 
-    def request(self, method: str, path: str, body: Any = None, *, accept: str = "application/vnd.github+json") -> Any:
+    def _request(self, method: str, path: str, body: Any = None, *, accept: str = "application/vnd.github+json") -> tuple[Any, Mapping[str, str]]:
         headers = {"Accept": accept, "Authorization": f"Bearer {self.token}", "X-GitHub-Api-Version": "2022-11-28"}
         data = None
         if body is not None:
             data = json.dumps(body, separators=(",", ":")).encode()
             headers["Content-Type"] = "application/json"
-        request = Request(self.api + path, data=data, headers=headers, method=method)
+        request = Request(path if path.startswith("https://") else self.api + path, data=data, headers=headers, method=method)
         try:
             with urlopen(request) as response:
                 raw = response.read()
+                response_headers = {key: value for key, value in response.headers.items()}
         except HTTPError as error:
             detail = error.read().decode(errors="replace")
             raise GitHubError(f"GitHub API {error.code} {method} {path}: {detail[:300]}", status_code=error.code) from error
         if not raw:
-            return None
+            return None, response_headers
         try:
-            return json.loads(raw)
+            return json.loads(raw), response_headers
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return raw
+            return raw, response_headers
+
+    def request(self, method: str, path: str, body: Any = None, *, accept: str = "application/vnd.github+json") -> Any:
+        return self._request(method, path, body, accept=accept)[0]
 
     @staticmethod
     def _repo(repository: str) -> str:
@@ -62,8 +67,24 @@ class GitHubClient:
         return self.request("GET", path)
 
     def commits(self, repository: str, branch: str) -> list[Mapping[str, Any]]:
-        value = self.request("GET", f"/repos/{self._repo(repository)}/commits?sha={quote(branch, safe='')}&per_page=100")
-        return value if isinstance(value, list) else []
+        path = f"/repos/{self._repo(repository)}/commits?sha={quote(branch, safe='')}&per_page=100"
+        commits: list[Mapping[str, Any]] = []
+        while path:
+            value, headers = self._request("GET", path)
+            if isinstance(value, list):
+                commits.extend(item for item in value if isinstance(item, Mapping))
+            path = self._next_link(headers.get("Link"))
+        return commits
+
+    @staticmethod
+    def _next_link(header: str | None) -> str:
+        if not header:
+            return ""
+        for link in header.split(","):
+            match = re.match(r"\s*<([^>]+)>\s*;\s*rel=\"next\"", link)
+            if match:
+                return match.group(1)
+        return ""
 
     def run_artifacts(self, repository: str, run_id: int) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/actions/runs/{run_id}/artifacts?per_page=100")

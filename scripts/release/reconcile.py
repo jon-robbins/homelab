@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import load_release_record
+from .contracts import ValidationError, load_build_provenance, load_release_record
 from .feed import FeedError, publish_next
 from .github import GitHubClient
 from .sign import record_bytes, sign_record
@@ -63,28 +63,54 @@ def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, 
     for run in sorted(candidates, key=lambda item: (item.get("created_at", ""), item.get("id", 0)), reverse=True):
         if run.get("head_sha") != sha or run.get("status") != "completed" or run.get("conclusion") != "success":
             continue
+        run_id = int(run["id"])
+        run_attempt = run.get("run_attempt")
+        if isinstance(run_attempt, bool) or not isinstance(run_attempt, int) or run_attempt < 1:
+            raise VerificationError(f"post-merge build has no valid run attempt: {run_id}")
+        run_repository = run.get("repository")
+        if isinstance(run_repository, Mapping):
+            run_repository = run_repository.get("full_name")
+        if run_repository not in (None, repository):
+            raise VerificationError(f"post-merge build repository does not match: {run_id}")
+        run_workflow = run.get("workflow_ref")
+        if run_workflow is None:
+            run_workflow = f"{repository}/{BUILD_WORKFLOW}@refs/heads/main"
         images: dict[str, dict[str, Any]] = {}
-        artifacts = client.run_artifacts(repository, int(run["id"])).get("artifacts", ())
+        artifacts = client.run_artifacts(repository, run_id).get("artifacts", ())
         for artifact in artifacts:
             name = artifact.get("name", "")
             if not name.startswith("oci-"):
                 continue
+            image_from_name = name[4:]
+            if not image_from_name:
+                raise VerificationError(f"OCI artifact has no image name: {name}")
             files = client.artifact_files(repository, artifact)
-            provenance = json.loads(files.get("provenance.json", b"{}"))
-            image = provenance.get("image")
-            digest = provenance.get("manifest_digest")
-            if isinstance(image, str) and isinstance(digest, str):
-                images[image] = {
-                    "repository": repository,
-                    "workflow": BUILD_WORKFLOW,
-                    "head_sha": sha,
-                    "run_id": int(run["id"]),
-                    "run_attempt": int(run.get("run_attempt", 1)),
-                    "artifact_name": name,
-                    "manifest_digest": digest,
-                    "provenance": {"image": image, "manifest_digest": digest},
-                }
-        return int(run["id"]), images
+            try:
+                provenance = load_build_provenance(files["provenance.json"])
+            except (KeyError, TypeError, ValueError, ValidationError) as error:
+                raise VerificationError(f"invalid provenance for {name}: {error}") from error
+            expected = {
+                "repository": repository,
+                "source_sha": sha,
+                "run_id": run_id,
+                "run_attempt": run_attempt,
+                "workflow_ref": run_workflow,
+                "image": image_from_name,
+            }
+            for field, expected_value in expected.items():
+                if provenance.get(field) != expected_value:
+                    raise VerificationError(f"provenance {field} does not match {name}")
+            images[image_from_name] = {
+                "repository": repository,
+                "workflow": BUILD_WORKFLOW,
+                "head_sha": sha,
+                "run_id": run_id,
+                "run_attempt": run_attempt,
+                "artifact_name": name,
+                "manifest_digest": provenance["manifest_digest"],
+                "provenance": provenance,
+            }
+        return run_id, images
     raise VerificationError(f"no successful post-merge build for {sha}")
 
 

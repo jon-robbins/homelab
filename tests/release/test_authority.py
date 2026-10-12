@@ -325,7 +325,17 @@ class RestReleaseFake:
     def artifact_files(self, repository, artifact):
         image = artifact["name"][4:]
         digest = "sha256:" + ("1" if image == "homelab-agent" else "2") * 64
-        return {"provenance.json": json.dumps({"image": image, "manifest_digest": digest}).encode()}
+        return {"provenance.json": json.dumps({
+            "schema": 1,
+            "repository": repository,
+            "workflow_ref": f"{repository}/.github/workflows/post-merge-build.yml@refs/heads/main",
+            "run_id": 42,
+            "run_attempt": 1,
+            "source_sha": self.run_sha,
+            "image": image,
+            "manifest_digest": digest,
+            "built_at": "2026-10-12T00:00:00Z",
+        }).encode()}
 
     def read_commit(self, repository, value):
         return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
@@ -376,6 +386,19 @@ def test_reconcile_denies_unapproved_destination():
 def test_reconcile_denies_build_for_another_sha():
     with pytest.raises(VerificationError, match="no successful"):
         reconcile_plan(RestReleaseFake(run_sha="d" * 40), repository="jon-robbins/homelab")
+
+
+def test_reconcile_denies_mismatched_artifact_provenance():
+    class MismatchedProvenance(RestReleaseFake):
+        def artifact_files(self, repository, artifact):
+            files = super().artifact_files(repository, artifact)
+            provenance = json.loads(files["provenance.json"])
+            provenance["run_id"] = 99
+            files["provenance.json"] = json.dumps(provenance).encode()
+            return files
+
+    with pytest.raises(VerificationError, match="provenance run_id"):
+        reconcile_plan(MismatchedProvenance(), repository="jon-robbins/homelab")
 
 
 def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
