@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import tempfile
 import urllib.request
@@ -13,17 +14,34 @@ from typing import Any, Mapping
 
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import ValidationError, load_application_manifest, load_release_record
+from .contracts import ValidationError, load_application_manifest, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient
 from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
-from .artifacts import load_approved_destinations, verify_oci_archive
-
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
+_DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$")
+_DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
+
+
+def load_approved_destinations(path: str | Path = _DEFAULT_APPROVED_DESTINATIONS) -> frozenset[str]:
+    """Load the reviewed, exact GHCR destination allowlist."""
+    try:
+        value = parse_json(Path(path).read_bytes())
+    except (OSError, ValidationError) as error:
+        raise ValidationError("$.destinations", "invalid approved destination config") from error
+    if not isinstance(value, dict) or set(value) != {"destinations"}:
+        raise ValidationError("$", "expected only destinations")
+    destinations = value["destinations"]
+    if not isinstance(destinations, list) or not destinations or len(set(destinations)) != len(destinations):
+        raise ValidationError("$.destinations", "expected unique destination list")
+    for index, destination in enumerate(destinations):
+        if not isinstance(destination, str) or _DESTINATION.fullmatch(destination) is None:
+            raise ValidationError(f"$.destinations[{index}]", "expected immutable GHCR repository")
+    return frozenset(destinations)
 
 
 def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
@@ -43,6 +61,26 @@ def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "attestation verification failed").strip()
             raise VerificationError(f"invalid build attestation: {detail[:300]}")
+
+
+def _read_manifest_digest(archive: bytes) -> str:
+    """Read an OCI archive's manifest digest with standard OCI tooling."""
+    with tempfile.NamedTemporaryFile(prefix="release-oci-", suffix=".tar") as handle:
+        handle.write(archive)
+        handle.flush()
+        try:
+            completed = subprocess.run(
+                ["skopeo", "inspect", "--format", "{{.Digest}}", f"oci-archive:{handle.name}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise VerificationError("could not inspect OCI archive manifest") from error
+    try:
+        return validate_digest(completed.stdout.strip(), "$.manifest_digest")
+    except ValidationError as error:
+        raise VerificationError(f"invalid OCI archive manifest digest: {error}") from error
 
 
 def _check_homelab_ruleset(client: Any, repository: str) -> None:
@@ -109,10 +147,7 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         if not isinstance(archive, bytes):
             raise VerificationError(f"OCI archive is missing from {name}")
         _verify_attestation(archive, repository, sha)
-        try:
-            oci = verify_oci_archive(archive)
-        except (TypeError, ValueError, ValidationError) as error:
-            raise VerificationError(f"invalid OCI archive for {name}: {error}") from error
+        manifest_digest = _read_manifest_digest(archive)
         workflow_run = artifact.get("workflow_run")
         run_id = workflow_run.get("id") if isinstance(workflow_run, Mapping) else artifact.get("run_id")
         if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id < 1:
@@ -123,7 +158,7 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
             "run_id": run_id,
             "artifact_name": name,
             "image": image,
-            "manifest_digest": oci["manifest_digest"],
+            "manifest_digest": manifest_digest,
         }
     if not images:
         raise VerificationError(f"no attested OCI artifacts for {sha}")

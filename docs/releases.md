@@ -56,12 +56,16 @@ a release because the bundle may have changed, even when no image needs to be
 published. OCI artifacts are selected only when their native attestation
 matches the current homelab head. The first release requires one verified
 artifact for every approved image; later records carry forward unchanged image
-digests and overlay newly verified builds. The manifest digest is read from the
-verified archive's `index.json`; no custom provenance file participates in
-selection or digest admission.
+digests and overlay newly verified builds. The manifest digest is read with
+`skopeo inspect` from the verified archive; no custom archive parser or
+provenance file participates in selection or digest admission.
 
 The plan records each newly built image's artifact name, download run ID,
-manifest digest, and approved GHCR destination. It copies the site's
+manifest digest, and approved GHCR destination. The protected publisher verifies
+the same attestation, then promotes the archive with
+`skopeo copy --preserve-digests` to the destination's immutable
+`:sha-<release-sha>` tag and inspects that tag, refusing any digest mismatch.
+Destinations come only from the reviewed allowlist. It copies the site's
 `compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`, and `files/`
 tree at the verified site SHA into the handoff artifact. The record's `site_id`
 comes from that manifest and its `rollback_floor` is carried forward. A plan

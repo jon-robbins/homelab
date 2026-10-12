@@ -77,13 +77,14 @@ jobs:
       destination: ${{ matrix.image.destination }}
       manifest-digest: ${{ matrix.image.manifest_digest }}
       run-id: ${{ matrix.image.run_id }}
+      release-sha: ${{ needs.verify.outputs.sha }}
     permissions:
       contents: read
       actions: read
       packages: write
 
   sign:
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.result == 'success' && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
@@ -116,7 +117,7 @@ jobs:
           path: release-output
 
   feed:
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.result == 'success' && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') && needs.sign.result == 'success'
     needs: [verify, publish, sign]
     runs-on: ubuntu-latest
     environment: production-release

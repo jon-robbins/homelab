@@ -1,4 +1,5 @@
 import pytest
+import subprocess
 
 from scripts.release import reconcile
 from scripts.release.verify import VerificationError, VerificationResult
@@ -137,3 +138,25 @@ def test_no_source_change_produces_no_release(monkeypatch):
         "images": [],
         "image_refs": image_map,
     }
+
+
+def test_reads_manifest_digest_with_skopeo(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout="sha256:" + "a" * 64 + "\n", stderr="")
+
+    monkeypatch.setattr(reconcile.subprocess, "run", fake_run)
+    assert reconcile._read_manifest_digest(b"archive") == "sha256:" + "a" * 64
+    assert calls[0][0][:4] == ["skopeo", "inspect", "--format", "{{.Digest}}"]
+    assert calls[0][0][4].startswith("oci-archive:")
+
+
+def test_approved_destinations_loader_remains_strict(tmp_path):
+    config = tmp_path / "approved.json"
+    config.write_text('{"destinations": ["ghcr.io/acme/homelab/web"]}')
+    assert reconcile.load_approved_destinations(config) == {"ghcr.io/acme/homelab/web"}
+    config.write_text('{"destinations": ["docker.io/acme/web"]}')
+    with pytest.raises(ValueError, match="immutable GHCR repository"):
+        reconcile.load_approved_destinations(config)

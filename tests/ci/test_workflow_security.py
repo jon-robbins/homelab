@@ -230,9 +230,12 @@ class WorkflowSecurityTests(unittest.TestCase):
             elif job_name != "verify":
                 expected_if = (
                     "always() && " + expected_if
+                    + " && needs.verify.result == 'success'"
                     + " && needs.verify.outputs.has_release == 'true'"
                     + " && (needs.publish.result == 'success' || needs.publish.result == 'skipped')"
                 )
+                if job_name == "feed":
+                    expected_if += " && needs.sign.result == 'success'"
             self.assertEqual(job.get("if"), expected_if)
             self.assertIsInstance(job, dict)
             if job_name == "publish":
@@ -278,7 +281,6 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertEqual(secret_names(job), [] if expected_secret is None else [expected_secret])
 
         self.assertNotIn("env", jobs["sign"])
-
         for job_name, secret_name in {
             "check-read": "PRIVATE_INPUT_READ_TOKEN",
             "check-sign": None,
@@ -295,6 +297,19 @@ class WorkflowSecurityTests(unittest.TestCase):
                 [step["uses"] for step in job.get("steps", []) if "uses" in step].count("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
                 1,
             )
+
+    def test_always_jobs_check_every_need_result(self) -> None:
+        for path in workflow_paths():
+            workflow = load_workflow(path)
+            for job_name, job in workflow.get("jobs", {}).items():
+                condition = str(job.get("if", ""))
+                if "always()" not in condition:
+                    continue
+                needs = job.get("needs", [])
+                needs = [needs] if isinstance(needs, str) else needs
+                for dependency in needs:
+                    with self.subTest(workflow=path.name, job=job_name, dependency=dependency):
+                        self.assertIn(f"needs.{dependency}.result", condition)
 
     def test_release_workflow_policy(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")

@@ -15,6 +15,9 @@ on:
       run-id:
         required: true
         type: string
+      release-sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -45,16 +48,18 @@ jobs:
           run-id: ${{ inputs.run-id }}
           github-token: ${{ github.token }}
 
-      - name: Install release dependencies
-        run: |
-          python3 -m venv "${RUNNER_TEMP}/release-venv"
-          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
-
-      - name: Copy and verify OCI artifact
+      - name: Verify and promote OCI artifact
         env:
-          GHCR_PUBLISH_TOKEN: ${{ github.token }}
-        run: >-
-          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.artifacts publish
-          --artifact artifact/oci-layout.tar
-          --destination "${{ inputs.destination }}"
-          --expected-manifest-digest "${{ inputs.manifest-digest }}"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source="oci-archive:artifact/oci-layout.tar"
+          destination="docker://${{ inputs.destination }}:sha-${{ inputs.release-sha }}"
+          gh attestation verify artifact/oci-layout.tar \
+            --repo jon-robbins/homelab \
+            --signer-workflow jon-robbins/homelab/.github/workflows/post-merge-build.yml \
+            --source-digest '${{ inputs.release-sha }}'
+          skopeo copy --preserve-digests --dest-creds "github-actions:${GITHUB_TOKEN}" "$source" "$destination"
+          actual="$(skopeo inspect --creds "github-actions:${GITHUB_TOKEN}" --format '{{.Digest}}' "$destination")"
+          test "$actual" = '${{ inputs.manifest-digest }}'
