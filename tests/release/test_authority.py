@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -8,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from scripts.release.bundle import bundle_sha256
 from scripts.release.feed import FeedError, publish_feed, publish_next
 from scripts.release.sign import DOMAIN, record_bytes, sign_record, verify_signature
-from scripts.release.reconcile import feed_plan
+from scripts.release.reconcile import feed_plan, plan as reconcile_plan, sign_plan
 from scripts.release.verify import VerificationError, VerificationResult, verify_release
 
 
@@ -292,3 +293,102 @@ def test_feed_rejects_placeholder_public_key(tmp_path):
     (tmp_path / "release-signing.pub").write_text("PLACEHOLDER", encoding="utf-8")
     with pytest.raises(ValueError, match="placeholder"):
         feed_plan(tmp_path, tmp_path / "release-signing.pub")
+
+
+class RestReleaseFake:
+    """Small REST-shaped fake: workflow runs use repository objects like GitHub does."""
+
+    def __init__(self, images=("homelab-agent", "caddy"), *, run_sha=SHA):
+        self.images = images
+        self.run_sha = run_sha
+        self.commits = []
+
+    def ref(self, repository, branch):
+        return SHA if repository == "jon-robbins/homelab" else "f" * 40
+
+    def last_record(self, repository, branch):
+        return None
+
+    def workflow_runs(self, repository, workflow, head_sha):
+        return {"workflow_runs": [
+            {"id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
+             "status": "completed", "conclusion": "success", "head_sha": self.run_sha,
+             "repository": {"full_name": repository}, "workflow": workflow,
+             "image": image, "manifest_digest": "sha256:" + ("1" if image == "homelab-agent" else "2") * 64}
+            for image in self.images
+        ]}
+
+    def run_artifacts(self, repository, run_id):
+        return {"artifacts": [{"id": index + 1, "name": f"oci-{image}"}
+                               for index, image in enumerate(self.images)]}
+
+    def artifact_files(self, repository, artifact):
+        image = artifact["name"][4:]
+        digest = "sha256:" + ("1" if image == "homelab-agent" else "2") * 64
+        return {"provenance.json": json.dumps({"image": image, "manifest_digest": digest}).encode()}
+
+    def commit(self, repository, value, *args):
+        if not args:
+            return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
+        self.commits.append((repository, value, *args))
+        return "published-commit"
+
+    def pull_requests_for_commit(self, repository, sha):
+        return [{"merged": True, "base_ref": "main", "merge_commit_sha": sha,
+                 "merged_by": {"login": "jon-robbins"}}]
+
+    def read(self, repository, branch, path, allow_missing=False):
+        return None
+
+def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
+    monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    fake = RestReleaseFake()
+
+    planned = reconcile_plan(fake, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
+    assert [item["image"] for item in planned["images"]] == ["caddy", "homelab-agent"]
+    for name, value in {
+        "RELEASE_COMPOSE": "compose.json", "RELEASE_MANIFEST": "manifest.yaml",
+        "RELEASE_PROBES": "probes.json", "RELEASE_POLICY": "policy.yaml", "RELEASE_FILES": "files",
+    }.items():
+        monkeypatch.setenv(name, str(Path(__file__).parent / "fixtures" / "site" / value))
+    output = tmp_path / "release-output"
+    sign_plan(tmp_path / "release-plan.json", output)
+    public_key = tmp_path / "release-signing.pub"
+    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    assert feed_plan(output, public_key, client=fake) == "published"
+    assert fake.commits
+
+
+def test_reconcile_denies_unapproved_destination():
+    with pytest.raises(VerificationError, match="unapproved"):
+        reconcile_plan(RestReleaseFake(("not-approved",)), repository="jon-robbins/homelab")
+
+
+def test_reconcile_denies_build_for_another_sha():
+    with pytest.raises(VerificationError, match="no successful"):
+        reconcile_plan(RestReleaseFake(run_sha="d" * 40), repository="jon-robbins/homelab")
+
+
+def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    fake = RestReleaseFake()
+    planned = reconcile_plan(fake, repository="jon-robbins/homelab")
+    for name, value in {
+        "RELEASE_COMPOSE": "compose.json", "RELEASE_MANIFEST": "manifest.yaml",
+        "RELEASE_PROBES": "probes.json", "RELEASE_POLICY": "policy.yaml", "RELEASE_FILES": "files",
+    }.items():
+        monkeypatch.setenv(name, str(Path(__file__).parent / "fixtures" / "site" / value))
+    output = tmp_path / "release-output"
+    plan_path = tmp_path / "release-plan.json"
+    plan_path.write_text(json.dumps(planned), encoding="utf-8")
+    sign_plan(plan_path, output)
+    (output / "record.sig").write_bytes(b"bad signature")
+    public_key = tmp_path / "release-signing.pub"
+    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    with pytest.raises(FeedError, match="signature"):
+        feed_plan(output, public_key, client=fake)

@@ -22,8 +22,43 @@ TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-i
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 
 
+def _normalize_workflow_runs(value: Any) -> Any:
+    """Convert REST repository objects to the string authority used by verify."""
+    if not isinstance(value, Mapping):
+        return value
+    key = "workflow_runs" if "workflow_runs" in value else "runs"
+    runs = value.get(key)
+    if not isinstance(runs, list):
+        return value
+    normalized = []
+    for run in runs:
+        if not isinstance(run, Mapping):
+            normalized.append(run)
+            continue
+        repository_value = run.get("repository")
+        if isinstance(repository_value, Mapping):
+            repository_value = repository_value.get("full_name")
+        normalized.append({**run, "repository": repository_value} if repository_value else dict(run))
+    # verify_release accepts the historical ``runs`` spelling, while GitHub's
+    # REST response uses ``workflow_runs``.
+    return {**value, key: normalized, "runs": normalized}
+
+
+class _VerificationClient:
+    """Keep the production REST shape out of the authority checker."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def workflow_runs(self, repository: str, workflow: str, head_sha: str) -> Any:
+        return _normalize_workflow_runs(self._client.workflow_runs(repository, workflow, head_sha))
+
+
 def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, dict[str, Any]]]:
-    runs = client.workflow_runs(repository, BUILD_WORKFLOW, sha)
+    runs = _normalize_workflow_runs(client.workflow_runs(repository, BUILD_WORKFLOW, sha))
     candidates = runs.get("workflow_runs", runs.get("runs", ()))
     for run in sorted(candidates, key=lambda item: (item.get("created_at", ""), item.get("id", 0)), reverse=True):
         if run.get("head_sha") != sha or run.get("status") != "completed" or run.get("conclusion") != "success":
@@ -56,7 +91,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         site_sha = client.ref(site_repository, "main")
         tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
         run_id, builds = _run_builds(client, repository, sha)
-        verified = verify_release(client, {"homelab": sha, "homelab_site": site_sha, "tracker_integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"*": set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))})
+        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab_site": site_sha, "tracker_integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"*": set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
         approved = load_approved_destinations()
@@ -84,12 +119,12 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     (output_dir / "record.sig").write_bytes(signature)
 
 
-def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOSITORY) -> str:
+def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOSITORY, client: Any | None = None) -> str:
     key = public_key.read_bytes()
     if b"PLACEHOLDER" in key:
         raise ValueError("release public key is still a placeholder; commit config/release/release-signing.pub")
     record = load_release_record((directory / "record.json").read_bytes())
-    client = GitHubClient()
+    client = client or GitHubClient()
     signature = (directory / "record.sig").read_bytes()
     def pre_signed(next_record: Mapping[str, Any]) -> tuple[bytes, bytes]:
         if dict(next_record) != dict(record):
