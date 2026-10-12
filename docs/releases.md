@@ -34,7 +34,7 @@ still be merge commits from pull requests merged into `main` by a configured
 release owner. A non-owner merge, wrong base, direct commit, or mismatched merge
 SHA is denied.
 
-Each OCI archive is attested in the reusable build job with
+Each OCI archive is attested in the `post-merge-build.yml` workflow with
 `actions/attest-build-provenance`, pinned by commit SHA. The build job alone
 has `id-token: write` and `attestations: write`; all other jobs retain their
 existing permissions. During planning, every downloaded OCI archive is checked

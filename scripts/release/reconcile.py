@@ -100,7 +100,7 @@ def _check_homelab_ruleset(client: Any, repository: str) -> None:
     if main is None:
         raise VerificationError("homelab main ruleset is missing")
     detail = client.ruleset(repository, int(main["id"])) if hasattr(client, "ruleset") else main
-    if detail.get("enforcement") != "active" or detail.get("bypass_actors"):
+    if detail.get("enforcement") != "active" or detail.get("bypass_actors") != []:
         raise VerificationError("homelab main ruleset is weakened")
     conditions = detail.get("conditions", {}).get("ref_name", {}).get("include", ())
     if not any(value in ("main", "refs/heads/main", "~DEFAULT_BRANCH") for value in conditions):

@@ -14,7 +14,13 @@ from scripts.release.bundle import bundle_sha256
 from scripts.release.feed import FeedError, publish_feed, publish_next
 from scripts.release.github import GitHubClient
 from scripts.release.sign import DOMAIN, record_bytes, sign_record, verify_signature
-from scripts.release.reconcile import feed_plan, plan as reconcile_plan, sign_plan
+from scripts.release.reconcile import (
+    _check_homelab_ruleset,
+    _verify_attestation,
+    feed_plan,
+    plan as reconcile_plan,
+    sign_plan,
+)
 from scripts.release.verify import VerificationError, VerificationResult, verify_release
 
 
@@ -453,6 +459,48 @@ def test_reconcile_denies_mismatched_artifact_provenance():
 
     with pytest.raises(VerificationError, match="provenance run_id"):
         reconcile_plan(MismatchedProvenance(), repository="jon-robbins/homelab")
+
+
+@pytest.mark.parametrize("rulesets, detail", [
+    ([], None),
+    ([{"id": 7, "name": "main"}], {"enforcement": "disabled", "bypass_actors": []}),
+    ([{"id": 7, "name": "main"}], {"enforcement": "active", "bypass_actors": [{"actor_id": 1}]}),
+])
+def test_reconcile_denies_missing_or_weakened_homelab_ruleset(rulesets, detail):
+    class RulesetClient:
+        def rulesets(self, repository):
+            return {"rulesets": rulesets}
+
+        def ruleset(self, repository, ruleset_id):
+            return detail
+
+    with pytest.raises(VerificationError):
+        _check_homelab_ruleset(RulesetClient(), "jon-robbins/homelab")
+
+
+@pytest.mark.parametrize("failure", ["wrong signer workflow", "wrong source commit"])
+def test_reconcile_denies_invalid_native_attestation(monkeypatch, failure):
+    calls = []
+
+    class Completed:
+        returncode = 1
+        stderr = f"{failure}: attestation verification failed"
+        stdout = ""
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return Completed()
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr("scripts.release.reconcile.subprocess.run", fake_run)
+    with pytest.raises(VerificationError, match="invalid build attestation"):
+        _verify_attestation(b"oci archive", "jon-robbins/homelab", SHA)
+    assert calls == [[
+        "gh", "attestation", "verify", calls[0][3],
+        "--repo", "jon-robbins/homelab",
+        "--signer-workflow", "jon-robbins/homelab/.github/workflows/post-merge-build.yml",
+        "--source-digest", SHA,
+    ]]
 
 
 def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
