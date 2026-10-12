@@ -65,7 +65,7 @@ def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[
         raise VerificationError(f"PR was not merged by an owner: {repository}@{sha}")
 
 
-def _successful_run(runs: Any, image: str, repository: str, workflow: str, sha: str, expected_attempt: int | None, expected_run_id: int | None, expected_caller: str | None) -> dict[str, Any] | None:
+def _successful_run(runs: Any, image: str, manifest_digest: str, repository: str, workflow: str, sha: str, expected_attempt: int | None, expected_run_id: int | None, expected_caller: str | None) -> dict[str, Any] | None:
     if isinstance(runs, Mapping):
         runs = runs.get("runs", ())
     for run in runs or ():
@@ -80,6 +80,10 @@ def _successful_run(runs: Any, image: str, repository: str, workflow: str, sha: 
                 continue
             caller = _get(run, "caller", _get(run, "actor", _get(run, "triggering_actor")))
             if expected_caller is not None and _get(caller, "login", caller) != expected_caller:
+                continue
+            provenance = _get(run, "provenance", run)
+            if (_get(provenance, "image") != image
+                    or _get(provenance, "manifest_digest") != manifest_digest):
                 continue
             data = dict(run) if isinstance(run, Mapping) else {key: getattr(run, key) for key in vars(run)}
             data.setdefault("image", image)
@@ -147,12 +151,20 @@ def verify_release(
         repo = spec.get("repository", repositories.get("homelab", "homelab"))
         sha = spec.get("head_sha", heads.get("homelab"))
         workflow_name = spec.get("workflow_path", spec.get("workflow", workflow))
+        provenance = spec.get("provenance", spec)
+        image_ref = provenance.get("image_ref")
+        if isinstance(image_ref, str) and "@" in image_ref:
+            manifest_digest = image_ref.rsplit("@", 1)[1]
+        else:
+            manifest_digest = provenance.get("manifest_digest")
+        if not isinstance(manifest_digest, str):
+            raise VerificationError(f"missing manifest digest for image: {image}")
         if hasattr(client, "workflow_runs"):
             runs = client.workflow_runs(repo, workflow_name, sha)
         else:
             runs = client.build_runs(repo, workflow_name, sha)
         selected_run = _successful_run(
-            runs, image, repo, workflow_name, sha,
+            runs, image, manifest_digest, repo, workflow_name, sha,
             (expected_attempts or {}).get(image, spec.get("run_attempt")),
             spec.get("run_id"), spec.get("caller", expected_caller),
         )
@@ -165,7 +177,6 @@ def verify_release(
                    for run in candidates):
                 return "pending"
             raise VerificationError(f"no exact successful build for image: {image}")
-        provenance = spec.get("provenance", spec)
         digest = provenance.get("image_ref", provenance.get("manifest_digest"))
         if not isinstance(digest, str) or "@sha256:" not in digest:
             registry = provenance.get("registry", "ghcr.io/example")

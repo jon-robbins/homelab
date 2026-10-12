@@ -45,7 +45,8 @@ def valid_github(runs=None, pull=_MISSING):
     if pull is _MISSING:
         pull = {"merged": True, "base": "main", "merged_by": {"login": "owner"}}
     run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
-           "repository": "org/homelab", "workflow": "build.yml", "run_attempt": 1}
+           "repository": "org/homelab", "workflow": "build.yml", "run_attempt": 1,
+           "image": "web", "manifest_digest": IMAGE_DIGEST}
     return GitHubFake(pull=pull, runs=runs if runs is not None else [run])
 
 
@@ -104,6 +105,20 @@ def test_missing_image_and_wrong_attempt_denied():
         verify_release(*verify_args(valid_github()), required_images={"web", "other"})
     with pytest.raises(VerificationError):
         verify_release(*verify_args(valid_github()), required_images={"web"}, expected_attempts={"web": 2})
+
+
+def test_denies_successful_run_for_wrong_image():
+    run = valid_github().runs[0].copy()
+    run["image"] = "other"
+    with pytest.raises(VerificationError, match="no exact successful build"):
+        verify_release(*verify_args(valid_github(runs=[run])), required_images={"web"})
+
+
+def test_denies_successful_run_with_mismatched_manifest_digest():
+    run = valid_github().runs[0].copy()
+    run["manifest_digest"] = "sha256:" + "c" * 64
+    with pytest.raises(VerificationError, match="no exact successful build"):
+        verify_release(*verify_args(valid_github(runs=[run])), required_images={"web"})
 
 
 @pytest.mark.parametrize("field, value", [("caller", "untrusted"), ("id", 99), ("workflow", "other.yml"), ("head_sha", "d" * 40)])
