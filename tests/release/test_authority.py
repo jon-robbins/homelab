@@ -1,6 +1,8 @@
 import base64
+import hashlib
 import io
 import json
+import tarfile
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
@@ -30,6 +32,34 @@ FEED_KEY = Ed25519PrivateKey.generate()
 FEED_PUBLIC_KEY = FEED_KEY.public_key()
 FEED_KEYS = {"release-v1": FEED_PUBLIC_KEY}
 SITE_PRIVATE_KEY = bytes.fromhex("5e5ed75b05d493993afdc99609762aeee5f588da63346882dc3141936f83c983")
+
+
+def oci_archive(image):
+    config = json.dumps({"image": image}, separators=(",", ":")).encode()
+    layer = (image + " layer").encode()
+    config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
+    layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+    manifest = json.dumps({
+        "schemaVersion": 2,
+        "config": {"digest": config_digest, "size": len(config)},
+        "layers": [{"digest": layer_digest, "size": len(layer)}],
+    }, separators=(",", ":")).encode()
+    manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
+    index = json.dumps({"manifests": [{"digest": manifest_digest, "size": len(manifest)}]}, separators=(",", ":")).encode()
+    members = {
+        "oci-layout": b'{"imageLayoutVersion":"1.0.0"}',
+        "index.json": index,
+        "blobs/sha256/" + manifest_digest[7:]: manifest,
+        "blobs/sha256/" + config_digest[7:]: config,
+        "blobs/sha256/" + layer_digest[7:]: layer,
+    }
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:") as output:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            output.addfile(info, io.BytesIO(data))
+    return archive.getvalue(), manifest_digest
 
 
 def feed_signature(data):
@@ -81,12 +111,12 @@ def valid_github(runs=None, pull=_MISSING):
 
 def verify_args(client):
     return client, {"homelab": SHA, "homelab-site": SHA}, {"web": {
-        "repository": "homelab", "workflow": "build.yml", "head_sha": SHA,
-        "run_attempt": 1, "image_ref": "ghcr.io/example/web@" + IMAGE_DIGEST,
+        "repository": "homelab", "head_sha": SHA, "manifest_digest": IMAGE_DIGEST,
+        "image": "web",
     }}
 
 
-def test_authority_accepts_owner_merge_and_exact_run():
+def test_authority_accepts_owner_merge_and_attested_build_spec():
     result = verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web"})
     assert isinstance(result, VerificationResult)
     assert result.sources == (SHA, SHA)
@@ -150,39 +180,9 @@ def test_bootstrap_head_is_allowed():
     assert isinstance(result, VerificationResult)
 
 
-@pytest.mark.parametrize("runs", [
-    [{"status": "queued", "head_sha": SHA}],
-    [{"status": "completed", "conclusion": "failure", "head_sha": SHA}],
-    [{"status": "completed", "conclusion": "success", "head_sha": "d" * 40}],
-])
-def test_build_pending_or_denied(runs):
-    args = verify_args(valid_github(runs=runs))
-    if runs[0]["status"] != "completed":
-        assert verify_release(*args, owners={"owner"}, required_images={"web"}) == "pending"
-    else:
-        with pytest.raises(VerificationError):
-            verify_release(*args, owners={"owner"}, required_images={"web"})
-
-
-def test_missing_image_and_wrong_attempt_denied():
+def test_missing_image_is_denied():
     with pytest.raises(VerificationError, match="missing image"):
         verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web", "other"})
-    with pytest.raises(VerificationError):
-        verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web"}, expected_attempts={"web": 2})
-
-
-def test_denies_successful_run_for_wrong_image():
-    run = valid_github().runs[0].copy()
-    run["image"] = "other"
-    with pytest.raises(VerificationError, match="no exact successful build"):
-        verify_release(*verify_args(valid_github(runs=[run])), owners={"owner"}, required_images={"web"})
-
-
-def test_denies_successful_run_with_mismatched_manifest_digest():
-    run = valid_github().runs[0].copy()
-    run["manifest_digest"] = "sha256:" + "c" * 64
-    with pytest.raises(VerificationError, match="no exact successful build"):
-        verify_release(*verify_args(valid_github(runs=[run])), owners={"owner"}, required_images={"web"})
 
 
 def test_denies_successful_run_at_unverified_build_head():
@@ -197,8 +197,7 @@ def test_denies_successful_run_at_unverified_build_head():
 
 def test_denies_missing_manifest_digest_and_unverified_image_repository():
     args = list(verify_args(valid_github()))
-    args[2]["web"].pop("image_ref")
-    args[2]["web"].pop("manifest_digest", None)
+    args[2]["web"].pop("manifest_digest")
     with pytest.raises(VerificationError, match="manifest digest"):
         verify_release(*args, owners={"owner"}, required_images={"web"})
     args = verify_args(valid_github())
@@ -213,18 +212,6 @@ def test_denies_unmapped_image_repository_without_repositories():
     args[2]["web"]["repository"] = "org/other"
     args[0].runs[0]["repository"] = "org/other"
     with pytest.raises(VerificationError, match="no verified source head"):
-        verify_release(*args, owners={"owner"}, required_images={"web"})
-
-
-@pytest.mark.parametrize("field, value", [("caller", "untrusted"), ("id", 99), ("workflow", "other.yml"), ("head_sha", "d" * 40)])
-def test_denies_wrong_run_authority(field, value):
-    run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
-           "repository": "org/homelab", "workflow": "build.yml", "run_attempt": 1,
-           "caller": "release-bot", "id": 7}
-    run[field] = value
-    args = list(verify_args(valid_github(runs=[run])))
-    args[2]["web"].update(caller="release-bot", run_id=7)
-    with pytest.raises(VerificationError):
         verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
@@ -339,7 +326,7 @@ def test_feed_rejects_invalid_trust_map(tmp_path, monkeypatch):
 
 
 class RestReleaseFake:
-    """Small REST-shaped fake: workflow runs use repository objects like GitHub does."""
+    """Small REST-shaped fake: artifacts are selected by native attestations."""
 
     def __init__(self, images=("homelab-agent", "caddy"), *, run_sha=SHA):
         self.images = images
@@ -353,32 +340,15 @@ class RestReleaseFake:
     def last_record(self, repository, branch):
         return None
 
-    def workflow_runs(self, repository, workflow, head_sha):
-        return {"workflow_runs": [
-            {"id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
-             "status": "completed", "conclusion": "success", "head_sha": self.run_sha,
-             "repository": {"full_name": repository},
-             "path": workflow + "@refs/heads/main"}
-        ]}
-
-    def run_artifacts(self, repository, run_id):
-        return {"artifacts": [{"id": index + 1, "name": f"oci-{image}"}
+    def artifacts(self, repository):
+        return {"artifacts": [{"id": index + 1, "name": f"oci-{image}", "created_at": "2026-10-12T00:00:00Z",
+                                "workflow_run": {"id": 42, "head_sha": self.run_sha}}
                                for index, image in enumerate(self.images)]}
 
     def artifact_files(self, repository, artifact):
         image = artifact["name"][4:]
-        digest = "sha256:" + ("1" if image == "homelab-agent" else "2") * 64
-        return {"provenance.json": json.dumps({
-            "schema": 1,
-            "repository": repository,
-            "workflow_ref": f"{repository}/.github/workflows/post-merge-build.yml@refs/heads/main",
-            "run_id": 42,
-            "run_attempt": 1,
-            "source_sha": self.run_sha,
-            "image": image,
-            "manifest_digest": digest,
-            "built_at": "2026-10-12T00:00:00Z",
-        }).encode()}
+        archive, digest = oci_archive(image)
+        return {"oci-layout.tar": archive, "provenance.json": json.dumps({"manifest_digest": digest}).encode()}
 
     def read_commit(self, repository, value):
         return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
@@ -444,21 +414,21 @@ def test_reconcile_denies_unapproved_destination():
 
 
 def test_reconcile_denies_build_for_another_sha():
-    with pytest.raises(VerificationError, match="no successful"):
+    with pytest.raises(VerificationError, match="no attested OCI artifacts"):
         reconcile_plan(RestReleaseFake(run_sha="d" * 40), repository="jon-robbins/homelab")
 
 
-def test_reconcile_denies_mismatched_artifact_provenance():
+def test_reconcile_ignores_substituted_provenance_digest():
     class MismatchedProvenance(RestReleaseFake):
         def artifact_files(self, repository, artifact):
             files = super().artifact_files(repository, artifact)
             provenance = json.loads(files["provenance.json"])
-            provenance["run_id"] = 99
+            provenance["manifest_digest"] = "sha256:" + "f" * 64
             files["provenance.json"] = json.dumps(provenance).encode()
             return files
 
-    with pytest.raises(VerificationError, match="provenance run_id"):
-        reconcile_plan(MismatchedProvenance(), repository="jon-robbins/homelab")
+    planned = reconcile_plan(MismatchedProvenance(), repository="jon-robbins/homelab")
+    assert all(item["manifest_digest"] == oci_archive(item["image"])[1] for item in planned["images"])
 
 
 @pytest.mark.parametrize("rulesets, detail", [
@@ -592,22 +562,15 @@ class _OfflineGitHub:
         method = request.method
         if path.endswith("/commits") and method == "GET" and "/actions/" not in path:
             return self._json([{"sha": self.sha}])
-        if "/actions/workflows/" in path and path.endswith("/runs"):
-            return self._json({"workflow_runs": [{
-                "id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
-                "status": "completed", "conclusion": "success", "head_sha": self.sha,
-                "repository": {"full_name": "jon-robbins/homelab"},
-                "path": ".github/workflows/post-merge-build.yml@refs/heads/main",
-            }]})
-        if "/actions/runs/42/artifacts" in path:
+        if path.endswith("/actions/artifacts"):
             return self._json({"artifacts": [
-                {"id": 1, "name": "oci-caddy"},
-                {"id": 2, "name": "oci-homelab-agent"},
+                {"id": 1, "name": "oci-caddy", "workflow_run": {"id": 42, "head_sha": self.sha}},
+                {"id": 2, "name": "oci-homelab-agent", "workflow_run": {"id": 42, "head_sha": self.sha}},
             ]})
         if "/actions/artifacts/" in path and path.endswith("/zip"):
             artifact_id = path.split("/")[-2]
             image = "caddy" if artifact_id == "1" else "homelab-agent"
-            digest = "sha256:" + ("1" if image == "caddy" else "2") * 64
+            archive_data, digest = oci_archive(image)
             provenance = json.dumps({
                 "schema": 1, "repository": "jon-robbins/homelab",
                 "workflow_ref": "jon-robbins/homelab/.github/workflows/post-merge-build.yml@refs/heads/main",
@@ -617,6 +580,7 @@ class _OfflineGitHub:
             }).encode()
             archive = io.BytesIO()
             with ZipFile(archive, "w", ZIP_DEFLATED) as zipped:
+                zipped.writestr("oci-layout.tar", archive_data)
                 zipped.writestr("provenance.json", provenance)
             return _OfflineHTTPResponse(archive.getvalue(), {"Content-Type": "application/zip"})
         if "/git/ref/heads/" in path:

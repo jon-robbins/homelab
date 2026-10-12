@@ -27,12 +27,9 @@ class FakeHTTPGitHub:
             raise RuntimeError("403")
         return TRUST_BYTES
 
-    def workflow_runs(self, repository, workflow):
+    def artifacts(self, repository):
         if self.fail == "build":
-            return {"workflow_runs": []}
-        return {"workflow_runs": [{"id": 42, "status": "completed", "conclusion": "success", "created_at": "2026-10-12T00:00:00Z"}]}
-
-    def run_artifacts(self, repository, run_id):
+            return {"artifacts": []}
         return {"artifacts": [{"name": "oci-api"}, {"name": "provenance"}]}
 
     def repository(self, repository):

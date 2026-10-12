@@ -15,7 +15,7 @@ gh workflow run release.yml -f mode=check
 ```
 
 The check runs one protected job per credential. It reads the site and tracker
-heads, trust map, and newest successful build; proves the signing key against
+heads, trust map, and available build artifacts; proves the signing key against
 the trust map with a throwaway message; and checks feed read and push access.
 Scheduled runs always use reconcile mode.
 
@@ -49,9 +49,11 @@ gh attestation verify <archive> --repo jon-robbins/homelab \
 Thus the signed artifact, signer workflow, and source commit must all match
 the release before its manifest digest is admitted.
 
-The plan selects the newest `main` commit absent from the feed, admits only
-images present in that commit's successful post-merge build, and records each
-image's artifact name, manifest digest, and approved GHCR destination. It also
+The plan selects the newest `main` commit absent from the feed, downloads its
+OCI artifacts from the Actions artifact store, and admits only archives whose
+native attestation verifies. The manifest digest is read from the verified
+archive's `index.json`; `provenance.json` cannot select or substitute it. The
+plan records each image's artifact name, download run ID, manifest digest, and approved GHCR destination. It also
 copies the site's `compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`,
 and `files/` tree at the verified site SHA into the handoff artifact. Signing
 compiles only those copied inputs; an empty plan skips publication, signing,

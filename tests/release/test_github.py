@@ -3,16 +3,16 @@ import pytest
 from scripts.release.github import GitHubClient, GitHubError
 
 
-def test_workflow_lookup_uses_filename_as_one_path_segment():
+def test_artifact_lookup_uses_repository_artifacts_endpoint():
     client = GitHubClient("token")
     calls = []
-    client.request = lambda method, path, body=None, **kwargs: calls.append((method, path)) or {"workflow_runs": []}
+    client.request = lambda method, path, body=None, **kwargs: calls.append((method, path)) or {"artifacts": []}
 
-    client.workflow_runs("owner/repo", ".github/workflows/post-merge-build.yml", "a" * 40)
+    client.artifacts("owner/repo")
 
     assert calls == [(
         "GET",
-        "/repos/owner/repo/actions/workflows/post-merge-build.yml/runs?head_sha=" + "a" * 40 + "&per_page=100",
+        "/repos/owner/repo/actions/artifacts?per_page=100",
     )]
 
 

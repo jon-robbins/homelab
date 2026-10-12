@@ -61,12 +61,6 @@ class GitHubClient:
     def pull_requests_for_commit(self, repository: str, sha: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}/pulls")
 
-    def workflow_runs(self, repository: str, workflow: str, head_sha: str | None = None) -> Any:
-        workflow_id = workflow.rsplit("/", 1)[-1]
-        query = f"?head_sha={quote(head_sha, safe='')}&per_page=100" if head_sha else "?per_page=100"
-        path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs{query}"
-        return self.request("GET", path)
-
     def rulesets(self, repository: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/rulesets?includes_parents=true")
 
@@ -96,8 +90,8 @@ class GitHubClient:
                 return match.group(1)
         return ""
 
-    def run_artifacts(self, repository: str, run_id: int) -> Any:
-        return self.request("GET", f"/repos/{self._repo(repository)}/actions/runs/{run_id}/artifacts?per_page=100")
+    def artifacts(self, repository: str) -> Any:
+        return self.request("GET", f"/repos/{self._repo(repository)}/actions/artifacts?per_page=100")
 
     def artifact_zip(self, repository: str, artifact_id: int) -> bytes:
         return self.request("GET", f"/repos/{self._repo(repository)}/actions/artifacts/{artifact_id}/zip", accept="application/octet-stream")

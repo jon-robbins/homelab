@@ -148,7 +148,7 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertIsInstance(job.get("runs-on"), str)
             self.assertIn(job.get("runs-on"), GITHUB_HOSTED_RUNNERS)
             if "permissions" in job:
-                if allow_attestation and isinstance(job.get("permissions"), dict) and job["permissions"].get("id-token") == "write":
+                if allow_attestation and job_name == "build" and isinstance(job.get("permissions"), dict) and job["permissions"].get("id-token") == "write":
                     self.assertEqual(
                         job["permissions"],
                         {"contents": "read", "id-token": "write", "attestations": "write"},
@@ -620,7 +620,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                     self.assert_no_legacy_authority(
                         workflow,
                         allow_package_write=path.name == "reusable-publish.yml",
-                        allow_attestation=path.name in {"post-merge-build.yml", "reusable-build.yml"},
+                        allow_attestation=path.name == "post-merge-build.yml",
                     )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:

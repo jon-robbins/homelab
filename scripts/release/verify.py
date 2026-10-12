@@ -38,11 +38,6 @@ def _get(value: Any, name: str, default: Any = None) -> Any:
     return getattr(value, name, default)
 
 
-def _workflow_matches(actual: Any, expected: str) -> bool:
-    """GitHub REST paths may include the workflow ref after an @ suffix."""
-    return isinstance(actual, str) and actual.split("@", 1)[0] == expected
-
-
 def _repository(heads: Mapping[str, str], name: str) -> str:
     value = heads.get(name)
     if not isinstance(value, str) or not value:
@@ -75,43 +70,6 @@ def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[
         raise VerificationError(f"PR merge commit does not match head: {repository}@{sha}")
 
 
-def _successful_run(runs: Any, image: str, manifest_digest: str, repository: str, workflow: str, sha: str, expected_attempt: int | None, expected_run_id: int | None, expected_caller: str | None) -> dict[str, Any] | None:
-    if isinstance(runs, Mapping):
-        runs = runs.get("runs", ())
-    for run in runs or ():
-        actual_workflow = _get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow)))
-        if (_get(run, "status") == "completed" and _get(run, "conclusion") == "success"
-                and _get(run, "head_sha") == sha and _get(run, "repository", repository) == repository
-                and _workflow_matches(actual_workflow, workflow)):
-            attempt = _get(run, "run_attempt", _get(run, "attempt"))
-            if expected_attempt is not None and attempt != expected_attempt:
-                continue
-            if expected_run_id is not None and _get(run, "id", _get(run, "run_id")) != expected_run_id:
-                continue
-            caller = _get(run, "caller", _get(run, "actor", _get(run, "triggering_actor")))
-            if expected_caller is not None and _get(caller, "login", caller) != expected_caller:
-                continue
-            # GitHub workflow-run objects do not identify the matrix image or
-            # its manifest. Those values are bound to the run by the
-            # downloaded artifact provenance in the build specification.
-            # Preserve the stricter check for synthetic/legacy run objects
-            # that provide explicit image fields.
-            provenance = _get(run, "provenance")
-            if provenance is not None:
-                if (_get(provenance, "image") != image
-                        or _get(provenance, "manifest_digest") != manifest_digest):
-                    continue
-            elif _get(run, "image") is not None or _get(run, "manifest_digest") is not None:
-                if (_get(run, "image") != image
-                        or _get(run, "manifest_digest") != manifest_digest):
-                    continue
-            data = dict(run) if isinstance(run, Mapping) else {key: getattr(run, key) for key in vars(run)}
-            data.setdefault("image", image)
-            data.setdefault("manifest_digest", manifest_digest)
-            return data
-    return None
-
-
 def verify_release(
     client: GitHubClient,
     heads: Mapping[str, str],
@@ -121,17 +79,9 @@ def verify_release(
     required_images: Mapping[str, str] | set[str] | tuple[str, ...] = (),
     bootstrap_shas: Mapping[str, set[str] | tuple[str, ...] | list[str]] | None = None,
     owners: set[str] | tuple[str, ...] | Mapping[str, set[str] | tuple[str, ...] | list[str]] = (),
-    workflow: str = ".github/workflows/post-merge-build.yml",
-    expected_attempts: Mapping[str, int] | None = None,
-    expected_caller: str | None = None,
     ruleset_repositories: set[str] | tuple[str, ...] = (),
 ) -> VerificationResult | str:
-    """Verify heads and their exact successful post-merge build runs.
-
-    ``"pending"`` is returned when a matching run exists but is incomplete.
-    ``required_images`` may map image names to immutable image references; when
-    it is a collection, the build provenance must provide ``image_ref``.
-    """
+    """Verify source heads and already-attested OCI build specifications."""
     repositories = repositories or {name: name for name in heads}
     bootstrap_shas = bootstrap_shas or {}
     source_names = ("homelab", "homelab-site", "tracker-integrations")
@@ -197,46 +147,17 @@ def verify_release(
         requested_sha = spec.get("head_sha")
         if requested_sha is not None and requested_sha != sha:
             raise VerificationError(f"build head is not the verified source head: {image}")
-        workflow_name = spec.get("workflow_path", spec.get("workflow", workflow))
-        provenance = spec.get("provenance", spec)
-        if provenance.get("image", image) != image:
-            raise VerificationError(f"artifact provenance image does not match: {image}")
-        image_ref = provenance.get("image_ref")
-        if isinstance(image_ref, str) and "@" in image_ref:
-            manifest_digest = image_ref.rsplit("@", 1)[1]
-        else:
-            manifest_digest = provenance.get("manifest_digest")
+        if spec.get("image", image) != image:
+            raise VerificationError(f"artifact image does not match: {image}")
+        manifest_digest = spec.get("manifest_digest")
         if not isinstance(manifest_digest, str):
             raise VerificationError(f"missing manifest digest for image: {image}")
-        if ruleset_repositories:
-            # The plan has already downloaded this artifact and verified its
-            # native attestation. Do not rediscover or re-match a workflow run.
-            selected_run = dict(spec)
-        else:
-            if hasattr(client, "workflow_runs"):
-                runs = client.workflow_runs(repo, workflow_name, sha)
-            else:
-                runs = client.build_runs(repo, workflow_name, sha)
-            selected_run = _successful_run(
-                runs, image, manifest_digest, repo, workflow_name, sha,
-                (expected_attempts or {}).get(image, spec.get("run_attempt")),
-                spec.get("run_id"), spec.get("caller", expected_caller),
-            )
-            if selected_run is None:
-                candidates = runs.get("runs", ()) if isinstance(runs, Mapping) else runs or ()
-                if any(_get(run, "status") not in ("completed", None)
-                       and _get(run, "head_sha") == sha
-                       and _get(run, "repository", repo) == repo
-                       and _workflow_matches(_get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow_name))), workflow_name)
-                       for run in candidates):
-                    return "pending"
-                raise VerificationError(f"no exact successful build for image: {image}")
-        digest = provenance.get("image_ref", provenance.get("manifest_digest"))
+        digest = spec.get("image_ref")
         if not isinstance(digest, str) or "@sha256:" not in digest:
-            registry = provenance.get("registry", "ghcr.io/example")
-            digest = f"{registry}/{image}@{provenance.get('manifest_digest', '')}"
+            registry = spec.get("registry", "ghcr.io/example")
+            digest = f"{registry}/{image}@{manifest_digest}"
         result[image] = digest
-        selected[image] = selected_run
+        selected[image] = dict(spec)
     return VerificationResult(tuple(sources), result, selected)
 
 

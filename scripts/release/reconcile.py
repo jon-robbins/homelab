@@ -15,12 +15,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import ValidationError, load_build_provenance, load_release_record
+from .contracts import ValidationError, load_release_record
 from .feed import FeedError, _verify_release_signature, publish_next
 from .github import GitHubClient
 from .sign import _private, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
-from .artifacts import load_approved_destinations
+from .artifacts import load_approved_destinations, verify_oci_archive
 from .trust import load_trusted_keys
 
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
@@ -29,41 +29,6 @@ BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
 CHECK_DOMAIN = b"homelab-release-check-v1\n"
 CHECK_MESSAGE = b"release-check-no-write\n"
-
-
-def _normalize_workflow_runs(value: Any) -> Any:
-    """Convert REST repository objects to the string authority used by verify."""
-    if not isinstance(value, Mapping):
-        return value
-    key = "workflow_runs" if "workflow_runs" in value else "runs"
-    runs = value.get(key)
-    if not isinstance(runs, list):
-        return value
-    normalized = []
-    for run in runs:
-        if not isinstance(run, Mapping):
-            normalized.append(run)
-            continue
-        repository_value = run.get("repository")
-        if isinstance(repository_value, Mapping):
-            repository_value = repository_value.get("full_name")
-        normalized.append({**run, "repository": repository_value} if repository_value else dict(run))
-    # verify_release accepts the historical ``runs`` spelling, while GitHub's
-    # REST response uses ``workflow_runs``.
-    return {**value, key: normalized, "runs": normalized}
-
-
-class _VerificationClient:
-    """Keep the production REST shape out of the authority checker."""
-
-    def __init__(self, client: Any) -> None:
-        self._client = client
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._client, name)
-
-    def workflow_runs(self, repository: str, workflow: str, head_sha: str) -> Any:
-        return _normalize_workflow_runs(self._client.workflow_runs(repository, workflow, head_sha))
 
 
 def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
@@ -119,66 +84,52 @@ def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None
         raise VerificationError("homelab release head is not an ancestor of the workflow commit")
 
 
-def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, dict[str, Any]]]:
-    runs = _normalize_workflow_runs(client.workflow_runs(repository, BUILD_WORKFLOW, sha))
-    candidates = runs.get("workflow_runs", runs.get("runs", ()))
-    for run in sorted(candidates, key=lambda item: (item.get("created_at", ""), item.get("id", 0)), reverse=True):
-        if run.get("head_sha") != sha or run.get("status") != "completed" or run.get("conclusion") != "success":
+def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
+    """Download OCI artifacts and make their native attestations authoritative."""
+    response = client.artifacts(repository)
+    artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response
+    candidates = []
+    for artifact in artifacts or ():
+        if not isinstance(artifact, Mapping) or artifact.get("expired"):
             continue
-        run_id = int(run["id"])
-        run_attempt = run.get("run_attempt")
-        if isinstance(run_attempt, bool) or not isinstance(run_attempt, int) or run_attempt < 1:
-            raise VerificationError(f"post-merge build has no valid run attempt: {run_id}")
-        run_repository = run.get("repository")
-        if isinstance(run_repository, Mapping):
-            run_repository = run_repository.get("full_name")
-        if run_repository not in (None, repository):
-            raise VerificationError(f"post-merge build repository does not match: {run_id}")
-        run_workflow = run.get("workflow_ref")
-        if run_workflow is None:
-            run_workflow = f"{repository}/{BUILD_WORKFLOW}@refs/heads/main"
-        images: dict[str, dict[str, Any]] = {}
-        artifacts = client.run_artifacts(repository, run_id).get("artifacts", ())
-        for artifact in artifacts:
-            name = artifact.get("name", "")
-            if not name.startswith("oci-"):
-                continue
-            image_from_name = name[4:]
-            if not image_from_name:
-                raise VerificationError(f"OCI artifact has no image name: {name}")
-            files = client.artifact_files(repository, artifact)
-            archive = files.get("oci-layout.tar")
-            if os.environ.get("GITHUB_ACTIONS") == "true" and not isinstance(archive, bytes):
-                raise VerificationError(f"OCI archive is missing from {name}")
-            if isinstance(archive, bytes):
-                _verify_attestation(archive, repository, sha)
-            try:
-                provenance = load_build_provenance(files["provenance.json"])
-            except (KeyError, TypeError, ValueError, ValidationError) as error:
-                raise VerificationError(f"invalid provenance for {name}: {error}") from error
-            expected = {
-                "repository": repository,
-                "source_sha": sha,
-                "run_id": run_id,
-                "run_attempt": run_attempt,
-                "workflow_ref": run_workflow,
-                "image": image_from_name,
-            }
-            for field, expected_value in expected.items():
-                if provenance.get(field) != expected_value:
-                    raise VerificationError(f"provenance {field} does not match {name}")
-            images[image_from_name] = {
-                "repository": repository,
-                "workflow": BUILD_WORKFLOW,
-                "head_sha": sha,
-                "run_id": run_id,
-                "run_attempt": run_attempt,
-                "artifact_name": name,
-                "manifest_digest": provenance["manifest_digest"],
-                "provenance": provenance,
-            }
-        return run_id, images
-    raise VerificationError(f"no successful post-merge build for {sha}")
+        name = artifact.get("name", "")
+        if not isinstance(name, str) or not name.startswith("oci-"):
+            continue
+        workflow_run = artifact.get("workflow_run")
+        if isinstance(workflow_run, Mapping) and workflow_run.get("head_sha") not in (None, sha):
+            continue
+        candidates.append(artifact)
+    candidates.sort(key=lambda item: (item.get("created_at", ""), item.get("id", 0)), reverse=True)
+    images: dict[str, dict[str, Any]] = {}
+    for artifact in candidates:
+        name = artifact["name"]
+        image = name[4:]
+        if not image or image in images:
+            continue
+        files = client.artifact_files(repository, artifact)
+        archive = files.get("oci-layout.tar")
+        if not isinstance(archive, bytes):
+            raise VerificationError(f"OCI archive is missing from {name}")
+        _verify_attestation(archive, repository, sha)
+        try:
+            oci = verify_oci_archive(archive)
+        except (TypeError, ValueError, ValidationError) as error:
+            raise VerificationError(f"invalid OCI archive for {name}: {error}") from error
+        workflow_run = artifact.get("workflow_run")
+        run_id = workflow_run.get("id") if isinstance(workflow_run, Mapping) else artifact.get("run_id")
+        if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id < 1:
+            raise VerificationError(f"OCI artifact has no workflow run locator: {name}")
+        images[image] = {
+            "repository": repository,
+            "head_sha": sha,
+            "run_id": run_id,
+            "artifact_name": name,
+            "image": image,
+            "manifest_digest": oci["manifest_digest"],
+        }
+    if not images:
+        raise VerificationError(f"no attested OCI artifacts for {sha}")
+    return images
 
 
 def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) -> str | None:
@@ -247,23 +198,23 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
     if sha is None:
-        result = {"sha": "", "run_id": None, "sequence": next_sequence, "images": []}
+        result = {"sha": "", "sequence": next_sequence, "images": []}
     elif previous and previous.get("tooling_git_sha") == sha:
-        result = {"sha": sha, "run_id": None, "sequence": next_sequence, "images": []}
+        result = {"sha": sha, "sequence": next_sequence, "images": []}
     else:
         _check_homelab_head_ancestry(ruleset_client, repository, sha)
         site_sha = client.ref(site_repository, "main")
         tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
-        run_id, builds = _run_builds(client, repository, sha)
+        builds = _attested_builds(client, repository, sha)
         owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
-        verified = verify_release(_VerificationClient(client), {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
+        verified = verify_release(client, {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}, builds, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
         approved = load_approved_destinations()
-        images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
+        images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "run_id": builds[image]["run_id"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        result = {"sha": sha, "run_id": run_id, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}}
+        result = {"sha": sha, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}}
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
     if output:
@@ -318,7 +269,6 @@ def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str])
     with open(output, "a", encoding="utf-8") as stream:
         stream.write(
             f"sha={value['sha']}\n"
-            f"run_id={value.get('run_id') or ''}\n"
             f"images={json.dumps(value['images'], separators=(',', ':'))}\n"
             f"has_images={'true' if value['images'] else 'false'}\n"
         )
@@ -327,18 +277,6 @@ def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str])
 def _check_line(scope: str, item: str, passed: bool, reason: str) -> bool:
     print(f"{'PASS' if passed else 'FAIL'} {scope} {item}: {reason}")
     return passed
-
-
-def _newest_successful_build(client: Any, repository: str) -> Mapping[str, Any]:
-    runs = _normalize_workflow_runs(client.workflow_runs(repository, BUILD_WORKFLOW))
-    candidates = runs.get("workflow_runs", runs.get("runs", ()))
-    successful = [
-        run for run in candidates
-        if run.get("status") == "completed" and run.get("conclusion") == "success"
-    ]
-    if not successful:
-        raise VerificationError("no successful post-merge build run")
-    return max(successful, key=lambda item: (item.get("created_at", ""), item.get("id", 0)))
 
 
 def check_read(client: Any | None = None, *, output: Path | None = None) -> list[bool]:
@@ -367,12 +305,12 @@ def check_read(client: Any | None = None, *, output: Path | None = None) -> list
     except Exception as error:
         results.append(_check_line("read", "trust map", False, f"{type(error).__name__}: {error}"))
     try:
-        run = _newest_successful_build(client, os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
-        artifacts = client.run_artifacts(os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"), int(run["id"])).get("artifacts", ())
+        artifacts_response = client.artifacts(os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
+        artifacts = artifacts_response.get("artifacts", ()) if isinstance(artifacts_response, Mapping) else artifacts_response
         names = sorted(str(artifact.get("name", "")) for artifact in artifacts)
         if not names:
-            raise VerificationError(f"run {run['id']} has no artifacts")
-        results.append(_check_line("read", "post-merge build", True, f"newest successful run {run['id']} artifacts: {', '.join(names)}"))
+            raise VerificationError("no build artifacts")
+        results.append(_check_line("read", "post-merge build", True, f"available artifacts: {', '.join(names)}"))
     except Exception as error:
         results.append(_check_line("read", "post-merge build", False, f"{type(error).__name__}: {error}"))
     return results

@@ -59,7 +59,6 @@ jobs:
 
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
-      run_id: ${{ steps.plan.outputs.run_id }}
       images: ${{ steps.plan.outputs.images }}
       has_images: ${{ steps.plan.outputs.has_images }}
 
@@ -75,7 +74,7 @@ jobs:
       artifact-name: ${{ matrix.image.artifact_name }}
       destination: ${{ matrix.image.destination }}
       manifest-digest: ${{ matrix.image.manifest_digest }}
-      run-id: ${{ needs.verify.outputs.run_id }}
+      run-id: ${{ matrix.image.run_id }}
     permissions:
       contents: read
       actions: read

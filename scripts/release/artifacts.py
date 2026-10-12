@@ -88,9 +88,10 @@ def _json(data: bytes, path: str) -> Any:
         raise ValidationError(path + error.path[1:], error.message) from error
 
 
-def verify_oci_archive(data: bytes, expected_manifest_digest: str) -> dict[str, Any]:
+def verify_oci_archive(data: bytes, expected_manifest_digest: str | None = None) -> dict[str, Any]:
     """Verify an OCI image-layout archive and return its reachable digests."""
-    expected_manifest_digest = validate_digest(expected_manifest_digest, "$.expected_manifest_digest")
+    if expected_manifest_digest is not None:
+        expected_manifest_digest = validate_digest(expected_manifest_digest, "$.expected_manifest_digest")
 
     try:
         archive = tarfile.open(fileobj=BytesIO(data), mode="r:")
@@ -140,7 +141,7 @@ def verify_oci_archive(data: bytes, expected_manifest_digest: str) -> dict[str, 
     if len(manifests) != 1:
         raise ValidationError("$.index.manifests", "expected exactly one manifest")
     manifest_digest, manifest_size = _descriptor(manifests[0], "$.index.manifests[0]")
-    if manifest_digest != expected_manifest_digest:
+    if expected_manifest_digest is not None and manifest_digest != expected_manifest_digest:
         raise ValidationError("$.index.manifests[0].digest", "does not match expected manifest digest")
 
     manifest_name = "blobs/sha256/" + manifest_digest.removeprefix("sha256:")
