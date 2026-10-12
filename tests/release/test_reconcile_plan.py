@@ -221,9 +221,21 @@ class PlanBuildStatusClient(Client):
         raise AssertionError("artifacts must not be consulted before an exact successful run exists")
 
 
+def test_non_push_success_does_not_satisfy_pending_push_build():
+    runs = [
+        {"id": 99, "head_sha": "h2", "event": "workflow_dispatch", "head_branch": "main",
+         "status": "completed", "conclusion": "success"},
+        {"id": 42, "head_sha": "h2", "event": "push", "head_branch": "main",
+         "status": "in_progress", "conclusion": None},
+    ]
+    with pytest.raises(VerificationError, match="still running or failed"):
+        reconcile._attested_builds(BuildStatusClient(runs), "homelab", "h2")
+
+
 class ArtifactFixtureClient:
     def workflow_runs(self, *_args):
-        return {"workflow_runs": [{"id": 42, "head_sha": "h2", "status": "completed", "conclusion": "success"}]}
+        return {"workflow_runs": [{"id": 42, "head_sha": "h2", "event": "push", "head_branch": "main",
+                                    "status": "completed", "conclusion": "success"}]}
 
     def artifacts(self, *_args):
         return json.loads((Path(__file__).parent / "fixtures" / "artifacts.json").read_text())
@@ -243,7 +255,7 @@ def test_artifacts_are_bound_to_successful_workflow_run_fixture(monkeypatch):
 
 @pytest.mark.parametrize("runs, message", [
     ([], "not visible yet"),
-    ([{"head_sha": "h2", "status": "completed", "conclusion": "failure"}], "still running or failed"),
+    ([{"head_sha": "h2", "event": "push", "head_branch": "main", "status": "completed", "conclusion": "failure"}], "still running or failed"),
 ])
 def test_pending_or_failed_post_merge_build_waits(runs, message):
     with pytest.raises(VerificationError, match=message):
