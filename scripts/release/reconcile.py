@@ -122,14 +122,25 @@ def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None
 def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
     """Download OCI artifacts and make their native attestations authoritative."""
     runs_method = getattr(client, "workflow_runs", None)
+    successful_run_id: int | None = None
     if callable(runs_method):
         response = runs_method(repository, BUILD_WORKFLOW, sha)
         runs = response.get("workflow_runs", ()) if isinstance(response, Mapping) else response
         exact_runs = [run for run in runs or () if isinstance(run, Mapping) and run.get("head_sha") == sha]
         if not exact_runs:
             raise VerificationError(f"post-merge build for {sha} is not visible yet; waiting")
-        if not any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in exact_runs):
+        successful_run = next(
+            (
+                run for run in exact_runs
+                if run.get("status") == "completed" and run.get("conclusion") == "success"
+            ),
+            None,
+        )
+        if successful_run is None:
             raise VerificationError(f"post-merge build for {sha} is still running or failed; waiting")
+        successful_run_id = successful_run.get("id")
+        if isinstance(successful_run_id, bool) or not isinstance(successful_run_id, int) or successful_run_id < 1:
+            raise VerificationError(f"successful post-merge build for {sha} has no workflow run locator; waiting")
     response = client.artifacts(repository)
     artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response
     candidates = []
@@ -140,10 +151,9 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         artifact_head = workflow_run.get("head_sha") if isinstance(workflow_run, Mapping) else None
         if artifact_head != sha:
             continue
-        if isinstance(workflow_run, Mapping) and (
-            workflow_run.get("status") != "completed" or workflow_run.get("conclusion") != "success"
-        ):
-            raise VerificationError(f"post-merge build for {sha} is still running or failed; waiting")
+        artifact_run_id = workflow_run.get("id") if isinstance(workflow_run, Mapping) else artifact.get("run_id")
+        if successful_run_id is not None and artifact_run_id != successful_run_id:
+            continue
         name = artifact.get("name", "")
         if not isinstance(name, str) or not name.startswith("oci-"):
             continue

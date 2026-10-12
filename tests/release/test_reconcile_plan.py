@@ -1,5 +1,8 @@
-import pytest
+import json
 import subprocess
+from pathlib import Path
+
+import pytest
 
 from scripts.release import reconcile
 from scripts.release.verify import VerificationError, VerificationResult
@@ -216,6 +219,26 @@ class PlanBuildStatusClient(Client):
 
     def artifacts(self, *_args):
         raise AssertionError("artifacts must not be consulted before an exact successful run exists")
+
+
+class ArtifactFixtureClient:
+    def workflow_runs(self, *_args):
+        return {"workflow_runs": [{"id": 42, "head_sha": "h2", "status": "completed", "conclusion": "success"}]}
+
+    def artifacts(self, *_args):
+        return json.loads((Path(__file__).parent / "fixtures" / "artifacts.json").read_text())
+
+    def artifact_files(self, _repository, artifact):
+        return {"oci-layout.tar": b"archive"}
+
+
+def test_artifacts_are_bound_to_successful_workflow_run_fixture(monkeypatch):
+    monkeypatch.setattr(reconcile, "_verify_attestation", lambda *_args: None)
+    monkeypatch.setattr(reconcile, "_read_manifest_digest", lambda _archive: "sha256:" + "a" * 64)
+
+    builds = reconcile._attested_builds(ArtifactFixtureClient(), "homelab", "h2")
+
+    assert builds["agent"]["run_id"] == 42
 
 
 @pytest.mark.parametrize("runs, message", [
