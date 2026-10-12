@@ -197,10 +197,10 @@ class WorkflowSecurityTests(unittest.TestCase):
             if job_name != "verify":
                 expected_if += " && needs.verify.outputs.has_images == 'true'"
             self.assertEqual(job.get("if"), expected_if)
-            self.assertEqual(job.get("environment"), "production-release")
             self.assertIsInstance(job, dict)
             if job_name == "publish":
                 self.assertEqual(job.get("uses"), "./.github/workflows/reusable-publish.yml")
+                self.assertNotIn("environment", job)
                 self.assertEqual(
                     job.get("permissions"),
                     {"contents": "read", "actions": "read", "packages": "write"},
@@ -208,6 +208,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                 continue
 
             self.assertEqual(job.get("runs-on"), "ubuntu-latest")
+            self.assertEqual(job.get("environment"), "production-release")
             if job_name == "verify":
                 self.assertEqual(
                     job.get("permissions"),

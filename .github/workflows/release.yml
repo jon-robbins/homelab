@@ -69,7 +69,6 @@ jobs:
       contents: read
       actions: read
       packages: write
-    environment: production-release
 
   sign:
     if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
