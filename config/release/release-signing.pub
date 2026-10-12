@@ -1,1 +1,3 @@
-PLACEHOLDER: owner must replace this file with the PEM-encoded Ed25519 public key
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAKCLj8X+yDgtBAK5y4P5jnGjL5bXGrkJvpPntM1oadvg=
+-----END PUBLIC KEY-----
