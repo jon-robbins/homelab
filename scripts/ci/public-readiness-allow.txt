@@ -20,6 +20,8 @@ apps/qwen-code-telegram/tests/test_runtime_regressions.sh token-shaped # Synthet
 config/seerr/entrypoint.sh token-shaped # Synthetic JavaScript replacement fixture.
 scripts/lib/managed-secrets.sh token-shaped # Synthetic shell variable-name parser fixture.
 scripts/ops/ensure-sonarr-scene-mappings.sh token-shaped # Synthetic title used by the local API check.
+scripts/release/sign.py token-shaped # Ed25519 signing code and domain constants are not credentials.
+tests/release/test_authority.py token-shaped # Synthetic cryptographic test fixtures.
 tests/boundary/test_pr02_task5_compose.py token-shaped # Synthetic path fixture in a boundary assertion.
 tests/compose/test_arr_missing_search_service.sh token-shaped # Synthetic Compose service-name fixture.
 tests/compose/test_caddy_labels.sh token-shaped # Synthetic YAML key parser fixture.
