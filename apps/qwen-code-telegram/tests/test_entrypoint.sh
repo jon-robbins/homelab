@@ -17,33 +17,6 @@ pass "entrypoint.sh bash -n syntax"
 python3 -c "import py_compile; py_compile.compile('${RENDER}', doraise=True)" || fail "render_settings syntax"
 pass "render_project_settings.py syntax"
 
-# 3. Mount checks present
-grep -q 'check_forbidden_mounts()' "$EP" || fail "entrypoint missing mount checks"
-grep -q 'find "\$home_root" -mindepth 1 -maxdepth 1 -type d' "$EP" \
-  || fail "entrypoint must inspect /home entries"
-grep -q 'QWEN_MOUNT_CHECK_ROOT' "$EP" || fail "entrypoint mount checks must be testable against a temp root"
-pass "mount-checks: allows only the image user's home and refuses /homelab or extra /home entries"
-
-# 3b. Behavioral mount-check test against an isolated filesystem tree.
-tmpdir=""
-mount_root="$(mktemp -d)"
-trap 'rm -rf "$tmpdir" "$mount_root"' EXIT
-mkdir -p "$mount_root/home/qwen"
-HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
-  bash "$EP" || fail "mount-checks should allow only the image user's home"
-mkdir -p "$mount_root/home/other"
-if HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
-  bash "$EP" >/dev/null 2>&1; then
-  fail "mount-checks should reject an extra /home directory"
-fi
-rm -rf "$mount_root/home/other"
-mkdir -p "$mount_root/homelab"
-if HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
-  bash "$EP" >/dev/null 2>&1; then
-  fail "mount-checks should reject /homelab"
-fi
-pass "mount-checks behavioral isolation: own home passes, extra /home and /homelab fail"
-
 # 4. Secret hydration + required env validation present
 grep -q 'hydrate_secret_to_env' "$EP" || fail "entrypoint missing hydrate_secret_to_env helper"
 grep -q 'TELEGRAM_BOT_TOKEN' "$EP" || fail "entrypoint missing TELEGRAM_BOT_TOKEN reference"

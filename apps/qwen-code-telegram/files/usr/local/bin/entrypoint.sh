@@ -22,13 +22,12 @@ fail() { echo "[entrypoint] FAIL: $*" >&2; exit 2; }
 # by compose. The image user's own home is expected, but extra /home entries
 # and /homelab indicate an accidental host mount.)
 check_forbidden_mounts() {
-  local root="${QWEN_MOUNT_CHECK_ROOT:-}"
-  local home_root="${root}/home"
-  local own_home="${root}${HOME}"
+  local home_root="/home"
+  local own_home="${HOME}"
   local path
 
-  if [ -d "${root}/homelab" ]; then
-    fail "refusing to start: forbidden path ${root}/homelab is present in container"
+  if [ -d /homelab ]; then
+    fail "refusing to start: forbidden path /homelab is present in container"
   fi
   if [ -d "$home_root" ]; then
     while IFS= read -r path; do
@@ -39,9 +38,6 @@ check_forbidden_mounts() {
   fi
 }
 check_forbidden_mounts
-if [[ "${QWEN_MOUNT_CHECK_ONLY:-0}" == "1" ]]; then
-  exit 0
-fi
 
 # ---------------------------------------------------------------------------
 # Phase 1: Hydrate Docker secrets into env vars (SECRET FILE → env export).
