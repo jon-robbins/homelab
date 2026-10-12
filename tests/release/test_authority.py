@@ -447,6 +447,41 @@ def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
         feed_plan(output, public_key, client=fake)
 
 
+def test_reconcile_feed_denies_noncanonical_record_before_parsing(tmp_path):
+    value = record()
+    data = record_bytes(value)
+    public_key = tmp_path / "release-signing.pub"
+    public_key.write_bytes(FEED_PUBLIC_KEY.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    output = tmp_path / "release-output"
+    output.mkdir()
+    (output / "record.json").write_bytes(data.replace(b'{"', b'{\n"', 1))
+    (output / "record.sig").write_bytes(feed_signature(data))
+    (output / "bundle.tar").write_bytes(b"bundle")
+
+    with pytest.raises(FeedError, match="signature"):
+        feed_plan(output, public_key, client=FeedFake())
+
+
+def test_reconcile_feed_denies_cryptographically_invalid_signature_envelope(tmp_path):
+    value = record()
+    data = record_bytes(value)
+    public_key = tmp_path / "release-signing.pub"
+    public_key.write_bytes(FEED_PUBLIC_KEY.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    output = tmp_path / "release-output"
+    output.mkdir()
+    (output / "record.json").write_bytes(data)
+    invalid = Ed25519PrivateKey.generate().sign(DOMAIN + data)
+    (output / "record.sig").write_bytes(json.dumps({
+        "key_id": "release-v1", "signature": base64.b64encode(invalid).decode(),
+    }, separators=(",", ":")).encode() + b"\n")
+    (output / "bundle.tar").write_bytes(b"bundle")
+
+    with pytest.raises(FeedError, match="signature"):
+        feed_plan(output, public_key, client=FeedFake())
+
+
 class _OfflineHTTPResponse:
     def __init__(self, body, headers=None):
         self._body = body

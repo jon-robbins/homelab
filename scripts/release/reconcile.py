@@ -11,7 +11,7 @@ from typing import Any, Mapping
 from .bundle import bundle_sha256
 from .compile import compile_bundle
 from .contracts import ValidationError, load_build_provenance, load_release_record
-from .feed import FeedError, publish_next
+from .feed import FeedError, _verify_release_signature, publish_next
 from .github import GitHubClient
 from .sign import record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
@@ -228,13 +228,21 @@ def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOS
                    if name == key_id and path == public_key.name}
     else:
         key_map = {key_id: key}
-    record = load_release_record((directory / "record.json").read_bytes())
+    record_data = (directory / "record.json").read_bytes()
     client = client or GitHubClient()
     signature = (directory / "record.sig").read_bytes()
+    # Verify the detached signature over the bytes on disk before parsing the
+    # record. This preserves the signed representation and rejects JSON
+    # changes such as added whitespace, even when they have the same meaning.
+    _verify_release_signature(record_data, signature, key_map)
+    record = load_release_record(record_data)
+    if record_data != record_bytes(record):
+        raise FeedError("record.json is not canonical")
+
     def pre_signed(next_record: Mapping[str, Any]) -> tuple[bytes, bytes]:
         if dict(next_record) != dict(record):
             raise FeedError("feed sequence changed after signing; reconcile again")
-        return record_bytes(record), signature
+        return record_data, signature
     return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository, public_key=key_map)
 
 
