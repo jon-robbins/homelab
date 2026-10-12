@@ -219,6 +219,15 @@ def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOS
     key = public_key.read_bytes()
     if b"PLACEHOLDER" in key:
         raise ValueError("release public key is still a placeholder; commit config/release/release-signing.pub")
+    key_id = os.environ.get("RELEASE_SIGNING_KEY_ID", "release-v1")
+    key_map_path = public_key.with_name("release-keys.json")
+    if key_map_path.exists():
+        key_map = json.loads(key_map_path.read_text(encoding="utf-8"))
+        key_map = key_map.get("keys", key_map) if isinstance(key_map, dict) else {}
+        key_map = {name: key for name, path in key_map.items()
+                   if name == key_id and path == public_key.name}
+    else:
+        key_map = {key_id: key}
     record = load_release_record((directory / "record.json").read_bytes())
     client = client or GitHubClient()
     signature = (directory / "record.sig").read_bytes()
@@ -226,7 +235,7 @@ def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOS
         if dict(next_record) != dict(record):
             raise FeedError("feed sequence changed after signing; reconcile again")
         return record_bytes(record), signature
-    return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository, public_key=key)
+    return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository, public_key=key_map)
 
 
 def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str]) -> None:

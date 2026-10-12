@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "keys": {
+    "release-v1": "release-signing.pub"
+  }
+}

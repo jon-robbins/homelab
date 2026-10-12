@@ -79,6 +79,7 @@ jobs:
       contents: read
     env:
       HOMELAB_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+      RELEASE_SIGNING_KEY_ID: release-v1
       RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling

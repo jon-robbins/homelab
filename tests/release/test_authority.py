@@ -22,6 +22,12 @@ SHA = "a" * 40
 IMAGE_DIGEST = "sha256:" + "b" * 64
 FEED_KEY = Ed25519PrivateKey.generate()
 FEED_PUBLIC_KEY = FEED_KEY.public_key()
+FEED_KEYS = {"release-v1": FEED_PUBLIC_KEY}
+
+
+def feed_signature(data):
+    return json.dumps({"key_id": "release-v1", "signature": base64.b64encode(FEED_KEY.sign(DOMAIN + data)).decode()},
+                      sort_keys=True, separators=(",", ":")).encode() + b"\n"
 
 
 def record(sequence=1):
@@ -218,6 +224,7 @@ def test_denies_wrong_run_authority(field, value):
 def test_signature_is_domain_bound_and_tamper_evident(monkeypatch):
     key = Ed25519PrivateKey.generate()
     monkeypatch.setenv("HOMELAB_RELEASE_SIGNING_KEY", base64.b64encode(key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
     data, signature = sign_record(record())
     public = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     assert data == record_bytes(record())
@@ -252,22 +259,22 @@ class FeedFake:
 
 def test_feed_noop_and_cas_retry_never_force_pushes():
     data = record_bytes(record(2))
-    signature = FEED_KEY.sign(DOMAIN + data)
+    signature = feed_signature(data)
     fake = FeedFake()
-    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "published"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_KEYS) == "published"
     assert fake.commits[0][0] == "ref-1"
     fake = FeedFake(move=True)
-    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "published"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_KEYS) == "published"
     assert fake.commits[0][0] == "ref-2"
     fake = FeedFake(latest=2)
-    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "noop"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_KEYS) == "noop"
 
 
 def test_feed_never_rewrites_sequence():
     with pytest.raises(FeedError, match="different"):
         data = record_bytes(record(2))
         publish_feed(FeedFake(latest=json.dumps(record(2)).encode()), record(2),
-                     FEED_KEY.sign(DOMAIN + data), b"bundle", public_key=FEED_PUBLIC_KEY)
+                     feed_signature(data), b"bundle", public_key=FEED_KEYS)
 
 
 def test_feed_rejects_signer_bytes_different_from_canonical_record():
@@ -285,13 +292,23 @@ def test_feed_rejects_signer_bytes_different_from_canonical_record():
 
 def test_feed_rejects_mismatched_bundle_digest():
     with pytest.raises(FeedError, match="bundle_sha256"):
-        publish_feed(FeedFake(), record(2), b"invalid", b"different bundle", public_key=FEED_PUBLIC_KEY)
+        publish_feed(FeedFake(), record(2), b"invalid", b"different bundle", public_key=FEED_KEYS)
 
 
 def test_feed_rejects_invalid_signature():
     data = record_bytes(record(2))
     with pytest.raises(FeedError, match="signature"):
-        publish_feed(FeedFake(), record(2), b"invalid", b"bundle", public_key=FEED_PUBLIC_KEY)
+        publish_feed(FeedFake(), record(2), b"invalid", b"bundle", public_key=FEED_KEYS)
+
+
+def test_feed_rejects_unknown_key_id_and_malformed_signature():
+    data = record_bytes(record(2))
+    unknown = json.dumps({"key_id": "other-key", "signature": base64.b64encode(FEED_KEY.sign(DOMAIN + data)).decode()},
+                         separators=(",", ":")).encode()
+    with pytest.raises(FeedError, match="unknown"):
+        publish_feed(FeedFake(), record(2), unknown, b"bundle", public_key=FEED_KEYS)
+    with pytest.raises(FeedError, match="malformed"):
+        publish_feed(FeedFake(), record(2), b"{not-json", b"bundle", public_key=FEED_KEYS)
 
 
 def test_feed_rejects_placeholder_public_key(tmp_path):
@@ -367,6 +384,7 @@ def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
     raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
     monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
     fake = RestReleaseFake()
 
     planned = reconcile_plan(fake, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
@@ -410,6 +428,7 @@ def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
     key = Ed25519PrivateKey.generate()
     raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
     fake = RestReleaseFake()
     planned = reconcile_plan(fake, repository="jon-robbins/homelab")
     for name, value in {
@@ -545,6 +564,7 @@ def test_reconcile_plan_sign_feed_uses_real_github_client(tmp_path, monkeypatch)
     raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
     monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
     monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    monkeypatch.setenv("RELEASE_SIGNING_KEY_ID", "release-v1")
     transport = _OfflineGitHub(SHA, Path(__file__).parent / "fixtures" / "site")
     monkeypatch.setattr("scripts.release.github.urlopen", transport)
     client = GitHubClient("offline-token")

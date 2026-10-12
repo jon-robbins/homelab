@@ -27,9 +27,11 @@ records/<sequence>/bundle.tar
 ```
 
 `record.json` is the canonical JSON ReleaseRecord, ending with a newline.
-`record.sig` is the detached Ed25519 signature over the release domain and the
-canonical record bytes. `bundle.tar` is the exact compiled bundle referenced
-by `record.json` through `bundle_sha256`.
+`record.sig` is canonical JSON containing `key_id` and a base64-encoded
+64-byte Ed25519 signature. The signature covers the release domain followed by
+the exact canonical `record.json` bytes. `config/release/release-keys.json`
+maps the key ID to the installed public-key file. `bundle.tar` is the exact
+compiled bundle referenced by `record.json` through `bundle_sha256`.
 
 Publication observes the current `releases` ref and commits the next sequence
 with compare-and-swap semantics. A ref race is retried; the workflow never

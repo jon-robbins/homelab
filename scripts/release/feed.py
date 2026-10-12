@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from .contracts import load_release_record
 from .bundle import bundle_sha256
-from .sign import record_bytes, sign as environment_sign, verify_signature
+from .sign import parse_signature, record_bytes, sign as environment_sign, verify_signature
 
 
 class FeedError(ValueError):
@@ -21,6 +21,18 @@ class RefConflict(FeedError):
 class Publication:
     def __init__(self, sequence: int | None, commit_sha: str | None, noop: bool) -> None:
         self.sequence, self.commit_sha, self.noop = sequence, commit_sha, noop
+
+
+def _verify_release_signature(record_data: bytes, signature: bytes, public_keys: Any) -> None:
+    """Verify the strict key-id envelope before interpreting the record."""
+    try:
+        key_id, raw = parse_signature(signature)
+    except ValueError as error:
+        raise FeedError("malformed release signature") from error
+    if not isinstance(public_keys, Mapping) or key_id not in public_keys:
+        raise FeedError(f"unknown release signing key ID: {key_id}")
+    if not verify_signature(record_data, raw, public_keys[key_id]):
+        raise FeedError("signature does not verify canonical record")
 
 
 def _record(value: Any) -> Mapping[str, Any] | None:
@@ -71,8 +83,7 @@ def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
         signature = signer(candidate)
         if public_key is None:
             raise FeedError("publishing requires a public key")
-        if not verify_signature(data, signature, public_key):
-            raise FeedError("signature does not verify canonical record")
+        _verify_release_signature(data, signature, public_key)
         path = f"records/{candidate['sequence']}"
         existing = client.read_file(repository, f"{path}/record.json", ref)
         if existing is not None:
@@ -120,21 +131,47 @@ def publish_next(
     public_key: bytes | Any,
     max_retries: int = 8,
 ) -> str:
-    """Allocate ``last + 1``, sign the resulting record, and publish it."""
-    next_record = dict(record)
-    next_record["sequence"] = allocate_sequence(client, repository=repository, branch=branch)
-    record_data, signature = sign(next_record)
-    if not isinstance(record_data, bytes) or not isinstance(signature, bytes):
-        raise FeedError("signer must return record bytes and signature bytes")
-    canonical_data = record_bytes(next_record)
-    try:
-        signed_record = load_release_record(record_data)
-    except (TypeError, ValueError) as error:
-        raise FeedError("signer returned invalid record bytes") from error
-    if signed_record != next_record or record_data != canonical_data:
-        raise FeedError("signer returned record bytes different from the canonical record")
-    return publish_feed(client, next_record, signature, bundle, repository=repository, branch=branch,
-                        public_key=public_key, max_retries=max_retries)
+    """Allocate, sign, and append; every CAS retry re-reads and re-signs."""
+    if record.get("bundle_sha256") != bundle_sha256(bundle):
+        raise FeedError("record bundle_sha256 does not match bundle bytes")
+    for _ in range(max_retries):
+        ref = _call(client, ("ref", "get_ref"), repository, branch)
+        latest = _call(client, ("last_record",), repository, branch)
+        latest_record = _record(latest)
+        fields = ("schema", "site_id", "tooling_git_sha", "sources", "images", "bundle_sha256", "rollback_floor")
+        if latest_record is not None and all(latest_record.get(field) == record.get(field) for field in fields):
+            return "noop"
+        next_record = dict(record)
+        next_record["sequence"] = latest_record["sequence"] + 1 if latest_record else 1
+        record_data, signature = sign(next_record)
+        if not isinstance(record_data, bytes) or not isinstance(signature, bytes):
+            raise FeedError("signer must return record bytes and signature bytes")
+        canonical_data = record_bytes(next_record)
+        try:
+            signed_record = load_release_record(record_data)
+        except (TypeError, ValueError) as error:
+            raise FeedError("signer returned invalid record bytes") from error
+        if signed_record != next_record or record_data != canonical_data:
+            raise FeedError("signer returned record bytes different from the canonical record")
+        _verify_release_signature(record_data, signature, public_key)
+        path = f"records/{next_record['sequence']}"
+        existing = _call(client, ("read", "read_file"), repository, branch,
+                          f"{path}/record.json", allow_missing=True)
+        if existing is not None:
+            existing_bytes = existing if isinstance(existing, bytes) else existing.encode()
+            if existing_bytes != record_data:
+                raise FeedError(f"sequence {next_record['sequence']} already contains different record bytes")
+            return "noop"
+        files = {f"{path}/record.json": record_data, f"{path}/record.sig": signature,
+                 f"{path}/bundle.tar": bytes(bundle)}
+        try:
+            _call(client, ("commit_files",), repository, branch, ref, files,
+                  f"release: publish {next_record['sequence']}")
+            return "published"
+        except (RuntimeError, ValueError) as error:
+            if "changed" not in str(error).lower() and "cas" not in str(error).lower():
+                raise
+    raise FeedError("release feed changed too many times")
 
 
 def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundle: bytes, *,
@@ -147,8 +184,7 @@ def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundl
     load_release_record(record_data)
     if public_key is None:
         raise FeedError("publishing requires a public key")
-    if not verify_signature(record_data, signature, public_key):
-        raise FeedError("signature does not verify canonical record")
+    _verify_release_signature(record_data, signature, public_key)
     sequence = record["sequence"]
     for _ in range(max_retries):
         ref = _call(client, ("ref", "get_ref"), repository, branch)
