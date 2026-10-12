@@ -292,7 +292,8 @@ def check_sign() -> list[bool]:
     results: list[bool] = []
     try:
         completed = subprocess.run(["cosign", "version", "--json"], capture_output=True, text=True, check=False)
-        if completed.returncode or COSIGN_VERSION.lstrip("v") not in completed.stdout:
+        version = json.loads(completed.stdout).get("gitVersion") if completed.stdout else None
+        if completed.returncode or version != COSIGN_VERSION:
             raise VerificationError(f"cosign is not pinned at {COSIGN_VERSION}")
         results.append(_check_line("sign", "cosign", True, f"cosign {COSIGN_VERSION} is installed"))
     except Exception as error:
