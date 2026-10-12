@@ -229,6 +229,17 @@ def feed_plan(directory: Path, public_key: Path, *, repository: str = SITE_REPOS
     return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository, public_key=key)
 
 
+def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str]) -> None:
+    """Write the plan values exported to later GitHub Actions jobs."""
+    with open(output, "a", encoding="utf-8") as stream:
+        stream.write(
+            f"sha={value['sha']}\n"
+            f"run_id={value.get('run_id') or ''}\n"
+            f"images={json.dumps(value['images'], separators=(',', ':'))}\n"
+            f"has_images={'true' if value['images'] else 'false'}\n"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -241,8 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             value = plan(output=args.output)
             output = os.environ.get("GITHUB_OUTPUT")
             if output:
-                with open(output, "a", encoding="utf-8") as stream:
-                    stream.write(f"sha={value['sha']}\nrun_id={value.get('run_id') or ''}\nimages={json.dumps(value['images'], separators=(',', ':'))}\nhas_images={'true' if value['images'] else 'false'}\n")
+                write_plan_outputs(value, output)
         elif args.command == "sign": sign_plan(args.plan, args.output_dir)
         else: print(feed_plan(args.directory, args.public_key))
     except (OSError, ValueError, VerificationError) as error:

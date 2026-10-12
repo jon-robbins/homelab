@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -316,13 +317,43 @@ class WorkflowSecurityTests(unittest.TestCase):
                     self.assertIn(output_name, outputs)
             self.assertTrue(steps or not outputs)
 
-        reconcile_source = (ROOT / "scripts/release/reconcile.py").read_text(encoding="utf-8")
-        written_outputs = {"sha", "run_id", "images", "has_images"}
-        self.assertIn("GITHUB_OUTPUT", reconcile_source)
+        from scripts.release.reconcile import write_plan_outputs
+
+        with tempfile.NamedTemporaryFile() as output_file:
+            write_plan_outputs(
+                {"sha": "a" * 40, "run_id": 123, "images": [{"image": "api"}]},
+                output_file.name,
+            )
+            written_outputs = {
+                line.partition("=")[0]
+                for line in output_file.read().decode("utf-8").splitlines()
+            }
         for job_name, step_id, output_name in step_references:
             with self.subTest(job=job_name, step=step_id, output=output_name):
                 self.assertIn(step_id, {step.get("id") for step in workflow["jobs"][job_name].get("steps", [])})
                 self.assertIn(output_name, written_outputs)
+
+    def test_release_jobs_install_dependencies_before_reconcile(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        for job_name in ("verify", "sign", "feed"):
+            with self.subTest(job=job_name):
+                steps = workflow["jobs"][job_name]["steps"]
+                reconcile_indexes = [
+                    index
+                    for index, step in enumerate(steps)
+                    if "scripts.release" in str(step.get("run", ""))
+                ]
+                self.assertTrue(reconcile_indexes)
+                first_reconcile = min(reconcile_indexes)
+                install_indexes = [
+                    index
+                    for index, step in enumerate(steps[:first_reconcile])
+                    if "config/release/requirements.txt" in str(step.get("run", ""))
+                    and "--require-hashes" in str(step.get("run", ""))
+                    and "python3 -m venv" in str(step.get("run", ""))
+                ]
+                self.assertTrue(install_indexes)
+                self.assertLess(max(install_indexes), first_reconcile)
 
     def assert_candidate_ci_policy(self, workflow: dict[str, Any]) -> None:
         self.assertEqual(
