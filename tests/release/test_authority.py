@@ -1,6 +1,10 @@
 import base64
+import io
 import json
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -8,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from scripts.release.bundle import bundle_sha256
 from scripts.release.feed import FeedError, publish_feed, publish_next
+from scripts.release.github import GitHubClient
 from scripts.release.sign import DOMAIN, record_bytes, sign_record, verify_signature
 from scripts.release.reconcile import feed_plan, plan as reconcile_plan, sign_plan
 from scripts.release.verify import VerificationError, VerificationResult, verify_release
@@ -421,3 +426,134 @@ def test_reconcile_feed_denies_bad_signature(tmp_path, monkeypatch):
     public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
     with pytest.raises(FeedError, match="signature"):
         feed_plan(output, public_key, client=fake)
+
+
+class _OfflineHTTPResponse:
+    def __init__(self, body, headers=None):
+        self._body = body
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self._body
+
+
+class _OfflineGitHub:
+    """HTTP transport for the reconciler's real GitHubClient."""
+
+    def __init__(self, sha, site_root):
+        self.sha = sha
+        self.site_root = site_root
+        self.release_ref = "release-ref"
+        self.published = False
+
+    def __call__(self, request):
+        url = urlsplit(request.full_url)
+        path = url.path
+        query = parse_qs(url.query)
+        method = request.method
+        if path.endswith("/commits") and method == "GET" and "/actions/" not in path:
+            return self._json([{"sha": self.sha}])
+        if "/actions/workflows/" in path and path.endswith("/runs"):
+            return self._json({"workflow_runs": [{
+                "id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
+                "status": "completed", "conclusion": "success", "head_sha": self.sha,
+                "repository": {"full_name": "jon-robbins/homelab"},
+                "path": ".github/workflows/post-merge-build.yml@refs/heads/main",
+            }]})
+        if "/actions/runs/42/artifacts" in path:
+            return self._json({"artifacts": [
+                {"id": 1, "name": "oci-caddy"},
+                {"id": 2, "name": "oci-homelab-agent"},
+            ]})
+        if "/actions/artifacts/" in path and path.endswith("/zip"):
+            artifact_id = path.split("/")[-2]
+            image = "caddy" if artifact_id == "1" else "homelab-agent"
+            digest = "sha256:" + ("1" if image == "caddy" else "2") * 64
+            provenance = json.dumps({
+                "schema": 1, "repository": "jon-robbins/homelab",
+                "workflow_ref": "jon-robbins/homelab/.github/workflows/post-merge-build.yml@refs/heads/main",
+                "run_id": 42, "run_attempt": 1, "source_sha": self.sha,
+                "image": image, "manifest_digest": digest,
+                "built_at": "2026-10-12T00:00:00Z",
+            }).encode()
+            archive = io.BytesIO()
+            with ZipFile(archive, "w", ZIP_DEFLATED) as zipped:
+                zipped.writestr("provenance.json", provenance)
+            return _OfflineHTTPResponse(archive.getvalue(), {"Content-Type": "application/zip"})
+        if "/git/ref/heads/" in path:
+            if path.endswith("/releases"):
+                return self._json({"object": {"sha": self.release_ref}})
+            return self._json({"object": {"sha": self.sha if "jon-robbins/homelab/" in path else "f" * 40}})
+        if path.endswith("/pulls"):
+            merged_sha = path.split("/commits/", 1)[1].split("/pulls", 1)[0]
+            return self._json([{"merged": True, "base_ref": "main", "merge_commit_sha": merged_sha,
+                                "merged_by": {"login": "jon-robbins"}}])
+        if "/commits/" in path and "/git/commits/" not in path:
+            return self._json({"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]})
+        if "/contents/records" in path:
+            if query.get("ref") == ["releases"] and not path.endswith("/record.json"):
+                if self.published:
+                    return self._json([{"name": "1", "type": "dir"}])
+                return self._json([], {})
+            if path.endswith("/record.json") and self.published:
+                return self._json({"content": base64.b64encode(self.record).decode()})
+            return self._not_found(path)
+        if "/contents" in path and method == "GET":
+            content_path = path.split("/contents", 1)[1].lstrip("/")
+            if content_path == "files":
+                return self._json([{"name": "settings.ini", "type": "file"}])
+            if content_path == "files/settings.ini":
+                return self._file(self.site_root / "files/settings.ini")
+            if content_path in {"compose.json", "manifest.yaml", "probes.json", "policy.yaml"}:
+                return self._file(self.site_root / content_path)
+            return self._not_found(path)
+        if path.endswith("/git/commits/release-ref"):
+            return self._json({"tree": {"sha": "tree-ref"}})
+        if path.endswith("/git/blobs"):
+            return self._json({"sha": "blob"})
+        if path.endswith("/git/trees"):
+            return self._json({"sha": "tree-new"})
+        if path.endswith("/git/commits") and method == "POST":
+            return self._json({"sha": "commit-new"})
+        if "/git/refs/heads/releases" in path and method == "PATCH":
+            self.published = True
+            return self._json(None)
+        raise AssertionError(f"unhandled GitHub request: {method} {path}")
+
+    @staticmethod
+    def _json(value, headers=None):
+        body = json.dumps(value).encode()
+        return _OfflineHTTPResponse(body, headers or {"Content-Type": "application/json"})
+
+    @staticmethod
+    def _file(path):
+        return _OfflineGitHub._json({"content": base64.b64encode(path.read_bytes()).decode()})
+
+    @staticmethod
+    def _not_found(path):
+        raise HTTPError(path, 404, "not found", {}, io.BytesIO(b"not found"))
+
+
+def test_reconcile_plan_sign_feed_uses_real_github_client(tmp_path, monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    raw_key = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    monkeypatch.setenv("RELEASE_OWNERS", "jon-robbins")
+    monkeypatch.setenv("RELEASE_SIGNING_KEY", raw_key.hex())
+    transport = _OfflineGitHub(SHA, Path(__file__).parent / "fixtures" / "site")
+    monkeypatch.setattr("scripts.release.github.urlopen", transport)
+    client = GitHubClient("offline-token")
+
+    planned = reconcile_plan(client, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
+    assert {item["image"] for item in planned["images"]} == {"caddy", "homelab-agent"}
+    output = tmp_path / "release-output"
+    sign_plan(tmp_path / "release-plan.json", output)
+    public_key = tmp_path / "release-signing.pub"
+    public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), public_key.read_bytes())
+    assert feed_plan(output, public_key, client=client) == "published"
