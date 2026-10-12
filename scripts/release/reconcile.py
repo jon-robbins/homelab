@@ -225,8 +225,6 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         if previous is None and not all_images.issubset(builds):
             missing = sorted(all_images - set(builds))
             raise VerificationError(f"first release requires verified builds for all images; missing {missing[0]}")
-        if previous is not None and homelab_changed and not builds:
-            raise VerificationError("homelab source changed but no verified image builds were found")
         owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
         verified = verify_release(client, sources, builds, required_images=required, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
         if not isinstance(verified, VerificationResult):

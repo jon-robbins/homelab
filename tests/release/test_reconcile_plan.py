@@ -102,6 +102,25 @@ def test_site_only_change_preserves_full_image_map(monkeypatch):
     assert result["site_id"] == "lab"
 
 
+def test_homelab_only_change_without_image_build_preserves_full_image_map(monkeypatch):
+    images = {"agent", "mcp"}
+    image_map = {
+        "agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64,
+        "mcp": "ghcr.io/jon-robbins/homelab/mcp@sha256:" + "b" * 64,
+    }
+    sources = {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"}
+    previous = _record(sources, image_map)
+    client = Client(previous, {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"})
+    _setup(monkeypatch, images)
+    monkeypatch.setattr(reconcile, "_attested_builds", lambda *_args: {})
+
+    result = reconcile.plan(client, repository="homelab", site_repository="site")
+
+    assert result["release"] is True
+    assert result["images"] == []
+    assert result["image_refs"] == image_map
+
+
 def test_no_source_change_produces_no_release(monkeypatch):
     sources = {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"}
     image_map = {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64}
