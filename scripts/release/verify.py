@@ -38,6 +38,11 @@ def _get(value: Any, name: str, default: Any = None) -> Any:
     return getattr(value, name, default)
 
 
+def _workflow_matches(actual: Any, expected: str) -> bool:
+    """GitHub REST paths may include the workflow ref after an @ suffix."""
+    return isinstance(actual, str) and actual.split("@", 1)[0] == expected
+
+
 def _repository(heads: Mapping[str, str], name: str) -> str:
     value = heads.get(name)
     if not isinstance(value, str) or not value:
@@ -77,7 +82,7 @@ def _successful_run(runs: Any, image: str, manifest_digest: str, repository: str
         actual_workflow = _get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow)))
         if (_get(run, "status") == "completed" and _get(run, "conclusion") == "success"
                 and _get(run, "head_sha") == sha and _get(run, "repository", repository) == repository
-                and actual_workflow == workflow):
+                and _workflow_matches(actual_workflow, workflow)):
             attempt = _get(run, "run_attempt", _get(run, "attempt"))
             if expected_attempt is not None and attempt != expected_attempt:
                 continue
@@ -217,7 +222,7 @@ def verify_release(
             if any(_get(run, "status") not in ("completed", None)
                    and _get(run, "head_sha") == sha
                    and _get(run, "repository", repo) == repo
-                   and _get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow_name))) == workflow_name
+                   and _workflow_matches(_get(run, "workflow", _get(run, "workflow_path", _get(run, "path", workflow_name))), workflow_name)
                    for run in candidates):
                 return "pending"
             raise VerificationError(f"no exact successful build for image: {image}")

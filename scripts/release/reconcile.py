@@ -88,7 +88,7 @@ def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, 
     raise VerificationError(f"no successful post-merge build for {sha}")
 
 
-def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) -> str:
+def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) -> str | None:
     commits_method = getattr(client, "commits", None)
     commits = commits_method(repository, "main") if callable(commits_method) else []
     if not commits:
@@ -99,7 +99,7 @@ def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) 
         sha = commit.get("sha") if isinstance(commit, Mapping) else None
         if isinstance(sha, str) and sha not in published:
             return sha
-    return commits[0]["sha"]
+    return None
 
 
 def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path) -> None:
@@ -146,7 +146,9 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     sha = _newest_unpublished_sha(client, repository, site_repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
-    if previous and previous.get("tooling_git_sha") == sha:
+    if sha is None:
+        result = {"sha": "", "run_id": None, "sequence": next_sequence, "images": []}
+    elif previous and previous.get("tooling_git_sha") == sha:
         result = {"sha": sha, "run_id": None, "sequence": next_sequence, "images": []}
     else:
         site_sha = client.ref(site_repository, "main")

@@ -48,7 +48,7 @@ jobs:
       has-images: ${{ steps.plan.outputs.has_images }}
 
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
     needs: verify
     strategy:
       fail-fast: false
@@ -67,7 +67,7 @@ jobs:
     environment: production-release
 
   sign:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
     needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
@@ -95,7 +95,7 @@ jobs:
           path: release-output
 
   feed:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.verify.outputs.has_images == 'true'
     needs: [verify, sign]
     runs-on: ubuntu-latest
     environment: production-release

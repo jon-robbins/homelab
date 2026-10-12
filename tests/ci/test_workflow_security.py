@@ -192,7 +192,10 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(set(jobs), {"verify", "publish", "sign", "feed"})
 
         for job_name, job in jobs.items():
-            self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
+            expected_if = "github.ref == 'refs/heads/main'"
+            if job_name != "verify":
+                expected_if += " && needs.verify.outputs.has_images == 'true'"
+            self.assertEqual(job.get("if"), expected_if)
             self.assertEqual(job.get("environment"), "production-release")
             self.assertIsInstance(job, dict)
             if job_name == "publish":

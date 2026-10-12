@@ -302,6 +302,7 @@ class RestReleaseFake:
         self.images = images
         self.run_sha = run_sha
         self.commits = []
+        self.site_root = Path(__file__).parent / "fixtures" / "site"
 
     def ref(self, repository, branch):
         return SHA if repository == "jon-robbins/homelab" else "f" * 40
@@ -313,7 +314,8 @@ class RestReleaseFake:
         return {"workflow_runs": [
             {"id": 42, "run_attempt": 1, "created_at": "2026-10-12T00:00:00Z",
              "status": "completed", "conclusion": "success", "head_sha": self.run_sha,
-             "repository": {"full_name": repository}, "workflow": workflow}
+             "repository": {"full_name": repository},
+             "path": workflow + "@refs/heads/main"}
         ]}
 
     def run_artifacts(self, repository, run_id):
@@ -337,7 +339,13 @@ class RestReleaseFake:
                  "merged_by": {"login": "jon-robbins"}}]
 
     def read(self, repository, branch, path, allow_missing=False):
-        return None
+        value = self.site_root / path
+        return value.read_bytes() if value.is_file() else None
+
+    def contents(self, repository, ref, path=""):
+        directory = self.site_root / path
+        return [{"name": item.name, "type": "dir" if item.is_dir() else "file"}
+                for item in sorted(directory.iterdir())] if directory.is_dir() else None
 
 def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
     key = Ed25519PrivateKey.generate()
@@ -348,15 +356,14 @@ def test_reconcile_plan_sign_feed_offline_end_to_end(tmp_path, monkeypatch):
 
     planned = reconcile_plan(fake, repository="jon-robbins/homelab", output=tmp_path / "release-plan.json")
     assert [item["image"] for item in planned["images"]] == ["caddy", "homelab-agent"]
-    for name, value in {
-        "RELEASE_COMPOSE": "compose.json", "RELEASE_MANIFEST": "manifest.yaml",
-        "RELEASE_PROBES": "probes.json", "RELEASE_POLICY": "policy.yaml", "RELEASE_FILES": "files",
-    }.items():
-        monkeypatch.setenv(name, str(Path(__file__).parent / "fixtures" / "site" / value))
     output = tmp_path / "release-output"
     sign_plan(tmp_path / "release-plan.json", output)
     public_key = tmp_path / "release-signing.pub"
     public_key.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    assert (output / "record.json").is_file()
+    assert (output / "record.sig").is_file()
+    assert (output / "bundle.tar").is_file()
+    assert verify_signature((output / "record.json").read_bytes(), (output / "record.sig").read_bytes(), public_key.read_bytes())
     assert feed_plan(output, public_key, client=fake) == "published"
     assert fake.commits
 
