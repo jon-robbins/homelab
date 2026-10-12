@@ -97,9 +97,6 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         name = artifact.get("name", "")
         if not isinstance(name, str) or not name.startswith("oci-"):
             continue
-        workflow_run = artifact.get("workflow_run")
-        if isinstance(workflow_run, Mapping) and workflow_run.get("head_sha") not in (None, sha):
-            continue
         candidates.append(artifact)
     candidates.sort(key=lambda item: (item.get("created_at", ""), item.get("id", 0)), reverse=True)
     images: dict[str, dict[str, Any]] = {}

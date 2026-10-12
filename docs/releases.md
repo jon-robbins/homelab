@@ -49,11 +49,12 @@ gh attestation verify <archive> --repo jon-robbins/homelab \
 Thus the signed artifact, signer workflow, and source commit must all match
 the release before its manifest digest is admitted.
 
-The plan selects the newest `main` commit absent from the feed, downloads its
-OCI artifacts from the Actions artifact store, and admits only archives whose
+The plan selects the newest `main` commit absent from the feed, downloads OCI
+artifacts from the Actions artifact store, and admits only archives whose
 native attestation verifies. The manifest digest is read from the verified
-archive's `index.json`; `provenance.json` cannot select or substitute it. The
-plan records each image's artifact name, download run ID, manifest digest, and approved GHCR destination. It also
+archive's `index.json`; no custom provenance file participates in selection or
+digest admission. The plan records each image's artifact name, download run ID,
+manifest digest, and approved GHCR destination. It also
 copies the site's `compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`,
 and `files/` tree at the verified site SHA into the handoff artifact. Signing
 compiles only those copied inputs; an empty plan skips publication, signing,

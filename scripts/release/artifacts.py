@@ -15,7 +15,6 @@ from typing import Any
 from .contracts import (
     ValidationError,
     parse_json,
-    validate_build_provenance,
     validate_digest,
 )
 
@@ -24,32 +23,6 @@ _BLOB_NAME = re.compile(r"^blobs/sha256/([0-9a-f]{64})$")
 _ALLOWED_MEMBERS = {"oci-layout", "index.json"}
 _DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$")
 _DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
-
-
-def admit_artifact(provenance: dict[str, Any], expected: dict[str, Any], oci_result: dict[str, Any]) -> None:
-    """Admit an OCI artifact only when its build provenance matches expectations."""
-    provenance = validate_build_provenance(provenance)
-    if not isinstance(expected, dict):
-        raise ValidationError("$.expected", "expected object")
-    if not isinstance(oci_result, dict):
-        raise ValidationError("$.oci_result", "expected object")
-
-    for field in ("repository", "workflow_ref", "run_id", "run_attempt", "source_sha"):
-        if field not in expected:
-            raise ValidationError(f"$.expected.{field}", "missing required field")
-        if provenance[field] != expected[field]:
-            raise ValidationError(f"$.{field}", "does not match expected value")
-
-    images = expected.get("images")
-    if not isinstance(images, (list, tuple, set, frozenset, dict)):
-        raise ValidationError("$.expected.images", "expected image name collection")
-    if provenance["image"] not in images:
-        raise ValidationError("$.image", "is not an expected image")
-
-    if "manifest_digest" not in oci_result:
-        raise ValidationError("$.oci_result.manifest_digest", "missing required field")
-    if provenance["manifest_digest"] != oci_result["manifest_digest"]:
-        raise ValidationError("$.manifest_digest", "does not match OCI result")
 
 
 def _object(value: Any, path: str) -> dict[str, Any]:
@@ -201,19 +174,12 @@ def publish_artifact(
     expected_manifest_digest: str,
     *,
     approved_path: str | Path = _DEFAULT_APPROVED_DESTINATIONS,
-    provenance: dict[str, Any] | None = None,
-    expected: dict[str, Any] | None = None,
     runner=subprocess.run,
 ) -> str:
     """Validate and byte-copy one OCI archive to an approved GHCR repository."""
     expected_manifest_digest = validate_digest(expected_manifest_digest, "$.expected_manifest_digest")
     if destination not in load_approved_destinations(approved_path):
         raise ValidationError("$.destination", "is not an approved destination")
-    if provenance is not None or expected is not None:
-        if provenance is None or expected is None:
-            raise ValidationError("$.provenance", "provenance and expected values are both required")
-        admit_artifact(provenance, expected, {"manifest_digest": expected_manifest_digest})
-
     artifact_path = Path(artifact)
     if artifact_path.is_dir():
         artifact_path /= "oci-layout.tar"

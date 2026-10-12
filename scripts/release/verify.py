@@ -1,7 +1,7 @@
 """Offline-testable authority checks for release inputs.
 
 The client is deliberately tiny: callers provide an object with methods for
-``commit``, ``pull_request`` and ``build_runs``.  The methods may return
+``commit`` and ``pull_request``.  The methods may return
 dicts or objects with the same attribute names.
 """
 
@@ -18,7 +18,6 @@ class VerificationError(ValueError):
 class GitHubClient(Protocol):
     def read_commit(self, repository: str, sha: str) -> Any: ...
     def pull_request(self, repository: str, sha: str) -> Any | None: ...
-    def build_runs(self, repository: str, workflow: str, head_sha: str) -> Any: ...
 
 
 @dataclass(frozen=True)

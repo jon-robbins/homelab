@@ -69,43 +69,9 @@ jobs:
         with:
           subject-path: oci-layout.tar
 
-      - name: Record build provenance
-        env:
-          SOURCE_SHA: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          REPOSITORY: ${{ github.repository }}
-          IMAGE: ${{ matrix.image }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import tarfile
-
-          with tarfile.open("oci-layout.tar", "r:") as archive:
-              index = json.load(archive.extractfile("index.json"))
-          manifest_digest = index["manifests"][0]["digest"]
-          provenance = {
-              "schema": 1,
-              "repository": os.environ["REPOSITORY"],
-              "workflow_ref": os.environ["WORKFLOW_REF"],
-              "run_id": int(os.environ["RUN_ID"]),
-              "run_attempt": int(os.environ["RUN_ATTEMPT"]),
-              "source_sha": os.environ["SOURCE_SHA"],
-              "image": os.environ["IMAGE"],
-              "manifest_digest": manifest_digest,
-              "built_at": os.environ.get("SOURCE_DATE_EPOCH", "1970-01-01T00:00:00Z"),
-          }
-          with open("provenance.json", "w", encoding="utf-8") as output:
-              json.dump(provenance, output, sort_keys=True)
-          PY
-
       - name: Upload OCI artifact
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: oci-${{ matrix.image }}
-          path: |
-            oci-layout.tar
-            provenance.json
+          path: oci-layout.tar
           if-no-files-found: error

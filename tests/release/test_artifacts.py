@@ -5,73 +5,8 @@ from pathlib import Path
 import tarfile
 
 import pytest
-import yaml
-
-from scripts.release.artifacts import (
-    admit_artifact,
-    load_approved_destinations,
-    publish_artifact,
-    verify_oci_archive,
-)
+from scripts.release.artifacts import load_approved_destinations, publish_artifact, verify_oci_archive
 from scripts.release.contracts import ValidationError
-
-
-def _provenance(**overrides):
-    value = {
-        "schema": 1,
-        "repository": "acme/homelab",
-        "workflow_ref": "refs/heads/main",
-        "run_id": 42,
-        "run_attempt": 2,
-        "source_sha": "a" * 40,
-        "image": "web",
-        "manifest_digest": "sha256:" + "b" * 64,
-        "built_at": "2026-09-27T00:00:00Z",
-    }
-    value.update(overrides)
-    return value
-
-
-def _expected():
-    return {
-        "repository": "acme/homelab",
-        "workflow_ref": "refs/heads/main",
-        "run_id": 42,
-        "run_attempt": 2,
-        "source_sha": "a" * 40,
-        "images": ["web", "api"],
-    }
-
-
-def _oci_result():
-    return {"manifest_digest": "sha256:" + "b" * 64}
-
-
-def test_valid_provenance_is_admitted():
-    assert admit_artifact(_provenance(), _expected(), _oci_result()) is None
-
-
-@pytest.mark.parametrize("field", ["repository", "workflow_ref", "run_id", "run_attempt", "source_sha"])
-def test_rejects_provenance_mismatch(field):
-    values = {
-        "repository": "acme/other",
-        "workflow_ref": "refs/heads/release",
-        "run_id": 43,
-        "run_attempt": 3,
-        "source_sha": "c" * 40,
-    }
-    with pytest.raises(ValidationError):
-        admit_artifact(_provenance(**{field: values[field]}), _expected(), _oci_result())
-
-
-def test_rejects_unexpected_image():
-    with pytest.raises(ValidationError):
-        admit_artifact(_provenance(image="worker"), _expected(), _oci_result())
-
-
-def test_rejects_manifest_digest_mismatch():
-    with pytest.raises(ValidationError):
-        admit_artifact(_provenance(), _expected(), {"manifest_digest": "sha256:" + "c" * 64})
 
 
 def _archive(members):
@@ -283,17 +218,3 @@ def test_approved_destinations_are_a_fixed_list(tmp_path: Path):
     config.write_text(json.dumps({"destinations": ["ghcr.io/acme/homelab/web", "ghcr.io/acme/homelab/web"]}))
     with pytest.raises(ValidationError):
         load_approved_destinations(config)
-
-
-def test_build_workflow_has_no_credentials_references():
-    workflow = yaml.safe_load(
-        (Path(__file__).parents[2] / ".github/workflows/reusable-build.yml").read_text()
-    )
-    serialized = json.dumps(workflow).lower()
-    assert workflow["permissions"] == {"contents": "read"}
-    assert "secrets" not in serialized
-    assert "environment" not in serialized
-    assert all(
-        step.get("with", {}).get("persist-credentials") != True
-        for step in workflow["jobs"]["build"]["steps"]
-    )

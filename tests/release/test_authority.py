@@ -77,19 +77,14 @@ def record(sequence=1):
 
 
 class GitHubFake:
-    def __init__(self, *, pull=None, runs=None):
+    def __init__(self, *, pull=None):
         self.pull = pull
-        self.runs = runs or []
 
     def read_commit(self, repository, sha):
         return {"parents": [{"sha": "1"}, {"sha": "2"}]}
 
     def pull_request(self, repository, sha):
         return self.pull
-
-    def build_runs(self, repository, workflow, head_sha):
-        return self.runs
-
 
 class PullRequestListFake(GitHubFake):
     def pull_requests_for_commit(self, repository, sha):
@@ -99,14 +94,11 @@ class PullRequestListFake(GitHubFake):
 _MISSING = object()
 
 
-def valid_github(runs=None, pull=_MISSING):
+def valid_github(pull=_MISSING):
     if pull is _MISSING:
         pull = {"merged": True, "base": "main", "merge_commit_sha": SHA,
                 "merged_by": {"login": "owner"}}
-    run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
-           "repository": "homelab", "workflow": "build.yml", "run_attempt": 1,
-           "image": "web", "manifest_digest": IMAGE_DIGEST}
-    return GitHubFake(pull=pull, runs=runs if runs is not None else [run])
+    return GitHubFake(pull=pull)
 
 
 def verify_args(client):
@@ -185,16 +177,6 @@ def test_missing_image_is_denied():
         verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web", "other"})
 
 
-def test_denies_successful_run_at_unverified_build_head():
-    unverified = "d" * 40
-    run = valid_github().runs[0].copy()
-    run["head_sha"] = unverified
-    args = list(verify_args(valid_github(runs=[run])))
-    args[2]["web"]["head_sha"] = unverified
-    with pytest.raises(VerificationError, match="verified source head"):
-        verify_release(*args, owners={"owner"}, required_images={"web"})
-
-
 def test_denies_missing_manifest_digest_and_unverified_image_repository():
     args = list(verify_args(valid_github()))
     args[2]["web"].pop("manifest_digest")
@@ -210,7 +192,6 @@ def test_denies_missing_manifest_digest_and_unverified_image_repository():
 def test_denies_unmapped_image_repository_without_repositories():
     args = list(verify_args(valid_github()))
     args[2]["web"]["repository"] = "org/other"
-    args[0].runs[0]["repository"] = "org/other"
     with pytest.raises(VerificationError, match="no verified source head"):
         verify_release(*args, owners={"owner"}, required_images={"web"})
 
@@ -348,7 +329,7 @@ class RestReleaseFake:
     def artifact_files(self, repository, artifact):
         image = artifact["name"][4:]
         archive, digest = oci_archive(image)
-        return {"oci-layout.tar": archive, "provenance.json": json.dumps({"manifest_digest": digest}).encode()}
+        return {"oci-layout.tar": archive}
 
     def read_commit(self, repository, value):
         return {"parents": [{"sha": "parent-1"}, {"sha": "parent-2"}]}
@@ -413,22 +394,16 @@ def test_reconcile_denies_unapproved_destination():
         reconcile_plan(RestReleaseFake(("not-approved",)), repository="jon-robbins/homelab")
 
 
-def test_reconcile_denies_build_for_another_sha():
-    with pytest.raises(VerificationError, match="no attested OCI artifacts"):
+def test_reconcile_denies_build_for_another_sha(monkeypatch):
+    class Completed:
+        returncode = 1
+        stderr = "wrong source commit"
+        stdout = ""
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr("scripts.release.reconcile.subprocess.run", lambda *args, **kwargs: Completed())
+    with pytest.raises(VerificationError, match="invalid build attestation"):
         reconcile_plan(RestReleaseFake(run_sha="d" * 40), repository="jon-robbins/homelab")
-
-
-def test_reconcile_ignores_substituted_provenance_digest():
-    class MismatchedProvenance(RestReleaseFake):
-        def artifact_files(self, repository, artifact):
-            files = super().artifact_files(repository, artifact)
-            provenance = json.loads(files["provenance.json"])
-            provenance["manifest_digest"] = "sha256:" + "f" * 64
-            files["provenance.json"] = json.dumps(provenance).encode()
-            return files
-
-    planned = reconcile_plan(MismatchedProvenance(), repository="jon-robbins/homelab")
-    assert all(item["manifest_digest"] == oci_archive(item["image"])[1] for item in planned["images"])
 
 
 @pytest.mark.parametrize("rulesets, detail", [
@@ -597,17 +572,9 @@ class _OfflineGitHub:
             artifact_id = path.split("/")[-2]
             image = "caddy" if artifact_id == "1" else "homelab-agent"
             archive_data, digest = oci_archive(image)
-            provenance = json.dumps({
-                "schema": 1, "repository": "jon-robbins/homelab",
-                "workflow_ref": "jon-robbins/homelab/.github/workflows/post-merge-build.yml@refs/heads/main",
-                "run_id": 42, "run_attempt": 1, "source_sha": self.sha,
-                "image": image, "manifest_digest": digest,
-                "built_at": "2026-10-12T00:00:00Z",
-            }).encode()
             archive = io.BytesIO()
             with ZipFile(archive, "w", ZIP_DEFLATED) as zipped:
                 zipped.writestr("oci-layout.tar", archive_data)
-                zipped.writestr("provenance.json", provenance)
             return _OfflineHTTPResponse(archive.getvalue(), {"Content-Type": "application/zip"})
         if "/git/ref/heads/" in path:
             if path.endswith("/releases"):
