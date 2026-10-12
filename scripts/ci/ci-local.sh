@@ -88,6 +88,7 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
   export CI_PYTHON="${WORKERS_VENV}/bin/python"
   run_step "Workflow security policy" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_workflow_security.py"
   run_step "CI step parity" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_ci_step_parity.py"
+  run_step "Workflow Python commands" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_workflow_commands.py"
   run_step "Release pytest" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/release"
 
   run_docker_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh"

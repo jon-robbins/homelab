@@ -225,8 +225,10 @@ class WorkflowSecurityTests(unittest.TestCase):
         for job_name in ("verify", "publish", "sign", "feed"):
             job = jobs[job_name]
             expected_if = "github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')"
-            if job_name != "verify":
-                expected_if += " && needs.verify.outputs.has_images == 'true'"
+            if job_name == "publish":
+                expected_if += " && needs.verify.outputs.has_publish_images == 'true'"
+            elif job_name != "verify":
+                expected_if = "always() && " + expected_if + " && needs.verify.outputs.has_release == 'true'"
             self.assertEqual(job.get("if"), expected_if)
             self.assertIsInstance(job, dict)
             if job_name == "publish":

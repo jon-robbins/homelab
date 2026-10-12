@@ -65,7 +65,7 @@ jobs:
       has_publish_images: ${{ steps.plan.outputs.has_publish_images }}
 
   publish:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_publish_images == 'true'
     needs: verify
     strategy:
       fail-fast: false
@@ -83,7 +83,7 @@ jobs:
       packages: write
 
   sign:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true'
     needs: [verify, publish]
     runs-on: ubuntu-latest
     environment: production-release
@@ -116,7 +116,7 @@ jobs:
           path: release-output
 
   feed:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_release == 'true'
     needs: [verify, sign]
     runs-on: ubuntu-latest
     environment: production-release
