@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from .contracts import load_release_record
 from .bundle import bundle_sha256
-from .sign import record_bytes, sign as environment_sign
+from .sign import record_bytes, sign as environment_sign, verify_signature
 
 
 class FeedError(ValueError):
@@ -42,7 +42,8 @@ def _previous(client: Any, repository: str, branch: str, ref: str) -> Mapping[st
 
 def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
             repository: str = "homelab/homelab-site", branch: str = "releases",
-            signer: Any = environment_sign, max_retries: int = 8) -> Publication:
+            signer: Any = environment_sign, public_key: bytes | Any | None = None,
+            max_retries: int = 8) -> Publication:
     """Publish through the small ``branch_ref/read_file/commit_files`` interface."""
     if record.get("bundle_sha256") != bundle_sha256(bundle):
         raise FeedError("record bundle_sha256 does not match bundle bytes")
@@ -58,6 +59,10 @@ def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
         candidate["sequence"] = (previous["sequence"] + 1) if previous else 1
         data = record_bytes(candidate)
         signature = signer(candidate)
+        if public_key is None:
+            raise FeedError("publishing requires a public key")
+        if not verify_signature(data, signature, public_key):
+            raise FeedError("signature does not verify canonical record")
         path = f"records/{candidate['sequence']}"
         existing = client.read_file(repository, f"{path}/record.json", ref)
         if existing is not None:
@@ -100,6 +105,7 @@ def publish_next(
     *,
     repository: str = "homelab-site",
     branch: str = "releases",
+    public_key: bytes | Any,
     max_retries: int = 8,
 ) -> str:
     """Allocate ``last + 1``, sign the resulting record, and publish it."""
@@ -115,15 +121,22 @@ def publish_next(
         raise FeedError("signer returned invalid record bytes") from error
     if signed_record != next_record or record_data != canonical_data:
         raise FeedError("signer returned record bytes different from the canonical record")
-    return publish_feed(client, next_record, signature, bundle, repository=repository, branch=branch, max_retries=max_retries)
+    return publish_feed(client, next_record, signature, bundle, repository=repository, branch=branch,
+                        public_key=public_key, max_retries=max_retries)
 
 
-def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundle: bytes, *, repository: str = "homelab-site", branch: str = "releases", max_retries: int = 8) -> str:
+def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundle: bytes, *,
+                 repository: str = "homelab-site", branch: str = "releases",
+                 public_key: bytes | Any | None = None, max_retries: int = 8) -> str:
     """Append one release using an observed-ref CAS; never force-pushes."""
     if record.get("bundle_sha256") != bundle_sha256(bundle):
         raise FeedError("record bundle_sha256 does not match bundle bytes")
     record_data = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
     load_release_record(record_data)
+    if public_key is None:
+        raise FeedError("publishing requires a public key")
+    if not verify_signature(record_data, signature, public_key):
+        raise FeedError("signature does not verify canonical record")
     sequence = record["sequence"]
     for _ in range(max_retries):
         ref = _call(client, ("ref", "get_ref"), repository, branch)

@@ -13,6 +13,8 @@ from scripts.release.verify import VerificationError, VerificationResult, verify
 
 SHA = "a" * 40
 IMAGE_DIGEST = "sha256:" + "b" * 64
+FEED_KEY = Ed25519PrivateKey.generate()
+FEED_PUBLIC_KEY = FEED_KEY.public_key()
 
 
 def record(sequence=1):
@@ -44,7 +46,8 @@ _MISSING = object()
 
 def valid_github(runs=None, pull=_MISSING):
     if pull is _MISSING:
-        pull = {"merged": True, "base": "main", "merged_by": {"login": "owner"}}
+        pull = {"merged": True, "base": "main", "merge_commit_sha": SHA,
+                "merged_by": {"login": "owner"}}
     run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
            "repository": "org/homelab", "workflow": "build.yml", "run_attempt": 1,
            "image": "web", "manifest_digest": IMAGE_DIGEST}
@@ -87,6 +90,23 @@ def test_denies_direct_head():
     fake.commit = lambda repository, sha: {"parents": [{"sha": "one"}]}
     with pytest.raises(VerificationError, match="merge commit"):
         verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
+
+
+def test_denies_pr_with_different_merge_commit():
+    pull = {"merged": True, "base": "main", "merge_commit_sha": "c" * 40,
+            "merged_by": {"login": "owner"}}
+    with pytest.raises(VerificationError, match="merge commit"):
+        verify_release(*verify_args(valid_github(pull=pull)), owners={"owner"}, required_images={"web"})
+
+
+def test_denies_unknown_head_and_missing_source_head():
+    fake = valid_github()
+    fake.commit = lambda repository, sha: None
+    with pytest.raises(VerificationError, match="unknown head"):
+        verify_release(*verify_args(fake), owners={"owner"}, required_images={"web"})
+    with pytest.raises(VerificationError, match="missing source head"):
+        verify_release(valid_github(), {"homelab": SHA}, verify_args(valid_github())[2],
+                       owners={"owner"}, required_images={"web"})
 
 
 def test_bootstrap_head_is_allowed():
@@ -139,6 +159,19 @@ def test_denies_successful_run_at_unverified_build_head():
         verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
+def test_denies_missing_manifest_digest_and_unverified_image_repository():
+    args = list(verify_args(valid_github()))
+    args[2]["web"].pop("image_ref")
+    args[2]["web"].pop("manifest_digest", None)
+    with pytest.raises(VerificationError, match="manifest digest"):
+        verify_release(*args, owners={"owner"}, required_images={"web"})
+    args = verify_args(valid_github())
+    args[2]["web"]["repository"] = "org/other"
+    with pytest.raises(VerificationError, match="no verified source head"):
+        verify_release(*args, owners={"owner"}, required_images={"web"},
+                       repositories={"homelab": "org/homelab", "homelab-site": "org/site"})
+
+
 @pytest.mark.parametrize("field, value", [("caller", "untrusted"), ("id", 99), ("workflow", "other.yml"), ("head_sha", "d" * 40)])
 def test_denies_wrong_run_authority(field, value):
     run = {"status": "completed", "conclusion": "success", "head_sha": SHA,
@@ -188,19 +221,22 @@ class FeedFake:
 
 def test_feed_noop_and_cas_retry_never_force_pushes():
     data = record_bytes(record(2))
+    signature = FEED_KEY.sign(DOMAIN + data)
     fake = FeedFake()
-    assert publish_feed(fake, record(2), b"sig", b"bundle") == "published"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "published"
     assert fake.commits[0][0] == "ref-1"
     fake = FeedFake(move=True)
-    assert publish_feed(fake, record(2), b"sig", b"bundle") == "published"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "published"
     assert fake.commits[0][0] == "ref-2"
     fake = FeedFake(latest=2)
-    assert publish_feed(fake, record(2), b"sig", b"bundle") == "noop"
+    assert publish_feed(fake, record(2), signature, b"bundle", public_key=FEED_PUBLIC_KEY) == "noop"
 
 
 def test_feed_never_rewrites_sequence():
     with pytest.raises(FeedError, match="different"):
-        publish_feed(FeedFake(latest=json.dumps(record(2)).encode()), record(2), b"sig", b"bundle")
+        data = record_bytes(record(2))
+        publish_feed(FeedFake(latest=json.dumps(record(2)).encode()), record(2),
+                     FEED_KEY.sign(DOMAIN + data), b"bundle", public_key=FEED_PUBLIC_KEY)
 
 
 def test_feed_rejects_signer_bytes_different_from_canonical_record():
@@ -213,9 +249,15 @@ def test_feed_rejects_signer_bytes_different_from_canonical_record():
         return data, key.sign(DOMAIN + data)
 
     with pytest.raises(FeedError, match="canonical record"):
-        publish_next(FeedFake(), record(), signer, b"bundle")
+        publish_next(FeedFake(), record(), signer, b"bundle", public_key=key.public_key())
 
 
 def test_feed_rejects_mismatched_bundle_digest():
     with pytest.raises(FeedError, match="bundle_sha256"):
-        publish_feed(FeedFake(), record(2), b"sig", b"different bundle")
+        publish_feed(FeedFake(), record(2), b"invalid", b"different bundle", public_key=FEED_PUBLIC_KEY)
+
+
+def test_feed_rejects_invalid_signature():
+    data = record_bytes(record(2))
+    with pytest.raises(FeedError, match="signature"):
+        publish_feed(FeedFake(), record(2), b"invalid", b"bundle", public_key=FEED_PUBLIC_KEY)

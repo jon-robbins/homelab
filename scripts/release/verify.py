@@ -65,6 +65,9 @@ def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[
         raise VerificationError(f"owner policy is not configured: {repository}@{sha}")
     if login not in owners:
         raise VerificationError(f"PR was not merged by an owner: {repository}@{sha}")
+    merge_commit_sha = _get(pull, "merge_commit_sha", _get(pull, "merge_sha"))
+    if merge_commit_sha != sha:
+        raise VerificationError(f"PR merge commit does not match head: {repository}@{sha}")
 
 
 def _successful_run(runs: Any, image: str, manifest_digest: str, repository: str, workflow: str, sha: str, expected_attempt: int | None, expected_run_id: int | None, expected_caller: str | None) -> dict[str, Any] | None:
