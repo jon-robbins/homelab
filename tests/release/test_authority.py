@@ -75,6 +75,13 @@ def test_denies_unreviewed_wrong_base_or_non_owner(pull, message):
         verify_release(*verify_args(valid_github(pull=pull)), owners={"owner"}, required_images={"web"})
 
 
+@pytest.mark.parametrize("owners", [(), set()])
+def test_denies_non_owner_without_configured_owner_policy(owners):
+    pull = {"merged": True, "base": "main", "merged_by": {"login": "other"}}
+    with pytest.raises(VerificationError, match="owner"):
+        verify_release(*verify_args(valid_github(pull=pull)), owners=owners, required_images={"web"})
+
+
 def test_denies_direct_head():
     fake = valid_github()
     fake.commit = lambda repository, sha: {"parents": [{"sha": "one"}]}
@@ -95,31 +102,41 @@ def test_bootstrap_head_is_allowed():
 def test_build_pending_or_denied(runs):
     args = verify_args(valid_github(runs=runs))
     if runs[0]["status"] != "completed":
-        assert verify_release(*args, required_images={"web"}) == "pending"
+        assert verify_release(*args, owners={"owner"}, required_images={"web"}) == "pending"
     else:
         with pytest.raises(VerificationError):
-            verify_release(*args, required_images={"web"})
+            verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
 def test_missing_image_and_wrong_attempt_denied():
     with pytest.raises(VerificationError, match="missing image"):
-        verify_release(*verify_args(valid_github()), required_images={"web", "other"})
+        verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web", "other"})
     with pytest.raises(VerificationError):
-        verify_release(*verify_args(valid_github()), required_images={"web"}, expected_attempts={"web": 2})
+        verify_release(*verify_args(valid_github()), owners={"owner"}, required_images={"web"}, expected_attempts={"web": 2})
 
 
 def test_denies_successful_run_for_wrong_image():
     run = valid_github().runs[0].copy()
     run["image"] = "other"
     with pytest.raises(VerificationError, match="no exact successful build"):
-        verify_release(*verify_args(valid_github(runs=[run])), required_images={"web"})
+        verify_release(*verify_args(valid_github(runs=[run])), owners={"owner"}, required_images={"web"})
 
 
 def test_denies_successful_run_with_mismatched_manifest_digest():
     run = valid_github().runs[0].copy()
     run["manifest_digest"] = "sha256:" + "c" * 64
     with pytest.raises(VerificationError, match="no exact successful build"):
-        verify_release(*verify_args(valid_github(runs=[run])), required_images={"web"})
+        verify_release(*verify_args(valid_github(runs=[run])), owners={"owner"}, required_images={"web"})
+
+
+def test_denies_successful_run_at_unverified_build_head():
+    unverified = "d" * 40
+    run = valid_github().runs[0].copy()
+    run["head_sha"] = unverified
+    args = list(verify_args(valid_github(runs=[run])))
+    args[2]["web"]["head_sha"] = unverified
+    with pytest.raises(VerificationError, match="verified source head"):
+        verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
 @pytest.mark.parametrize("field, value", [("caller", "untrusted"), ("id", 99), ("workflow", "other.yml"), ("head_sha", "d" * 40)])
@@ -131,7 +148,7 @@ def test_denies_wrong_run_authority(field, value):
     args = list(verify_args(valid_github(runs=[run])))
     args[2]["web"].update(caller="release-bot", run_id=7)
     with pytest.raises(VerificationError):
-        verify_release(*args, required_images={"web"})
+        verify_release(*args, owners={"owner"}, required_images={"web"})
 
 
 def test_signature_is_domain_bound_and_tamper_evident(monkeypatch):

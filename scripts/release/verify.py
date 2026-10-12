@@ -61,7 +61,9 @@ def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[
         raise VerificationError(f"PR was not merged into main: {repository}@{sha}")
     merged_by = _get(pull, "merged_by", _get(pull, "author"))
     login = _get(merged_by, "login", merged_by)
-    if owners and login not in owners:
+    if not owners:
+        raise VerificationError(f"owner policy is not configured: {repository}@{sha}")
+    if login not in owners:
         raise VerificationError(f"PR was not merged by an owner: {repository}@{sha}")
 
 
@@ -99,7 +101,7 @@ def verify_release(
     repositories: Mapping[str, str] | None = None,
     required_images: Mapping[str, str] | set[str] | tuple[str, ...] = (),
     bootstrap_shas: Mapping[str, set[str] | tuple[str, ...] | list[str]] | None = None,
-    owners: set[str] | tuple[str, ...] = (),
+    owners: set[str] | tuple[str, ...] | Mapping[str, set[str] | tuple[str, ...] | list[str]] = (),
     workflow: str = ".github/workflows/post-merge-build.yml",
     expected_attempts: Mapping[str, int] | None = None,
     expected_caller: str | None = None,
@@ -110,6 +112,7 @@ def verify_release(
     ``required_images`` may map image names to immutable image references; when
     it is a collection, the build provenance must provide ``image_ref``.
     """
+    repositories_configured = repositories is not None
     repositories = repositories or {name: name for name in heads}
     bootstrap_shas = bootstrap_shas or {}
     # The public source names follow repository names; accept underscore aliases
@@ -117,6 +120,7 @@ def verify_release(
     aliases = {"homelab": "homelab", "homelab-site": "homelab_site", "tracker-integrations": "tracker_integrations"}
     source_names = ("homelab", "homelab-site", "tracker-integrations")
     sources = []
+    verified_repository_heads: dict[str, str] = {}
     for name in source_names:
         head_key = name if name in heads else aliases[name]
         if head_key not in heads:
@@ -126,16 +130,24 @@ def verify_release(
             raise VerificationError(f"missing source head: {name}")
         sha = _repository(heads, head_key)
         repo = repositories.get(name, repositories.get(head_key, name))
+        verified_repository_heads[repo] = sha
         if hasattr(client, "pull_requests_for_commit"):
             prs = client.pull_requests_for_commit(repo, sha)
+            if isinstance(owners, Mapping):
+                owner_policy = owners.get(name, owners.get(head_key, owners.get("*", ())))
+            else:
+                owner_policy = owners
+            if not owner_policy and sha not in set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))):
+                raise VerificationError(f"owner policy is not configured: {name}@{sha}")
             if not any(_get(pr, "merged", _get(pr, "merged_at", False))
                        and _get(_get(pr, "base_ref", _get(pr, "base", "")), "ref", _get(pr, "base_ref", _get(pr, "base", ""))) == "main"
                        and _get(pr, "merge_commit_sha", _get(pr, "merge_sha")) == sha
-                       and (_get(_get(pr, "merged_by"), "login", _get(pr, "merged_by")) in (owners.get(name, owners.get(head_key, owners.get("*", ()))) if isinstance(owners, Mapping) else owners) or not owners)
+                       and _get(_get(pr, "merged_by"), "login", _get(pr, "merged_by")) in owner_policy
                        for pr in prs) and sha not in set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))):
                 raise VerificationError(f"head has no owner-merged PR: {name}@{sha}")
         else:
-            _check_head(client, repo, sha, set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))), set(owners))
+            owner_policy = owners.get(name, owners.get(head_key, owners.get("*", ()))) if isinstance(owners, Mapping) else owners
+            _check_head(client, repo, sha, set(bootstrap_shas.get(name, bootstrap_shas.get(head_key, ()))), set(owner_policy))
         sources.append(sha)
 
     wanted = set(required_images) if not isinstance(required_images, Mapping) else set(required_images)
@@ -149,7 +161,16 @@ def verify_release(
     for image in sorted(wanted):
         spec = builds[image]
         repo = spec.get("repository", repositories.get("homelab", "homelab"))
-        sha = spec.get("head_sha", heads.get("homelab"))
+        sha = verified_repository_heads.get(repo)
+        if sha is None and not repositories_configured:
+            # Legacy callers used a repository label different from the source
+            # key; image builds in that API still belong to homelab.
+            sha = heads.get("homelab", heads.get("homelab_site"))
+        if not isinstance(sha, str):
+            raise VerificationError(f"build repository has no verified source head: {repo}")
+        requested_sha = spec.get("head_sha")
+        if requested_sha is not None and requested_sha != sha:
+            raise VerificationError(f"build head is not the verified source head: {image}")
         workflow_name = spec.get("workflow_path", spec.get("workflow", workflow))
         provenance = spec.get("provenance", spec)
         image_ref = provenance.get("image_ref")
