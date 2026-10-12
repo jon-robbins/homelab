@@ -126,7 +126,9 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         response = runs_method(repository, BUILD_WORKFLOW, sha)
         runs = response.get("workflow_runs", ()) if isinstance(response, Mapping) else response
         exact_runs = [run for run in runs or () if isinstance(run, Mapping) and run.get("head_sha") == sha]
-        if exact_runs and not any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in exact_runs):
+        if not exact_runs:
+            raise VerificationError(f"post-merge build for {sha} is not visible yet; waiting")
+        if not any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in exact_runs):
             raise VerificationError(f"post-merge build for {sha} is still running or failed; waiting")
     response = client.artifacts(repository)
     artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response

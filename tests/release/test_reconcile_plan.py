@@ -122,6 +122,103 @@ def test_homelab_only_change_without_image_build_preserves_full_image_map(monkey
     assert result["image_refs"] == image_map
 
 
+class HistoryClient(Client):
+    def __init__(self, previous, heads, history):
+        super().__init__(previous, heads)
+        self.history = history
+
+    def compare_commits(self, _repository, base, head):
+        sha = head
+        while sha in self.history:
+            if sha == base:
+                return {"status": "ahead"}
+            parents = self.history[sha]["parents"]
+            if not parents:
+                break
+            sha = parents[0]["sha"]
+        return {"status": "behind"}
+
+    def read_commit(self, _repository, sha):
+        return self.history[sha]
+
+
+def test_first_release_bootstraps_at_main_head():
+    history = {
+        "h3": {"parents": [{"sha": "h2"}]},
+        "h2": {"parents": [{"sha": "h1"}]},
+        "h1": {"parents": []},
+    }
+    assert reconcile._next_tooling_sha(HistoryClient(None, {"homelab": "h3"}, history), "homelab", "h3", None) == "h3"
+
+
+def test_second_run_selects_oldest_commit_after_previous_position():
+    history = {
+        "h3": {"parents": [{"sha": "h2"}]},
+        "h2": {"parents": [{"sha": "h1"}]},
+        "h1": {"parents": [{"sha": "h0"}]},
+        "h0": {"parents": []},
+    }
+    previous = _record({"homelab": "h1"}, {})
+    client = HistoryClient(previous, {"homelab": "h3"}, history)
+    assert reconcile._next_tooling_sha(client, "homelab", "h3", previous) == "h2"
+
+
+def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch):
+    images = {"agent"}
+    previous = _record(
+        {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"},
+        {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64},
+    )
+    history = {
+        "h3": {"parents": [{"sha": "h2"}]},
+        "h2": {"parents": [{"sha": "h1"}]},
+        "h1": {"parents": [{"sha": "h0"}]},
+        "h0": {"parents": []},
+    }
+    client = HistoryClient(previous, {"homelab": "h3", "homelab-site": "s1", "tracker-integrations": "t1"}, history)
+    _setup(monkeypatch, images)
+    monkeypatch.setattr(reconcile, "_attested_builds", lambda _client, _repository, sha: {
+        "agent": {**_build("agent", "sha256:" + sha[-1] * 64), "head_sha": sha}
+    })
+
+    first = reconcile.plan(client, repository="homelab", site_repository="site")
+    assert first["sha"] == "h2"
+    assert first["images"][0]["manifest_digest"] == "sha256:" + "2" * 64
+
+    client.previous = {**previous, "sequence": 8, "tooling_git_sha": "h2", "sources": {**previous["sources"], "homelab": "h2"}}
+    second = reconcile.plan(client, repository="homelab", site_repository="site")
+    assert second["sha"] == "h3"
+    assert second["images"][0]["manifest_digest"] == "sha256:" + "3" * 64
+
+
+def test_rewritten_history_rejects_release():
+    history = {"h3": {"parents": [{"sha": "h2"}]}, "h2": {"parents": []}}
+    previous = _record({"homelab": "old"}, {})
+    client = HistoryClient(previous, {"homelab": "h3"}, history)
+    with pytest.raises(VerificationError, match="not an ancestor"):
+        reconcile._next_tooling_sha(client, "homelab", "h3", previous)
+
+
+class BuildStatusClient:
+    def __init__(self, runs):
+        self.runs = runs
+
+    def workflow_runs(self, *_args):
+        return {"workflow_runs": self.runs}
+
+    def artifacts(self, *_args):
+        raise AssertionError("artifacts must not be consulted before an exact successful run exists")
+
+
+@pytest.mark.parametrize("runs, message", [
+    ([], "not visible yet"),
+    ([{"head_sha": "h2", "status": "completed", "conclusion": "failure"}], "still running or failed"),
+])
+def test_pending_or_failed_post_merge_build_waits(runs, message):
+    with pytest.raises(VerificationError, match=message):
+        reconcile._attested_builds(BuildStatusClient(runs), "homelab", "h2")
+
+
 def test_no_source_change_produces_no_release(monkeypatch):
     sources = {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"}
     image_map = {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64}
