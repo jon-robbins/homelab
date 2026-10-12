@@ -76,6 +76,7 @@ def _signature(command: str, name: str) -> str:
     command = re.sub(r"(?:bash -c\s+)?cd [^&\n]+(?:\s+&&)?\s*", "", command)
     command = re.sub(r"export PATH=[^&\n]+ &&\s*", "", command)
     command = re.sub(r"export PATH=[^\\\n]+(?:\\\n)?\s*", "", command)
+    command = command.replace("${CI_PYTHON:-python3}", "python3")
     command = re.sub(r"PYTHONPATH=[^ ]+\s+", "", command)
     command = command.replace("&&", " ")
     command = command.replace("\\\n", " ")
@@ -99,3 +100,14 @@ def test_validate_step_names_and_commands_match_between_gates() -> None:
 
     assert local_checks == workflow_checks
     assert "--local" not in LOCAL_GATE.read_text(encoding="utf-8")
+
+
+def test_local_gate_manages_python_before_ops_and_utility_steps() -> None:
+    source = LOCAL_GATE.read_text(encoding="utf-8")
+    workers_setup = source.index('python3 -m venv "$WORKERS_VENV"')
+    ops_step = source.index('run_step "Ops shell tests"')
+    utility_step = source.index('run_step "Public readiness"')
+    assert workers_setup < ops_step
+    assert workers_setup < utility_step
+    assert 'export PATH="${WORKERS_VENV}/bin:${PATH}"' in source
+    assert 'run_step "Public readiness" "${CI_PYTHON:-python3}"' in source

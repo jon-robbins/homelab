@@ -70,14 +70,6 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "compose" || "$SCOPE" == "validate" ]]; t
     bash "${ROOT}/scripts/ci/compose-config-check.sh"
 fi
 
-if [[ "$SCOPE" == "all" || "$SCOPE" == "compose" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
-  run_docker_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh"
-fi
-
-if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
-  run_step "Ops shell tests" bash "${ROOT}/tests/ops/run_tests.sh"
-fi
-
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
   CI_TMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/homelab-ci-$$"
   mkdir -p "$CI_TMP"
@@ -92,15 +84,22 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
 
   python3 -m venv "$WORKERS_VENV"
   "$WORKERS_VENV/bin/pip" install -q -e "${WORKERS_DIR}[dev]"
+  export PATH="${WORKERS_VENV}/bin:${PATH}"
+  export CI_PYTHON="${WORKERS_VENV}/bin/python"
   run_step "Workflow security policy" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_workflow_security.py"
   run_step "CI step parity" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/ci/test_ci_step_parity.py"
   run_step "Release pytest" "$WORKERS_VENV/bin/python" -m pytest -q "${ROOT}/tests/release"
+
+  run_docker_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh"
+  run_step "Ops shell tests" bash "${ROOT}/tests/ops/run_tests.sh"
+
   run_step "Package pytest" "$WORKERS_VENV/bin/python" -m pytest -q "${WORKERS_DIR}/src/homelab_workers/tests"
-  run_step "Package ruff" "$WORKERS_VENV/bin/ruff" check "${WORKERS_DIR}/src" "${WORKERS_DIR}/src/homelab_workers/tests"
 
   python3 -m venv "$MCP_VENV"
   "${MCP_VENV}/bin/pip" install -q "${WORKERS_DIR}" -e "${ROOT}/apps/homelab-mcp" pytest pytest-asyncio pytest-httpx respx
   run_step "MCP pytest" bash -c "cd '${ROOT}/apps/homelab-mcp' && '${MCP_VENV}/bin/python' -m pytest -q"
+
+  run_step "Package ruff" "$WORKERS_VENV/bin/ruff" check "${WORKERS_DIR}/src" "${WORKERS_DIR}/src/homelab_workers/tests"
 
   python3 -m venv "$AGENT_VENV"
   "${AGENT_VENV}/bin/pip" install -q -e "${ROOT}/apps/homelab-agent[dev]"
@@ -119,7 +118,7 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
 fi
 
 if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; then
-  run_step "Public readiness" python3 "${ROOT}/scripts/ci/public-readiness.py"
+  run_step "Public readiness" "${CI_PYTHON:-python3}" "${ROOT}/scripts/ci/public-readiness.py"
 
   check_bash_syntax() {
     shopt -s globstar nullglob
@@ -137,13 +136,17 @@ if [[ "$SCOPE" == "all" || "$SCOPE" == "tests" || "$SCOPE" == "validate" ]]; the
     done
   }
   run_step "Bash syntax" check_bash_syntax
-  run_step "README mermaid blocks" python3 -c '
+  run_step "README mermaid blocks" "${CI_PYTHON:-python3}" -c '
 import re
 from pathlib import Path
 content = Path("README.md").read_text(encoding="utf-8")
 raise SystemExit(0 if len(re.findall(r"```mermaid", content)) >= 1 else 1)
 '
   run_step "Documentation tests" bash "${ROOT}/tests/docs/run_tests.sh"
+fi
+
+if [[ "$SCOPE" == "compose" ]]; then
+  run_docker_step "Compose shell tests" bash "${ROOT}/scripts/ci/run-compose-tests.sh"
 fi
 
 if [[ "$SCOPE" == "build" ]]; then

@@ -16,7 +16,29 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "${ROOT}"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+OUT1=""
+OUT2=""
+OUT_BYPASS=""
+OUT_TOOLS=""
+OUT_BEHAVIORAL=""
+OUT_COMPACTION=""
+
+print_diagnostics() {
+  local output="$1"
+  [[ -n "$output" ]] || return 0
+  [[ -n "${SENTINEL_BOT:-}" ]] && output="${output//"$SENTINEL_BOT"/[REDACTED]}"
+  [[ -n "${SENTINEL_VLLM:-}" ]] && output="${output//"$SENTINEL_VLLM"/[REDACTED]}"
+  [[ -n "${SENTINEL_MCP:-}" ]] && output="${output//"$SENTINEL_MCP"/[REDACTED]}"
+  printf '%s\n' "$output"
+}
+
+fail() {
+  echo "FAIL: $*" >&2
+  for diagnostics in "$OUT1" "$OUT2" "$OUT_BYPASS" "$OUT_TOOLS" "$OUT_BEHAVIORAL" "$OUT_COMPACTION"; do
+    print_diagnostics "$diagnostics" >&2
+  done
+  exit 1
+}
 pass() { echo "PASS: $*"; }
 
 command -v docker >/dev/null 2>&1 \
@@ -70,9 +92,24 @@ OUT1=$(docker run --rm \
   --entrypoint bash \
   "$IMAGE" -c '
     # Run entrypoint setup up to phase 4
-    /usr/local/bin/entrypoint.sh &
+    /usr/local/bin/entrypoint.sh >/tmp/entrypoint.log 2>&1 &
     PID=$!
-    sleep 1
+    for _ in $(seq 1 30); do
+      if [ -f /run/qwen-code/project-settings.json ]; then
+        break
+      fi
+      if ! kill -0 "$PID" 2>/dev/null; then
+        echo "entrypoint exited before project-settings.json was created"
+        cat /tmp/entrypoint.log
+        exit 1
+      fi
+      sleep 1
+    done
+    if [ ! -f /run/qwen-code/project-settings.json ]; then
+      echo "timed out waiting for project-settings.json"
+      cat /tmp/entrypoint.log
+      exit 1
+    fi
 
     # Check settings rendered on disk before qwen exits
     echo "--- CHECK DISPATCH_MODE ---"
@@ -93,6 +130,8 @@ print(f\"mcpAuth={mcpAuth}\")
 print(f\"mcpAllowed={mcpAllowed}\")
 print(f\"alwaysLoad={alwaysLoad}\")
 "
+    echo "--- ENTRYPOINT OUTPUT ---"
+    cat /tmp/entrypoint.log
     kill -INT $PID 2>/dev/null || true
     wait $PID 2>/dev/null || true
 
@@ -152,9 +191,24 @@ OUT2=$(docker run --rm \
   --entrypoint bash \
   "$IMAGE" -c '
     # Run entrypoint to trigger startup overwrite of QWEN.md
-    /usr/local/bin/entrypoint.sh &
+    /usr/local/bin/entrypoint.sh >/tmp/entrypoint.log 2>&1 &
     PID=$!
-    sleep 2
+    for _ in $(seq 1 30); do
+      if [ -f /workspace/QWEN.md ]; then
+        break
+      fi
+      if ! kill -0 "$PID" 2>/dev/null; then
+        echo "entrypoint exited before QWEN.md was created"
+        cat /tmp/entrypoint.log
+        exit 1
+      fi
+      sleep 1
+    done
+    if [ ! -f /workspace/QWEN.md ]; then
+      echo "timed out waiting for QWEN.md"
+      cat /tmp/entrypoint.log
+      exit 1
+    fi
     kill -INT $PID 2>/dev/null || true
     wait $PID 2>/dev/null || true
 
@@ -169,6 +223,8 @@ OUT2=$(docker run --rm \
     else
       echo "VOLUMES_CLEAN_NO_SECRETS"
     fi
+    echo "--- ENTRYPOINT OUTPUT ---"
+    cat /tmp/entrypoint.log
   ' 2>&1 || true)
 
 grep -q "QWEN_MD_OVERWRITTEN_CANONICAL" <<<"$OUT2" || fail "QWEN.md was not overwritten atomically from image on startup"
@@ -244,9 +300,24 @@ OUT_TOOLS=$(docker run --rm \
   -v "$TEST_VOL_DATA:/data" \
   --entrypoint bash \
   "$IMAGE" -c '
-    /usr/local/bin/entrypoint.sh &
+    /usr/local/bin/entrypoint.sh >/tmp/entrypoint.log 2>&1 &
     PID=$!
-    sleep 2
+    for _ in $(seq 1 30); do
+      if [ -f /data/home/settings.json ]; then
+        break
+      fi
+      if ! kill -0 "$PID" 2>/dev/null; then
+        echo "entrypoint exited before settings.json was created"
+        cat /tmp/entrypoint.log
+        exit 1
+      fi
+      sleep 1
+    done
+    if [ ! -f /data/home/settings.json ]; then
+      echo "timed out waiting for settings.json"
+      cat /tmp/entrypoint.log
+      exit 1
+    fi
 
     ${HOME}/.local/lib/qwen-code/node/bin/node -e "
 const fs = require(\"fs\");
@@ -278,6 +349,8 @@ if (missing.length || extra.length) {
 }
 console.log("RENDERED_MCP_TOOLS_SET_VERIFIED");
 "
+    echo "--- ENTRYPOINT OUTPUT ---"
+    cat /tmp/entrypoint.log
     kill -INT $PID 2>/dev/null || true
     wait $PID 2>/dev/null || true
   ' 2>&1 || true)

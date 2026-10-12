@@ -68,7 +68,7 @@ for scope in all validate; do
   bash "${ROOT}/scripts/ci/ci-local.sh" "$scope" >/dev/null 2>&1
   set -e
   
-  if ! grep -q "docker compose -f docker-compose.yml config --quiet" "$SENTINEL" && ! grep -q "docker compose --env-file /dev/null -f docker-compose.yml config --quiet" "$SENTINEL"; then
+  if ! grep -q "docker compose --env-file ${ROOT}/.env.example -f ${ROOT}/docker-compose.yml config --quiet" "$SENTINEL"; then
     fail "Scope '$scope' did not actually invoke compose config. Sentinel: $(cat "$SENTINEL")"
   fi
   
