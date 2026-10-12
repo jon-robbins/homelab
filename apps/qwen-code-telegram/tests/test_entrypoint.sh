@@ -18,8 +18,31 @@ python3 -c "import py_compile; py_compile.compile('${RENDER}', doraise=True)" ||
 pass "render_project_settings.py syntax"
 
 # 3. Mount checks present
-grep -q 'for p in /homelab "${HOME}"' "$EP" || fail "entrypoint missing mount checks for /homelab and HOME"
-pass "mount-checks: refuses to start if /homelab or HOME leak"
+grep -q 'check_forbidden_mounts()' "$EP" || fail "entrypoint missing mount checks"
+grep -q 'find "\$home_root" -mindepth 1 -maxdepth 1 -type d' "$EP" \
+  || fail "entrypoint must inspect /home entries"
+grep -q 'QWEN_MOUNT_CHECK_ROOT' "$EP" || fail "entrypoint mount checks must be testable against a temp root"
+pass "mount-checks: allows only the image user's home and refuses /homelab or extra /home entries"
+
+# 3b. Behavioral mount-check test against an isolated filesystem tree.
+tmpdir=""
+mount_root="$(mktemp -d)"
+trap 'rm -rf "$tmpdir" "$mount_root"' EXIT
+mkdir -p "$mount_root/home/qwen"
+HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
+  bash "$EP" || fail "mount-checks should allow only the image user's home"
+mkdir -p "$mount_root/home/other"
+if HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
+  bash "$EP" >/dev/null 2>&1; then
+  fail "mount-checks should reject an extra /home directory"
+fi
+rm -rf "$mount_root/home/other"
+mkdir -p "$mount_root/homelab"
+if HOME=/home/qwen QWEN_MOUNT_CHECK_ROOT="$mount_root" QWEN_MOUNT_CHECK_ONLY=1 \
+  bash "$EP" >/dev/null 2>&1; then
+  fail "mount-checks should reject /homelab"
+fi
+pass "mount-checks behavioral isolation: own home passes, extra /home and /homelab fail"
 
 # 4. Secret hydration + required env validation present
 grep -q 'hydrate_secret_to_env' "$EP" || fail "entrypoint missing hydrate_secret_to_env helper"
@@ -48,7 +71,6 @@ pass "exec → qwen channel start homelab-telegram"
 
 # 7. Render trusted role settings end-to-end in a temp dir and verify the v0.21.15 shape.
 tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
 OPENAI_API_KEY="vllm-key-fake" \
 TELEGRAM_BOT_TOKEN="bot-tok-fake" \
 MCP_API_TOKEN="mcp-token-fake" \
