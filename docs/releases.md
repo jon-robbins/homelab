@@ -15,8 +15,9 @@ gh workflow run release.yml -f mode=check
 ```
 
 The check runs one protected job per credential. It reads the site and tracker
-heads, trust map, and available build artifacts; proves the signing key against
-the trust map with a throwaway message; and checks feed read and push access.
+heads and available build artifacts; checks the pinned cosign binary and a
+Sigstore-audience GitHub OIDC token without creating a transparency-log entry;
+and checks feed read and push access.
 Scheduled runs always use reconcile mode.
 
 ## Release authority policy
@@ -67,16 +68,18 @@ append-only directory under `records/<sequence>/` containing:
 
 ```text
 records/<sequence>/record.json
-records/<sequence>/record.sig
+records/<sequence>/record.sigstore.json
 records/<sequence>/bundle.tar
 ```
 
 `record.json` is the canonical JSON ReleaseRecord, ending with a newline.
-`record.sig` is canonical JSON containing `key_id` and a base64-encoded
-64-byte Ed25519 signature. The signature covers the release domain followed by
-the exact canonical `record.json` bytes. `trust/release-keys.json` in
-`homelab-site` maps each key ID to its PEM public key. `bundle.tar` is the exact
-compiled bundle referenced by `record.json` through `bundle_sha256`.
+`record.sigstore.json` is the cosign keyless bundle for the exact canonical
+`record.json` bytes. Cosign signs with the GitHub OIDC identity
+`https://github.com/jon-robbins/homelab/.github/workflows/release.yml@refs/heads/main`;
+consumers verify that exact identity and issuer
+`https://token.actions.githubusercontent.com`. Each signature is also recorded
+in Sigstore's public Rekor transparency log. `bundle.tar` is the exact compiled
+bundle referenced by `record.json` through `bundle_sha256`.
 
 The `sources` object uses the exact GitHub repository names: `homelab`,
 `homelab-site`, and optional `tracker-integrations`.
@@ -86,11 +89,9 @@ with compare-and-swap semantics. A ref race is retried; the workflow never
 force-pushes or overwrites an existing sequence. Consumers must verify the
 record schema, signature, and bundle digest before using a release.
 
-Before enabling the workflow, the owner creates these three secrets in the
-`production-release` environment: `PRIVATE_INPUT_READ_TOKEN` (contents/actions
-read on `homelab-site` and `tracker-integrations`), `RELEASE_SIGNING_KEY`
-(visible only to signing), and `SITE_FEED_TOKEN` (contents write on
-`homelab-site`). Generate an Ed25519 key, store the private key as
-`RELEASE_SIGNING_KEY`, set `vars.RELEASE_SIGNING_KEY_ID`, and commit
-`trust/release-keys.json` with the matching public key to `homelab-site`.
-No private key is committed.
+Before enabling the workflow, the owner creates `PRIVATE_INPUT_READ_TOKEN`
+(contents/actions read on `homelab-site` and `tracker-integrations`) and
+`SITE_FEED_TOKEN` (contents write on `homelab-site`) in the `production-release`
+environment. Cleanup is to delete the old `RELEASE_SIGNING_KEY` secret and
+`RELEASE_SIGNING_KEY_ID` variable, and remove `trust/release-keys.json` from
+`homelab-site`. No signing secret or trust map is used by the workflow.

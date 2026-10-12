@@ -1,19 +1,19 @@
-"""Deterministic ReleaseRecord serialization and Ed25519 signatures."""
+"""Canonical ReleaseRecord serialization and Sigstore cosign helpers."""
 
 from __future__ import annotations
 
-import base64
 import json
 import os
+import subprocess
+from pathlib import Path
 from typing import Any, Mapping
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from cryptography.hazmat.primitives import serialization
+from .contracts import validate_release_record
 
-from .contracts import load_release_record, validate_name, validate_release_record, parse_json
-
-DOMAIN = b"homelab-release-v1\n"
+COSIGN_VERSION = "v2.2.3"
+COSIGN_SHA256 = "f669f41176cb1d58bb6a3fdb06e24861540cfdb5a571b4ec5eb2218b0df5d304"
+COSIGN_IDENTITY_TEMPLATE = "https://github.com/{repository}/.github/workflows/release.yml@refs/heads/main"
+COSIGN_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 
 
 def record_bytes(record: Mapping[str, Any]) -> bytes:
@@ -21,95 +21,22 @@ def record_bytes(record: Mapping[str, Any]) -> bytes:
     return (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
-def _private(value: str) -> Ed25519PrivateKey:
-    raw = value.encode()
-    if b"BEGIN" in raw:
-        return serialization.load_pem_private_key(raw, password=None)
-    try:
-        decoded = bytes.fromhex(value)
-    except ValueError:
-        decoded = base64.b64decode(value, validate=True)
-    if len(decoded) != 32:
-        raise ValueError("signing key must be an Ed25519 private key")
-    return Ed25519PrivateKey.from_private_bytes(decoded)
+def signing_identity(repository: str | None = None) -> str:
+    repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
+    if not repository or repository.startswith("http") or "/" not in repository:
+        raise ValueError("GITHUB_REPOSITORY must be owner/name")
+    return COSIGN_IDENTITY_TEMPLATE.format(repository=repository)
 
 
-def _signature_json(key_id: str, signature: bytes) -> bytes:
-    validate_name(key_id, "$.key_id")
-    if len(signature) != 64:
-        raise ValueError("Ed25519 signature must be 64 bytes")
-    return (json.dumps({"key_id": key_id, "signature": base64.b64encode(signature).decode("ascii")},
-                       sort_keys=True, separators=(",", ":")) + "\n").encode()
-
-
-def parse_signature(value: bytes) -> tuple[str, bytes]:
-    """Parse the strict ReleaseSignature JSON envelope."""
-    try:
-        parsed = parse_json(value)
-        if not isinstance(parsed, dict) or set(parsed) != {"key_id", "signature"}:
-            raise ValueError("signature must contain key_id and signature")
-        key_id = validate_name(parsed["key_id"], "$.key_id")
-        encoded = parsed["signature"]
-        if not isinstance(encoded, str):
-            raise ValueError("signature must be base64 text")
-        raw = base64.b64decode(encoded, validate=True)
-        if len(raw) != 64:
-            raise ValueError("signature must decode to 64 bytes")
-        return key_id, raw
-    except (TypeError, ValueError) as error:
-        raise ValueError("malformed release signature") from error
-
-
-def sign_record(record: Mapping[str, Any], *, env_var: str = "HOMELAB_RELEASE_SIGNING_KEY",
-                key_id_env: str = "RELEASE_SIGNING_KEY_ID",
-                trusted_keys: Mapping[str, bytes] | None = None) -> tuple[bytes, bytes]:
-    """Read the key and key ID only here; return canonical record and envelope."""
+def sign_record(record: Mapping[str, Any], bundle_path: Path, *, cosign: str = "cosign") -> bytes:
+    """Write a keyless Sigstore bundle and return the canonical record bytes."""
     data = record_bytes(record)
-    secret = os.environ.get(env_var)
-    if not secret:
-        raise ValueError(f"missing signing key environment variable: {env_var}")
-    key_id = os.environ.get(key_id_env)
-    if not key_id:
-        raise ValueError(f"missing signing key ID environment variable: {key_id_env}")
-    validate_name(key_id, "$.key_id")
-    private = _private(secret)
-    if trusted_keys is not None:
-        if key_id not in trusted_keys:
-            raise ValueError(f"unknown signing key ID: {key_id}")
-        expected = serialization.load_pem_public_key(trusted_keys[key_id])
-        if not isinstance(expected, Ed25519PublicKey) or private.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        ) != expected.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw):
-            raise ValueError(f"signing key does not match trusted public key: {key_id}")
-    return data, _signature_json(key_id, private.sign(DOMAIN + data))
-
-
-def verify_signature(record: bytes | Mapping[str, Any], signature: bytes, public_key: bytes | Ed25519PublicKey) -> bool:
-    data = record if isinstance(record, bytes) else record_bytes(record)
-    try:
-        _, signature = parse_signature(signature)
-    except ValueError:
-        # This helper is also used for low-level cryptographic tests. Feed
-        # publication uses parse_signature strictly and never accepts raw bytes.
-        pass
-    if isinstance(public_key, Ed25519PublicKey):
-        key = public_key
-    else:
-        try:
-            key = serialization.load_pem_public_key(public_key)
-        except (ValueError, TypeError):
-            key = Ed25519PublicKey.from_public_bytes(public_key)
-    try:
-        key.verify(signature, DOMAIN + data)
-    except InvalidSignature:
-        return False
-    return True
-def sign(record: Mapping[str, Any], *, key_env: str = "HOMELAB_RELEASE_SIGNING_KEY") -> bytes:
-    """Return the ReleaseSignature JSON envelope."""
-    return sign_record(record, env_var=key_env)[1]
-
-
-def verify(record_data: bytes | Mapping[str, Any], signature: bytes, public_key: bytes | Ed25519PublicKey) -> None:
-    """Raise when a detached signature does not verify."""
-    if not verify_signature(record_data, signature, public_key):
-        raise InvalidSignature
+    record_path = bundle_path.with_name("record.json")
+    record_path.write_bytes(data)
+    completed = subprocess.run([cosign, "sign-blob", "--yes", "--bundle", str(bundle_path), str(record_path)], capture_output=True, text=True)
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout or "cosign signing failed").strip()
+        raise ValueError(f"cosign signing failed: {detail[:300]}")
+    if not bundle_path.is_file():
+        raise ValueError("cosign did not create a bundle")
+    return data

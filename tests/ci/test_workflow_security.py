@@ -27,7 +27,7 @@ SECRETS_CONTEXT = re.compile(r"\bsecrets\s*(?:\.|\[)", re.IGNORECASE)
 SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*|\[\s*['\"])([A-Z][A-Z0-9_]*)", re.IGNORECASE)
 RELEASE_SECRETS = {
     "verify": "PRIVATE_INPUT_READ_TOKEN",
-    "sign": "RELEASE_SIGNING_KEY",
+    "sign": None,
     "feed": "SITE_FEED_TOKEN",
 }
 
@@ -247,7 +247,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                     {"contents": "read", "actions": "read"},
                 )
             else:
-                self.assertEqual(job.get("permissions"), {"contents": "read"})
+                expected_permissions = {"contents": "read", "id-token": "write"} if job_name == "sign" else {"contents": "read"}
+                self.assertEqual(job.get("permissions"), expected_permissions)
             actions = [step["uses"] for step in job.get("steps", []) if "uses" in step]
             self.assertIn(
                 "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
@@ -263,28 +264,27 @@ class WorkflowSecurityTests(unittest.TestCase):
             for step in job.get("steps", []):
                 for value in step.get("env", {}).values():
                     references.extend(SECRET_REFERENCE.findall(str(value)))
-            self.assertEqual(references, [RELEASE_SECRETS[job_name]])
+            expected_secret = RELEASE_SECRETS[job_name]
+            self.assertEqual(references, [] if expected_secret is None else [expected_secret])
 
             # A protected job may expose exactly its mapped environment secret;
             # this also covers secrets accidentally placed in a run/with field.
-            self.assertEqual(secret_names(job), [RELEASE_SECRETS[job_name]])
+            self.assertEqual(secret_names(job), [] if expected_secret is None else [expected_secret])
 
-        self.assertEqual(
-            jobs["sign"].get("env", {}).get("RELEASE_SIGNING_KEY_ID"),
-            "${{ vars.RELEASE_SIGNING_KEY_ID }}",
-        )
+        self.assertNotIn("env", jobs["sign"])
 
         for job_name, secret_name in {
             "check-read": "PRIVATE_INPUT_READ_TOKEN",
-            "check-sign": "RELEASE_SIGNING_KEY",
+            "check-sign": None,
             "check-feed": "SITE_FEED_TOKEN",
         }.items():
             job = jobs[job_name]
             self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'")
             self.assertEqual(job.get("environment"), "production-release")
             self.assertEqual(job.get("runs-on"), "ubuntu-latest")
-            self.assertEqual(job.get("permissions"), {"contents": "read"} if job_name != "check-read" else {"contents": "read", "actions": "read"})
-            self.assertEqual(secret_names(job), [secret_name])
+            expected_permissions = {"contents": "read", "id-token": "write"} if job_name == "check-sign" else {"contents": "read", "actions": "read"} if job_name == "check-read" else {"contents": "read"}
+            self.assertEqual(job.get("permissions"), expected_permissions)
+            self.assertEqual(secret_names(job), [] if secret_name is None else [secret_name])
             self.assertEqual(
                 [step["uses"] for step in job.get("steps", []) if "uses" in step].count("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
                 1,
@@ -303,7 +303,7 @@ class WorkflowSecurityTests(unittest.TestCase):
 
     def test_release_policy_rejects_hard_coded_signing_key_id(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")
-        workflow["jobs"]["sign"]["env"]["RELEASE_SIGNING_KEY_ID"] = "release-v1"
+        workflow["jobs"]["sign"]["env"] = {"RELEASE_SIGNING_KEY_ID": "release-v1"}
 
         with self.assertRaises(AssertionError):
             self.assert_release_policy(workflow)

@@ -87,9 +87,7 @@ jobs:
     environment: production-release
     permissions:
       contents: read
-    env:
-      HOMELAB_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-      RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
+      id-token: write
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -100,6 +98,12 @@ jobs:
         run: |
           python3 -m venv "${RUNNER_TEMP}/release-venv"
           "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Install pinned cosign
+        run: |
+          curl --fail --silent --show-error --location --output "${RUNNER_TEMP}/cosign" https://github.com/sigstore/cosign/releases/download/v2.2.3/cosign-linux-amd64
+          echo 'f669f41176cb1d58bb6a3fdb06e24861540cfdb5a571b4ec5eb2218b0df5d304  '"${RUNNER_TEMP}/cosign" | sha256sum --check
+          chmod +x "${RUNNER_TEMP}/cosign"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
       - name: Download release plan
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -108,7 +112,7 @@ jobs:
         run: >-
           "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile sign --plan release-plan.json --output-dir release-output
       - name: Upload signed release
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: signed-release
           path: release-output
@@ -132,6 +136,12 @@ jobs:
         run: |
           python3 -m venv "${RUNNER_TEMP}/release-venv"
           "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Install pinned cosign
+        run: |
+          curl --fail --silent --show-error --location --output "${RUNNER_TEMP}/cosign" https://github.com/sigstore/cosign/releases/download/v2.2.3/cosign-linux-amd64
+          echo 'f669f41176cb1d58bb6a3fdb06e24861540cfdb5a571b4ec5eb2218b0df5d304  '"${RUNNER_TEMP}/cosign" | sha256sum --check
+          chmod +x "${RUNNER_TEMP}/cosign"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
       - name: Download signed release
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -167,22 +177,13 @@ jobs:
       - name: Check read credential
         run: >-
           "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope read
-      - name: Upload public trust map
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
-        with:
-          name: release-check-trust
-          path: release-check/trust/release-keys.json
-
   check-sign:
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
-    needs: check-read
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
       contents: read
-    env:
-      RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-      RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
+      id-token: write
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -193,14 +194,15 @@ jobs:
         run: |
           python3 -m venv "${RUNNER_TEMP}/release-venv"
           "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
-      - name: Download public trust map
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-check-trust
-          path: release-check/trust
+      - name: Install pinned cosign
+        run: |
+          curl --fail --silent --show-error --location --output "${RUNNER_TEMP}/cosign" https://github.com/sigstore/cosign/releases/download/v2.2.3/cosign-linux-amd64
+          echo 'f669f41176cb1d58bb6a3fdb06e24861540cfdb5a571b4ec5eb2218b0df5d304  '"${RUNNER_TEMP}/cosign" | sha256sum --check
+          chmod +x "${RUNNER_TEMP}/cosign"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
       - name: Check signing credential
         run: >-
-          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope sign --trust-map release-check/trust/release-keys.json
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope sign
 
   check-feed:
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'

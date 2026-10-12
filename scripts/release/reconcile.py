@@ -7,28 +7,23 @@ import json
 import os
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
-
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .bundle import bundle_sha256
 from .compile import compile_bundle
 from .contracts import ValidationError, load_release_record
-from .feed import FeedError, _verify_release_signature, publish_next
+from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient
-from .sign import _private, record_bytes, sign_record
+from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 from .artifacts import load_approved_destinations, verify_oci_archive
-from .trust import load_trusted_keys
 
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
-CHECK_DOMAIN = b"homelab-release-check-v1\n"
-CHECK_MESSAGE = b"release-check-no-write\n"
 
 
 def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
@@ -149,7 +144,7 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
     """Copy the exact site inputs at *ref* for the signing job artifact."""
     if not hasattr(client, "contents"):
         return
-    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "trust/release-keys.json")
+    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml")
     for name in files:
         data = client.read(repository, ref, name)
         if data is None:
@@ -157,11 +152,6 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-
-    try:
-        load_trusted_keys(root / "trust/release-keys.json")
-    except ValueError as error:
-        raise VerificationError(str(error)) from error
 
     def copy_directory(path: str) -> None:
         entries = client.contents(repository, ref, path)
@@ -226,7 +216,6 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     if not plan_data.get("images"):
         return
     input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
-    trusted_keys = load_trusted_keys(input_root / "trust/release-keys.json")
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "bundle.tar"
     inputs = [input_root / name for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "files")]
@@ -236,22 +225,19 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
     digest = compile_bundle(*inputs, bundle_path)
     record = {"schema": 1, "site_id": "home", "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data["images"]}, "bundle_sha256": digest, "rollback_floor": 0}
-    signing_env = "HOMELAB_RELEASE_SIGNING_KEY" if os.environ.get("HOMELAB_RELEASE_SIGNING_KEY") else "RELEASE_SIGNING_KEY"
-    data, signature = sign_record(record, env_var=signing_env, trusted_keys=trusted_keys)
+    data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
-    (output_dir / "record.sig").write_bytes(signature)
 
 
 def feed_plan(directory: Path, *, repository: str = SITE_REPOSITORY, client: Any | None = None) -> str:
     input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
-    key_map = load_trusted_keys(input_root / "trust/release-keys.json")
     record_data = (directory / "record.json").read_bytes()
+    bundle_data = (directory / "record.sigstore.json").read_bytes()
     client = client or GitHubClient()
-    signature = (directory / "record.sig").read_bytes()
-    # Verify the detached signature over the bytes on disk before parsing the
+    # Verify the Sigstore bundle over the bytes on disk before parsing the
     # record. This preserves the signed representation and rejects JSON
     # changes such as added whitespace, even when they have the same meaning.
-    _verify_release_signature(record_data, signature, key_map)
+    verify_cosign_bundle(directory / "record.json", directory / "record.sigstore.json")
     record = load_release_record(record_data)
     if record_data != record_bytes(record):
         raise FeedError("record.json is not canonical")
@@ -259,8 +245,8 @@ def feed_plan(directory: Path, *, repository: str = SITE_REPOSITORY, client: Any
     def pre_signed(next_record: Mapping[str, Any]) -> tuple[bytes, bytes]:
         if dict(next_record) != dict(record):
             raise FeedError("feed sequence changed after signing; reconcile again")
-        return record_data, signature
-    return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository, public_key=key_map)
+        return record_data, bundle_data
+    return publish_next(client, record, pre_signed, (directory / "bundle.tar").read_bytes(), repository=repository)
 
 
 def write_plan_outputs(value: Mapping[str, Any], output: str | os.PathLike[str]) -> None:
@@ -279,7 +265,7 @@ def _check_line(scope: str, item: str, passed: bool, reason: str) -> bool:
 
 
 def check_read(client: Any | None = None, *, output: Path | None = None) -> list[bool]:
-    """Check read-token wiring and save the public trust map for the sign job."""
+    """Check read-token wiring and available build artifacts."""
     client = client or GitHubClient(token=os.environ.get("PRIVATE_INPUT_READ_TOKEN"))
     results: list[bool] = []
     heads: dict[str, str] = {}
@@ -289,20 +275,6 @@ def check_read(client: Any | None = None, *, output: Path | None = None) -> list
             results.append(_check_line("read", label, True, "default branch is readable"))
         except Exception as error:
             results.append(_check_line("read", label, False, f"{type(error).__name__}: {error}"))
-    trust_data: bytes | None = None
-    try:
-        if SITE_REPOSITORY not in heads:
-            raise VerificationError("site head was not readable")
-        trust_data = client.read(SITE_REPOSITORY, heads[SITE_REPOSITORY], "trust/release-keys.json")
-        if trust_data is None:
-            raise VerificationError("trust map is missing")
-        trust_path = Path(os.environ.get("RELEASE_CHECK_TRUST_MAP", str(output or "release-check/trust/release-keys.json")))
-        trust_path.parent.mkdir(parents=True, exist_ok=True)
-        trust_path.write_bytes(trust_data)
-        load_trusted_keys(trust_path)
-        results.append(_check_line("read", "trust map", True, "homelab-site trust/release-keys.json is valid"))
-    except Exception as error:
-        results.append(_check_line("read", "trust map", False, f"{type(error).__name__}: {error}"))
     try:
         artifacts_response = client.artifacts(os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
         artifacts = artifacts_response.get("artifacts", ()) if isinstance(artifacts_response, Mapping) else artifacts_response
@@ -315,39 +287,26 @@ def check_read(client: Any | None = None, *, output: Path | None = None) -> list
     return results
 
 
-def check_sign(*, trust_map: Path) -> list[bool]:
-    """Check the signing secret against the site trust map without a record."""
+def check_sign() -> list[bool]:
+    """Check the pinned cosign binary and OIDC token without signing."""
     results: list[bool] = []
-    key_id = os.environ.get("RELEASE_SIGNING_KEY_ID")
-    trusted: dict[str, bytes] = {}
     try:
-        trusted = load_trusted_keys(trust_map)
-        if not key_id or key_id not in trusted:
-            raise VerificationError(f"key ID is not in the trust map: {key_id or 'missing'}")
-        results.append(_check_line("sign", "key ID", True, "configured key ID is in the trust map"))
+        completed = subprocess.run(["cosign", "version", "--json"], capture_output=True, text=True, check=False)
+        if completed.returncode or COSIGN_VERSION.lstrip("v") not in completed.stdout:
+            raise VerificationError(f"cosign is not pinned at {COSIGN_VERSION}")
+        results.append(_check_line("sign", "cosign", True, f"cosign {COSIGN_VERSION} is installed"))
     except Exception as error:
-        results.append(_check_line("sign", "key ID", False, f"{type(error).__name__}: {error}"))
-    private = None
+        results.append(_check_line("sign", "cosign", False, f"{type(error).__name__}: {error}"))
     try:
-        if not key_id or key_id not in trusted:
-            raise VerificationError("cannot compare a key absent from the trust map")
-        private = _private(os.environ.get("RELEASE_SIGNING_KEY", ""))
-        expected = serialization.load_pem_public_key(trusted[key_id])
-        if not isinstance(expected, Ed25519PublicKey) or private.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        ) != expected.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw):
-            raise VerificationError("private key does not match the trusted public key")
-        results.append(_check_line("sign", "key match", True, "private key matches the trusted public key"))
+        url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=sigstore"
+        request = urllib.request.Request(url, headers={"Authorization": f"bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read())
+        if not payload.get("value"):
+            raise VerificationError("OIDC endpoint returned no token")
+        results.append(_check_line("sign", "OIDC token", True, "sigstore-audience OIDC token is available"))
     except Exception as error:
-        results.append(_check_line("sign", "key match", False, f"{type(error).__name__}: {error}"))
-    try:
-        if private is None:
-            raise VerificationError("cannot sign without a matching private key")
-        signature = private.sign(CHECK_DOMAIN + CHECK_MESSAGE)
-        private.public_key().verify(signature, CHECK_DOMAIN + CHECK_MESSAGE)
-        results.append(_check_line("sign", "fixed message", True, "signature verified with the matching public key"))
-    except Exception as error:
-        results.append(_check_line("sign", "fixed message", False, f"{type(error).__name__}: {error}"))
+        results.append(_check_line("sign", "OIDC token", False, f"{type(error).__name__}: {error}"))
     return results
 
 
@@ -376,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser = sub.add_parser("plan"); plan_parser.add_argument("--output", type=Path, default=Path("release-plan.json"))
     sign_parser = sub.add_parser("sign"); sign_parser.add_argument("--plan", type=Path, default=Path("release-plan.json")); sign_parser.add_argument("--output-dir", type=Path, default=Path("release-output"))
     feed_parser = sub.add_parser("feed"); feed_parser.add_argument("--directory", type=Path, default=Path("release-output"))
-    check_parser = sub.add_parser("check"); check_parser.add_argument("--scope", choices=("read", "sign", "feed"), required=True); check_parser.add_argument("--trust-map", type=Path, default=None)
+    check_parser = sub.add_parser("check"); check_parser.add_argument("--scope", choices=("read", "sign", "feed"), required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
@@ -387,8 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "sign": sign_plan(args.plan, args.output_dir)
         elif args.command == "feed": print(feed_plan(args.directory))
         else:
-            trust_map = args.trust_map or Path(os.environ.get("RELEASE_CHECK_TRUST_MAP", "release-check/trust/release-keys.json"))
-            results = check_read(output=trust_map) if args.scope == "read" else check_sign(trust_map=trust_map) if args.scope == "sign" else check_feed()
+            results = check_read() if args.scope == "read" else check_sign() if args.scope == "sign" else check_feed()
             return 0 if all(results) else 1
     except (OSError, ValueError, VerificationError) as error:
         print(f"release {args.command} failed: {error}")

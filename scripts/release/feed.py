@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Mapping
 
 from .contracts import load_release_record
 from .bundle import bundle_sha256
-from .sign import parse_signature, record_bytes, sign as environment_sign, verify_signature
+from .sign import COSIGN_OIDC_ISSUER, record_bytes, signing_identity
 
 
 class FeedError(ValueError):
@@ -23,16 +27,17 @@ class Publication:
         self.sequence, self.commit_sha, self.noop = sequence, commit_sha, noop
 
 
-def _verify_release_signature(record_data: bytes, signature: bytes, public_keys: Any) -> None:
-    """Verify the strict key-id envelope before interpreting the record."""
-    try:
-        key_id, raw = parse_signature(signature)
-    except ValueError as error:
-        raise FeedError("malformed release signature") from error
-    if not isinstance(public_keys, Mapping) or key_id not in public_keys:
-        raise FeedError(f"unknown release signing key ID: {key_id}")
-    if not verify_signature(record_data, raw, public_keys[key_id]):
-        raise FeedError("signature does not verify canonical record")
+def verify_cosign_bundle(record_path: Path, bundle_path: Path, *, cosign: str = "cosign") -> None:
+    """Verify the exact record with the release workflow's GitHub identity."""
+    if not record_path.is_file() or not bundle_path.is_file():
+        raise FeedError("record or Sigstore bundle is missing")
+    command = [cosign, "verify-blob", "--bundle", str(bundle_path),
+               "--certificate-identity", signing_identity(),
+               "--certificate-oidc-issuer", COSIGN_OIDC_ISSUER, str(record_path)]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout or "cosign verification failed").strip()
+        raise FeedError(f"invalid Sigstore release signature: {detail[:300]}")
 
 
 def _record(value: Any) -> Mapping[str, Any] | None:
@@ -64,7 +69,7 @@ def _previous(client: Any, repository: str, branch: str, ref: str) -> Mapping[st
 
 def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
             repository: str = "homelab/homelab-site", branch: str = "releases",
-            signer: Any = environment_sign, public_key: bytes | Any | None = None,
+            signer: Any = None,
             max_retries: int = 8) -> Publication:
     """Publish through the small ``branch_ref/read_file/commit_files`` interface."""
     if record.get("bundle_sha256") != bundle_sha256(bundle):
@@ -80,17 +85,15 @@ def publish(client: Any, record: Mapping[str, Any], bundle: bytes, *,
         candidate = dict(record)
         candidate["sequence"] = (previous["sequence"] + 1) if previous else 1
         data = record_bytes(candidate)
-        signature = signer(candidate)
-        if public_key is None:
-            raise FeedError("publishing requires a public key")
-        _verify_release_signature(data, signature, public_key)
+        if signer is None:
+            raise FeedError("publishing requires a cosign bundle")
         path = f"records/{candidate['sequence']}"
         existing = client.read_file(repository, f"{path}/record.json", ref)
         if existing is not None:
             if existing != data:
                 raise FeedError(f"sequence {candidate['sequence']} already exists with different bytes")
             return Publication(candidate["sequence"], None, True)
-        files = {f"{path}/record.json": data, f"{path}/record.sig": signature, f"{path}/bundle.tar": bytes(bundle)}
+        files = {f"{path}/record.json": data, f"{path}/record.sigstore.json": signer(candidate), f"{path}/bundle.tar": bytes(bundle)}
         try:
             commit_sha = client.commit_files(repository, branch, ref, files, f"release: publish sequence {candidate['sequence']}")
         except RefConflict:
@@ -128,7 +131,6 @@ def publish_next(
     *,
     repository: str = "homelab-site",
     branch: str = "releases",
-    public_key: bytes | Any,
     max_retries: int = 8,
 ) -> str:
     """Allocate, sign, and append; every CAS retry re-reads and re-signs."""
@@ -143,9 +145,9 @@ def publish_next(
             return "noop"
         next_record = dict(record)
         next_record["sequence"] = latest_record["sequence"] + 1 if latest_record else 1
-        record_data, signature = sign(next_record)
-        if not isinstance(record_data, bytes) or not isinstance(signature, bytes):
-            raise FeedError("signer must return record bytes and signature bytes")
+        record_data, sigstore_bundle = sign(next_record)
+        if not isinstance(record_data, bytes) or not isinstance(sigstore_bundle, bytes):
+            raise FeedError("signer must return record bytes and Sigstore bundle bytes")
         canonical_data = record_bytes(next_record)
         try:
             signed_record = load_release_record(record_data)
@@ -153,7 +155,6 @@ def publish_next(
             raise FeedError("signer returned invalid record bytes") from error
         if signed_record != next_record or record_data != canonical_data:
             raise FeedError("signer returned record bytes different from the canonical record")
-        _verify_release_signature(record_data, signature, public_key)
         path = f"records/{next_record['sequence']}"
         existing = _call(client, ("read", "read_file"), repository, branch,
                           f"{path}/record.json", allow_missing=True)
@@ -162,7 +163,7 @@ def publish_next(
             if existing_bytes != record_data:
                 raise FeedError(f"sequence {next_record['sequence']} already contains different record bytes")
             return "noop"
-        files = {f"{path}/record.json": record_data, f"{path}/record.sig": signature,
+        files = {f"{path}/record.json": record_data, f"{path}/record.sigstore.json": sigstore_bundle,
                  f"{path}/bundle.tar": bytes(bundle)}
         try:
             _call(client, ("commit_files",), repository, branch, ref, files,
@@ -176,15 +177,18 @@ def publish_next(
 
 def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundle: bytes, *,
                  repository: str = "homelab-site", branch: str = "releases",
-                 public_key: bytes | Any | None = None, max_retries: int = 8) -> str:
+                 max_retries: int = 8) -> str:
     """Append one release using an observed-ref CAS; never force-pushes."""
     if record.get("bundle_sha256") != bundle_sha256(bundle):
         raise FeedError("record bundle_sha256 does not match bundle bytes")
     record_data = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
     load_release_record(record_data)
-    if public_key is None:
-        raise FeedError("publishing requires a public key")
-    _verify_release_signature(record_data, signature, public_key)
+    with tempfile.TemporaryDirectory(prefix="release-cosign-") as directory:
+        root = Path(directory)
+        record_path, bundle_path = root / "record.json", root / "record.sigstore.json"
+        record_path.write_bytes(record_data)
+        bundle_path.write_bytes(signature)
+        verify_cosign_bundle(record_path, bundle_path)
     sequence = record["sequence"]
     for _ in range(max_retries):
         ref = _call(client, ("ref", "get_ref"), repository, branch)
@@ -201,7 +205,7 @@ def publish_feed(client: Any, record: Mapping[str, Any], signature: bytes, bundl
                 raise FeedError("client returned no release record")
             if record["sequence"] <= latest_record["sequence"]:
                 raise FeedError("sequence is not strictly greater than published sequence")
-        files = {f"records/{sequence}/record.json": record_data, f"records/{sequence}/record.sig": signature, f"records/{sequence}/bundle.tar": bundle}
+        files = {f"records/{sequence}/record.json": record_data, f"records/{sequence}/record.sigstore.json": signature, f"records/{sequence}/bundle.tar": bundle}
         try:
             _call(client, ("commit_files",), repository, branch, ref, files, f"release: publish {sequence}")
             return "published"
