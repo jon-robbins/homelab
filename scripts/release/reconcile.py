@@ -88,10 +88,62 @@ def _run_builds(client: Any, repository: str, sha: str) -> tuple[int, dict[str, 
     raise VerificationError(f"no successful post-merge build for {sha}")
 
 
+def _newest_unpublished_sha(client: Any, repository: str, site_repository: str) -> str:
+    commits_method = getattr(client, "commits", None)
+    commits = commits_method(repository, "main") if callable(commits_method) else []
+    if not commits:
+        return client.ref(repository, "main")
+    published = (client.published_tooling_shas(site_repository, "releases")
+                 if hasattr(client, "published_tooling_shas") else set())
+    for commit in commits:
+        sha = commit.get("sha") if isinstance(commit, Mapping) else None
+        if isinstance(sha, str) and sha not in published:
+            return sha
+    return commits[0]["sha"]
+
+
+def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path) -> None:
+    """Copy the exact site inputs at *ref* for the signing job artifact."""
+    if not hasattr(client, "contents"):
+        return
+    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml")
+    for name in files:
+        data = client.read(repository, ref, name)
+        if data is None:
+            raise VerificationError(f"site input is missing at {repository}@{ref}: {name}")
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+    def copy_directory(path: str) -> None:
+        entries = client.contents(repository, ref, path)
+        if not isinstance(entries, list):
+            raise VerificationError(f"site input directory is not readable: {path}")
+        for entry in entries:
+            name = entry.get("name")
+            kind = entry.get("type")
+            if not isinstance(name, str):
+                raise VerificationError(f"invalid site input entry in {path}")
+            child = f"{path}/{name}" if path else name
+            if kind == "dir":
+                copy_directory(child)
+            elif kind == "file":
+                data = client.read(repository, ref, child)
+                if data is None:
+                    raise VerificationError(f"site input is missing at {repository}@{ref}: {child}")
+                target = root / child
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+            else:
+                raise VerificationError(f"unsupported site input entry: {child}")
+
+    copy_directory("files")
+
+
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
     repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
-    sha = client.ref(repository, "main")
+    sha = _newest_unpublished_sha(client, repository, site_repository)
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
     if previous and previous.get("tooling_git_sha") == sha:
@@ -108,6 +160,8 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
         result = {"sha": sha, "run_id": run_id, "sequence": next_sequence, "images": images, "sources": {"homelab": sha, "homelab_site": site_sha, "tracker_integrations": tracker_sha}}
+        input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+        _materialize_site_inputs(client, site_repository, site_sha, input_root)
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return result
@@ -119,11 +173,16 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         return
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "bundle.tar"
-    # The checked-out tooling supplies the same inputs used by the release gate.
-    inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", "release-inputs"))
+    inputs = [input_root / name for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "files")]
+    if not all(path.exists() for path in inputs):
+        # Keep the command useful for local operators and older callers that
+        # already materialized inputs under the explicit environment paths.
+        inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
     digest = compile_bundle(*inputs, bundle_path)
     record = {"schema": 1, "site_id": "home", "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data["images"]}, "bundle_sha256": digest, "rollback_floor": 0}
-    data, signature = sign_record(record, env_var="RELEASE_SIGNING_KEY")
+    signing_env = "HOMELAB_RELEASE_SIGNING_KEY" if os.environ.get("HOMELAB_RELEASE_SIGNING_KEY") else "RELEASE_SIGNING_KEY"
+    data, signature = sign_record(record, env_var=signing_env)
     (output_dir / "record.json").write_bytes(data)
     (output_dir / "record.sig").write_bytes(signature)
 

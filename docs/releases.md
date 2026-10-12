@@ -7,6 +7,14 @@ protected publisher, signs the release record, and appends the signed record
 to the site feed. The workflow is serialized so a slow run is not cancelled by
 the next scheduled run.
 
+The plan selects the newest `main` commit absent from the feed, admits only
+images present in that commit's successful post-merge build, and records each
+image's artifact name, manifest digest, and approved GHCR destination. It also
+copies the site's `compose.json`, `manifest.yaml`, `probes.json`, `policy.yaml`,
+and `files/` tree at the verified site SHA into the handoff artifact. Signing
+compiles only those copied inputs; an empty plan skips publication, signing,
+and feed work.
+
 ## Feed layout
 
 The feed is the `releases` branch of `homelab-site`. Each release is an

@@ -43,7 +43,7 @@ class GitHubClient:
             return None
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return raw
 
     @staticmethod
@@ -60,6 +60,10 @@ class GitHubClient:
         workflow_id = workflow.rsplit("/", 1)[-1]
         path = f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow_id, safe='')}/runs?head_sha={head_sha}&per_page=100"
         return self.request("GET", path)
+
+    def commits(self, repository: str, branch: str) -> list[Mapping[str, Any]]:
+        value = self.request("GET", f"/repos/{self._repo(repository)}/commits?sha={quote(branch, safe='')}&per_page=100")
+        return value if isinstance(value, list) else []
 
     def run_artifacts(self, repository: str, run_id: int) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/actions/runs/{run_id}/artifacts?per_page=100")
@@ -89,6 +93,10 @@ class GitHubClient:
             raise
         return base64.b64decode(value["content"])
 
+    def contents(self, repository: str, ref: str, path: str = "") -> Any:
+        suffix = f"/{quote(path, safe='/')}" if path else ""
+        return self.request("GET", f"/repos/{self._repo(repository)}/contents{suffix}?ref={quote(ref, safe='')}")
+
     read_file = read
 
     def last_record(self, repository: str, branch: str) -> Mapping[str, Any] | None:
@@ -103,6 +111,24 @@ class GitHubClient:
             return None
         from .contracts import load_release_record
         return load_release_record(self.read(repository, branch, f"records/{max(sequences)}/record.json") or b"")
+
+    def published_tooling_shas(self, repository: str, branch: str) -> set[str]:
+        try:
+            listing = self.request("GET", f"/repos/{self._repo(repository)}/contents/records?ref={quote(branch, safe='')}")
+        except GitHubError as error:
+            if error.status_code == 404:
+                return set()
+            raise
+        shas: set[str] = set()
+        for item in listing if isinstance(listing, list) else ():
+            name = item.get("name", "")
+            if item.get("type") != "dir" or not name.isdigit():
+                continue
+            data = self.read(repository, branch, f"records/{name}/record.json", allow_missing=True)
+            if data:
+                from .contracts import load_release_record
+                shas.add(load_release_record(data)["tooling_git_sha"])
+        return shas
 
     def commit_files(self, repository: str, branch: str, ref: str, files: Mapping[str, bytes], message: str) -> str:
         commit = self.request("GET", f"/repos/{self._repo(repository)}/git/commits/{quote(ref, safe='')}")

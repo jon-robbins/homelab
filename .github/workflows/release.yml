@@ -30,12 +30,16 @@ jobs:
           persist-credentials: false
       - name: Verify release inputs
         id: plan
+        env:
+          RELEASE_INPUTS_DIR: release-inputs
         run: python3 -m scripts.release.reconcile plan --output release-plan.json
       - name: Upload release plan
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4806
         with:
           name: release-plan
-          path: release-plan.json
+          path: |
+            release-plan.json
+            release-inputs
 
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
@@ -70,12 +74,8 @@ jobs:
     permissions:
       contents: read
     env:
-      RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-      RELEASE_COMPOSE: release/compose.json
-      RELEASE_MANIFEST: release/manifest.yaml
-      RELEASE_PROBES: release/probes.json
-      RELEASE_POLICY: release/policy.yaml
-      RELEASE_FILES: release/files
+      HOMELAB_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+      RELEASE_INPUTS_DIR: release-inputs
     steps:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -96,7 +96,7 @@ jobs:
 
   feed:
     if: github.ref == 'refs/heads/main'
-    needs: sign
+    needs: [verify, sign]
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
@@ -107,12 +107,16 @@ jobs:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: false
       - name: Download signed release
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: signed-release
           path: release-output
+      - name: Download release plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-plan
       - name: Publish release feed
         run: python3 -m scripts.release.reconcile feed --directory release-output

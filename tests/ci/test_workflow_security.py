@@ -217,7 +217,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                 actions,
             )
             checkout = next(step for step in job["steps"] if step.get("name") == "Checkout tooling")
-            expected_ref = "${{ needs.verify.outputs.sha }}" if job_name == "sign" else "${{ github.sha }}"
+            expected_ref = "${{ needs.verify.outputs.sha }}" if job_name in {"sign", "feed"} else "${{ github.sha }}"
             self.assertEqual(checkout.get("with", {}).get("ref"), expected_ref)
 
             references = []
