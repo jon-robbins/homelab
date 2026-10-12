@@ -56,7 +56,7 @@ import sys
 sys.path.insert(0, "apps/qwen-code-telegram/scripts")
 from render_project_settings import build_include_tools
 print(",".join(build_include_tools("trusted")))
-')"
+' || true)"
 [[ -n "$EXPECTED_TRUSTED_TOOLS" ]] || fail "could not derive trusted tools from the canonical role artifact"
 
 cleanup() {
@@ -95,7 +95,7 @@ OUT1=$(docker run --rm \
     /usr/local/bin/entrypoint.sh >/tmp/entrypoint.log 2>&1 &
     PID=$!
     for _ in $(seq 1 30); do
-      if [ -f /run/qwen-code/project-settings.json ]; then
+      if [ -f /run/qwen-code/project-settings.json ] && python3 -c "import json; json.load(open(\"/run/qwen-code/project-settings.json\"))" 2>&1; then
         break
       fi
       if ! kill -0 "$PID" 2>/dev/null; then
@@ -110,10 +110,15 @@ OUT1=$(docker run --rm \
       cat /tmp/entrypoint.log
       exit 1
     fi
+    python3 -c "import json; json.load(open(\"/run/qwen-code/project-settings.json\"))" 2>&1 || {
+      echo "project-settings.json was not valid JSON"
+      cat /tmp/entrypoint.log
+      exit 1
+    }
 
     # Check settings rendered on disk before qwen exits
     echo "--- CHECK DISPATCH_MODE ---"
-    python3 -c "import json; d=json.load(open(\"/run/qwen-code/project-settings.json\")); print(d.get(\"channels\",{}).get(\"homelab-telegram\",{}).get(\"dispatchMode\", \"\"))"
+    python3 -c "import json; d=json.load(open(\"/run/qwen-code/project-settings.json\")); print(d.get(\"channels\",{}).get(\"homelab-telegram\",{}).get(\"dispatchMode\", \"\"))" 2>&1
 
     echo "--- CHECK LITERAL ENV REFS ---"
     python3 -c "
@@ -129,7 +134,7 @@ print(f\"botToken={botToken}\")
 print(f\"mcpAuth={mcpAuth}\")
 print(f\"mcpAllowed={mcpAllowed}\")
 print(f\"alwaysLoad={alwaysLoad}\")
-"
+" 2>&1
     echo "--- ENTRYPOINT OUTPUT ---"
     cat /tmp/entrypoint.log
     kill -INT $PID 2>/dev/null || true
@@ -161,7 +166,7 @@ m = re.search(r"--- CHECK DISPATCH_MODE ---\n(\w+)", text)
 if not m:
     sys.exit(1)
 print(m.group(1).strip())
-' <<<"$OUT1")
+' <<<"$OUT1" || true)
 [[ "$DISPATCH_MODE" == "followup" ]] || fail "effective Telegram channel dispatchMode must be 'followup'; got '$DISPATCH_MODE'"
 pass "effective Telegram channel dispatch is followup"
 
@@ -275,7 +280,7 @@ print(\"ACP_BRIDGE_NO_SHELL_COMMAND_VERIFIED\")
 at_chunk = open(\"${HOME}/.local/lib/qwen-code/lib/chunks/chunk-L7RG5PVT.js\").read()
 assert \"resolvePath\" in at_chunk or \"isPathInside\" in at_chunk or \"getWorkingDir\" in at_chunk
 print(\"WORKSPACE_FILE_BOUNDARY_VERIFIED\")
-"
+" 2>&1
   ' 2>&1 || true)
 
 grep -q "POLICY_LOCKDOWN_VERIFIED" <<<"$OUT_BYPASS" || fail "Settings policy lockdown check failed"
@@ -303,7 +308,7 @@ OUT_TOOLS=$(docker run --rm \
     /usr/local/bin/entrypoint.sh >/tmp/entrypoint.log 2>&1 &
     PID=$!
     for _ in $(seq 1 30); do
-      if [ -f /data/home/settings.json ]; then
+      if [ -f /data/home/settings.json ] && python3 -c "import json; json.load(open(\"/data/home/settings.json\"))" 2>&1; then
         break
       fi
       if ! kill -0 "$PID" 2>/dev/null; then

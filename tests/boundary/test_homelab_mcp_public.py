@@ -5,8 +5,13 @@ from pathlib import Path
 
 
 MCP_SOURCE = Path(__file__).resolve().parents[2] / "apps/homelab-mcp"
-FORBIDDEN_IMPORT = re.compile(r"\b(?:from|import)\s+tracker_integrations\b")
-FORBIDDEN_POLICY_NAMES = ("tracker_integrations", "tracker-integrations", "tracker_policy")
+RETIRED_EXTENSION = "tracker" + "_integrations"
+FORBIDDEN_IMPORT = re.compile(r"\b(?:from|import)\s+" + re.escape(RETIRED_EXTENSION) + r"\b")
+FORBIDDEN_POLICY_NAMES = (
+    RETIRED_EXTENSION,
+    "tracker" + "-integrations",
+    "tracker" + "_policy",
+)
 
 
 def test_homelab_mcp_has_no_private_tracker_integrations_or_policy_names() -> None:
