@@ -77,6 +77,6 @@ def qwen_static(session: nox.Session) -> None:
         session.run("bash", f"apps/qwen-code-telegram/tests/{test}", external=True)
 
 
-@nox.session(python=PYTHON, tags=["no-docker"])
+@nox.session(python=PYTHON, tags=["docker"])  # runs `docker compose config`
 def docs(session: nox.Session) -> None:
     session.run("bash", "tests/docs/run_tests.sh", external=True)

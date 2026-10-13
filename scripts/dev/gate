@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Run the local gate the way hosted CI does: pre-commit, then the no-docker
+# nox sessions. On Linux it runs directly; elsewhere (macOS) it runs inside a
+# pinned Linux container so results match CI. Extra arguments go to nox,
+# e.g. `scripts/dev/gate -s release`.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+gate='uvx pre-commit run --all-files && uvx nox -t no-docker "$@"'
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+  cd "$root"
+  exec bash -c "$gate" gate "$@"
+fi
+
+image="homelab-gate:$(shasum -a 256 "$root/scripts/dev/gate.Dockerfile" | cut -c1-12)"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  docker build -q -t "$image" -f "$root/scripts/dev/gate.Dockerfile" "$root/scripts/dev" >/dev/null
+fi
+
+# Caches persist across runs; nox environments stay inside the container
+# (.nox is anonymous-volume-masked) so they never mix with macOS ones.
+exec docker run --rm \
+  -v "$root:/src" -w /src \
+  -v /src/.nox \
+  -v homelab-gate-cache:/cache \
+  "$image" bash -c "$gate" gate "$@"
