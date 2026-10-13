@@ -74,3 +74,56 @@ def test_commit_files_uses_current_tree_and_commit_as_parent():
     client.request = request
     assert client.commit_files("owner/repo", "releases", "current-commit", {"record.json": b"{}"}, "publish") == "new-commit"
     assert calls[0][1].endswith("/git/commits/current-commit")
+
+
+def test_artifact_download_never_sends_token_to_storage(monkeypatch, tmp_path):
+    import io
+    import zipfile
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    from scripts.release import github
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("oci-layout.tar", b"layout-bytes")
+    storage_requests = []
+
+    class Opener:
+        def open(self, request):
+            assert request.get_header("Authorization") == "Bearer token"
+            assert request.get_header("Accept") == "application/vnd.github+json"
+            headers = Message()
+            headers["Location"] = "https://storage.example/artifact.zip?sig=x"
+            raise HTTPError(request.full_url, 302, "Found", headers, io.BytesIO())
+
+    def storage_open(request):
+        storage_requests.append(request)
+        return io.BytesIO(payload.getvalue())
+
+    monkeypatch.setattr(github, "build_opener", lambda *_handlers: Opener())
+    monkeypatch.setattr(github, "urlopen", storage_open)
+
+    client = GitHubClient("token")
+    path = client.download_artifact_member("owner/repo", {"id": 9, "name": "oci-caddy"}, "oci-layout.tar", tmp_path)
+
+    assert path.read_bytes() == b"layout-bytes"
+    assert [request.full_url for request in storage_requests] == ["https://storage.example/artifact.zip?sig=x"]
+    assert storage_requests[0].get_header("Authorization") is None
+    assert not (tmp_path / "artifact.zip").exists()
+
+
+def test_artifact_download_requires_a_redirect(monkeypatch, tmp_path):
+    import io
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    from scripts.release import github
+
+    class Opener:
+        def open(self, request):
+            raise HTTPError(request.full_url, 415, "Unsupported", Message(), io.BytesIO(b'{"message":"no"}'))
+
+    monkeypatch.setattr(github, "build_opener", lambda *_handlers: Opener())
+    with pytest.raises(GitHubError, match="415"):
+        GitHubClient("token").download_artifact_member("owner/repo", {"id": 9}, "oci-layout.tar", tmp_path)

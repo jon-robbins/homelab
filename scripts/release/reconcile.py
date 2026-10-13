@@ -16,7 +16,7 @@ from .bundle import bundle_sha256
 from .compile import compile_bundle
 from .contracts import ValidationError, load_application_manifest, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
-from .github import GitHubClient
+from .github import GitHubClient, GitHubError
 from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
@@ -44,39 +44,33 @@ def load_approved_destinations(path: str | Path = _DEFAULT_APPROVED_DESTINATIONS
     return frozenset(destinations)
 
 
-def _verify_attestation(archive: bytes, repository: str, sha: str) -> None:
+def _verify_attestation(archive: Path, repository: str, sha: str) -> None:
     """Require GitHub's signed build attestation for a downloaded archive."""
     if os.environ.get("GITHUB_ACTIONS") != "true":
         return
-    with tempfile.NamedTemporaryFile(prefix="release-oci-", suffix=".tar") as handle:
-        handle.write(archive)
-        handle.flush()
-        command = [
-            "gh", "attestation", "verify", handle.name,
-            "--repo", repository,
-            "--signer-workflow", f"{repository}/{BUILD_WORKFLOW}",
-            "--source-digest", sha,
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True)
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "attestation verification failed").strip()
-            raise VerificationError(f"invalid build attestation: {detail[:300]}")
+    command = [
+        "gh", "attestation", "verify", str(archive),
+        "--repo", repository,
+        "--signer-workflow", f"{repository}/{BUILD_WORKFLOW}",
+        "--source-digest", sha,
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "attestation verification failed").strip()
+        raise VerificationError(f"invalid build attestation: {detail[:300]}")
 
 
-def _read_manifest_digest(archive: bytes) -> str:
+def _read_manifest_digest(archive: Path) -> str:
     """Read an OCI archive's manifest digest with standard OCI tooling."""
-    with tempfile.NamedTemporaryFile(prefix="release-oci-", suffix=".tar") as handle:
-        handle.write(archive)
-        handle.flush()
-        try:
-            completed = subprocess.run(
-                ["skopeo", "inspect", "--format", "{{.Digest}}", f"oci-archive:{handle.name}"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as error:
-            raise VerificationError("could not inspect OCI archive manifest") from error
+    try:
+        completed = subprocess.run(
+            ["skopeo", "inspect", "--format", "{{.Digest}}", f"oci-archive:{archive}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise VerificationError("could not inspect OCI archive manifest") from error
     try:
         return validate_digest(completed.stdout.strip(), "$.manifest_digest")
     except ValidationError as error:
@@ -179,12 +173,14 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         image = name[4:]
         if not image or image in images:
             continue
-        files = client.artifact_files(repository, artifact)
-        archive = files.get("oci-layout.tar")
-        if not isinstance(archive, bytes):
-            raise VerificationError(f"OCI archive is missing from {name}")
-        _verify_attestation(archive, repository, sha)
-        manifest_digest = _read_manifest_digest(archive)
+        # Large images (qwen-serve is ~4 GB) are streamed to disk, never held in memory.
+        with tempfile.TemporaryDirectory(prefix="release-oci-") as directory:
+            try:
+                archive = client.download_artifact_member(repository, artifact, "oci-layout.tar", Path(directory))
+            except GitHubError as error:
+                raise VerificationError(f"OCI archive is missing from {name}: {error}") from error
+            _verify_attestation(archive, repository, sha)
+            manifest_digest = _read_manifest_digest(archive)
         workflow_run = artifact.get("workflow_run")
         run_id = workflow_run.get("id") if isinstance(workflow_run, Mapping) else artifact.get("run_id")
         if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id < 1:

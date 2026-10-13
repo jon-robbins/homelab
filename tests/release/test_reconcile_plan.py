@@ -276,8 +276,11 @@ class ArtifactFixtureClient:
     def artifacts(self, *_args):
         return json.loads((Path(__file__).parent / "fixtures" / "artifacts.json").read_text())
 
-    def artifact_files(self, _repository, artifact):
-        return {"oci-layout.tar": b"archive"}
+    def download_artifact_member(self, _repository, artifact, member, directory):
+        assert member == "oci-layout.tar"
+        target = directory / member
+        target.write_bytes(b"archive")
+        return target
 
 
 def test_artifacts_are_bound_to_successful_workflow_run_fixture(monkeypatch):
