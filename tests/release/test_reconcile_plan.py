@@ -44,8 +44,9 @@ def test_sign_plan_record_images_equal_bundle_images(monkeypatch, tmp_path):
         "release": True,
         "site_id": "lab",
         "sequence": 1,
-        "sha": "tooling",
-        "sources": {"homelab": "tooling", "homelab-site": "site", "tracker-integrations": "tracker"},
+        "sha": "candidate",
+        "tooling_git_sha": "tooling",
+        "sources": {"homelab": "candidate", "homelab-site": "site", "tracker-integrations": "tracker"},
         "image_refs": image_refs,
     }))
     signed = {}
@@ -61,6 +62,8 @@ def test_sign_plan_record_images_equal_bundle_images(monkeypatch, tmp_path):
         applications = json.loads(bundle.extractfile("applications.json").read())
     bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
     assert signed["record"]["images"] == bundle_images == image_refs
+    assert signed["record"]["tooling_git_sha"] == "tooling"
+    assert signed["record"]["sources"]["homelab"] == "candidate"
 
 
 def _record(sources, images, *, rollback_floor=4):
@@ -296,6 +299,8 @@ def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch,
 
     first = reconcile.plan(client, repository="homelab", site_repository="site")
     assert first["sha"] == "h2"
+    # The candidate is h2; the tooling that planned and signs it is the workflow commit.
+    assert first["sources"]["homelab"] == "h2" and first["tooling_git_sha"] == "h3"
     assert first["images"][0]["manifest_digest"] == "sha256:" + "2" * 64
 
     client.previous = {**previous, "sequence": 8, "tooling_git_sha": "h2", "sources": {**previous["sources"], "homelab": "h2"}}
@@ -518,3 +523,15 @@ def test_approved_destinations_loader_remains_strict(tmp_path):
     config.write_text('{"destinations": ["docker.io/acme/web"]}')
     with pytest.raises(ValueError, match="immutable GHCR repository"):
         reconcile.load_approved_destinations(config)
+
+
+def test_next_candidate_follows_released_source_not_tooling_revision():
+    class History:
+        parents = {"h3": "h2", "h2": "h1"}
+
+        def read_commit(self, _repository, sha):
+            return {"parents": [{"sha": self.parents[sha]}]}
+
+    # Record 1 released source h1 using tooling at h3 (main's head at the time).
+    previous = {"tooling_git_sha": "h3", "sources": {"homelab": "h1"}}
+    assert reconcile._next_tooling_sha(History(), "homelab", "h3", previous) == "h2"
