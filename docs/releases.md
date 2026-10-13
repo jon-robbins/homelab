@@ -100,7 +100,9 @@ force-pushes or overwrites an existing sequence. Consumers must verify the
 record schema, signature, and bundle digest before using a release.
 
 Before enabling the workflow, the owner creates `PRIVATE_INPUT_READ_TOKEN`
-(contents/actions read on `homelab-site` and `tracker-integrations`) and
+(contents/actions read on `homelab-site` and `tracker-integrations`, plus
+administration read on `homelab` so the release job can see the `main`
+ruleset's bypass actors; without it the plan fails closed) and
 `SITE_FEED_TOKEN` (contents write on `homelab-site`) in the `production-release`
 environment. Cleanup is to delete the old `RELEASE_SIGNING_KEY` secret and
 `RELEASE_SIGNING_KEY_ID` variable, and remove `trust/release-keys.json` from
