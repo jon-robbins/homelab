@@ -4,13 +4,17 @@
 with synthetic inputs, runs tests, scans the public boundary, and builds OCI
 images off-host. It does not deploy or start containers.
 
-The supported local equivalent is:
+The supported local gate is:
 
 ```bash
-bash scripts/ci/public-check.sh
+pre-commit run --all-files
+nox -t no-docker
 ```
 
-A signed release feed (N6) and a host controller for N7–N11 are **Planned**.
-Until those exist, do not describe a release feed, automatic host pull, or
-controller reconciliation as available behavior. Private site operations and
-runtime backups belong outside this public repository.
+The signed release feed from N6 is current. A host controller for N7–N11 is
+still **Planned**. Private site operations and runtime backups belong outside
+this public repository.
+
+CI installs pinned versions of pre-commit and nox. When adding a GitHub
+Action, write its release tag first and run `pinact run`; pinact writes the
+commit SHA and trailing version comment that Dependabot maintains.

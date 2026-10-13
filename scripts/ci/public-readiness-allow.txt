@@ -3,7 +3,6 @@ scripts/ci/public-readiness.py private-network # Scanner documentation networks 
 scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain token-shaped examples by design.
 scripts/release/compose_policy.py token-shaped # Compose variable parser regex is not a credential.
 tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
-tests/ops/test_ci_local_placeholders.sh token-shaped # Test placeholder is deliberately synthetic.
 tests/ops/test_infisical_agent_config.py token-shaped # Test credential is deliberately synthetic.
 tests/ops/test_infisical_agent_pilot_contract.sh token-shaped # Test credential is deliberately synthetic.
 tests/ops/test_infisical_agent_reload.py token-shaped # Test credentials are deliberately synthetic.
@@ -11,6 +10,7 @@ tests/ops/test_managed_secrets.py token-shaped # Test credentials are deliberate
 tests/runtime/test_seerr_download_path_health.sh token-shaped # Test credential is deliberately synthetic.
 tests/ci/test_public_readiness.py private-network # Test inputs intentionally exercise private-network detection.
 tests/ci/test_public_readiness.py token-shaped # Test inputs intentionally exercise token-shaped detection.
+tests/ci/test_workflow_security.py token-shaped # Workflow SHA regex fixture is not a credential.
 .gitleaks.toml token-shaped # Synthetic credential fixture used by the leak scanner.
 apps/homelab-workers/src/homelab_workers/mcp_gap_closer/redact.py token-shaped # Synthetic token prefixes used by the redaction regexes.
 apps/homelab-workers/src/homelab_workers/tests/test_autobrr_push_verify.py token-shaped # Synthetic release-name fixtures.
