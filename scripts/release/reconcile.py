@@ -120,6 +120,69 @@ def _check_homelab_head_ancestry(client: Any, repository: str, sha: str) -> None
         raise VerificationError("workflow commit is not an ancestor of the current homelab main")
 
 
+BOOTSTRAP_SEARCH_DEPTH = 50
+
+
+def _successful_build_run_id(client: Any, repository: str, sha: str) -> int | None:
+    """Return the successful main push run of the build workflow for *sha*, if any."""
+    response = client.workflow_runs(repository, BUILD_WORKFLOW, sha)
+    runs = response.get("workflow_runs", ()) if isinstance(response, Mapping) else response
+    for run in runs or ():
+        if (
+            isinstance(run, Mapping)
+            and run.get("head_sha") == sha
+            and run.get("event") == "push"
+            and run.get("head_branch") == "main"
+            and run.get("path", BUILD_WORKFLOW) == BUILD_WORKFLOW
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and isinstance(run.get("id"), int)
+            and not isinstance(run.get("id"), bool)
+        ):
+            return run["id"]
+    return None
+
+
+def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str]) -> str:
+    """Pick the first release's commit: the newest first-parent commit with a full build.
+
+    Every image is still built and attested at that one commit; this only lets
+    the first release survive merges that landed after the full rebuild.
+    """
+    if not callable(getattr(client, "workflow_runs", None)) or not callable(getattr(client, "read_commit", None)):
+        return head
+    response = client.artifacts(repository)
+    artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response
+    sha = head
+    for _ in range(BOOTSTRAP_SEARCH_DEPTH):
+        run_id = _successful_build_run_id(client, repository, sha)
+        if run_id is not None:
+            built = {
+                str(artifact.get("name", ""))[4:]
+                for artifact in artifacts or ()
+                if isinstance(artifact, Mapping)
+                and not artifact.get("expired")
+                and isinstance(artifact.get("workflow_run"), Mapping)
+                and artifact["workflow_run"].get("id") == run_id
+                and artifact["workflow_run"].get("head_sha") == sha
+                and str(artifact.get("name", "")).startswith("oci-")
+            }
+            if images.issubset(built):
+                return sha
+        commit = client.read_commit(repository, sha)
+        parents = commit.get("parents") if isinstance(commit, Mapping) else None
+        if not isinstance(parents, (list, tuple)) or not parents:
+            break
+        parent = parents[0]
+        sha = parent.get("sha") if isinstance(parent, Mapping) else parent
+        if not isinstance(sha, str):
+            raise VerificationError("homelab main has an invalid first-parent link")
+    raise VerificationError(
+        f"first release requires one main commit with verified builds for all images within {BOOTSTRAP_SEARCH_DEPTH} commits; "
+        "push a change to the build recipe to rebuild every image"
+    )
+
+
 def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
     """Download OCI artifacts and make their native attestations authoritative."""
     runs_method = getattr(client, "workflow_runs", None)
@@ -292,6 +355,8 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         raise VerificationError("release plan requires GITHUB_SHA (run inside the release workflow)")
     _check_homelab_head_ancestry(ancestry_client, repository, main_head)
     sha = _next_tooling_sha(client, repository, main_head, previous)
+    if previous is None:
+        sha = _bootstrap_sha(client, repository, main_head, _destination_images(load_approved_destinations()))
     tooling_sha = sha or (previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
     tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
