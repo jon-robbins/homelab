@@ -13,7 +13,7 @@ import time
 import pytest
 
 from scripts.controller.state import (
-    CorruptStateError, MissingStateError, MutationLock,
+    ControllerBusyError, CorruptStateError, MissingStateError, MutationLock,
     SchemaVersionError, State, StateError, validate_frozen_plan,
 )
 
@@ -440,6 +440,9 @@ def test_snapshot_shape_and_bounds(tmp_path, change):
     "deploy --password fake-password-123456789",
     "deploy --TOKEN\tfake-token-123456789",
     "deploy --api-key 'fake-token-123456789'",
+    "DATABASE_URL=postgresql://app:fake-password-123456789@db.example/app",
+    "pushed with https://jon:fake-token-123456789@github.com/x/y",
+    "token github_pat_" + "A1b2" * 6 + "_fake-token-123456789",
 ])
 def test_event_secrets_never_persist(state, detail):
     before = metadata(state)
@@ -603,6 +606,9 @@ s.close()
 def test_sigkill_at_commit_boundaries(state, tmp_path, boundary):
     seed(state)
     with state.transaction() as conn:
+        # VERIFY requires every image staged (section 4).
+        conn.execute("UPDATE releases SET images=? WHERE sequence=5",
+                     (json.dumps({"app": {"ref": IMAGE, "local_image_id": DIGEST}}),))
         conn.execute("UPDATE control SET phase='VERIFY',active_attempt_id=1")
     old = metadata(state)
     new = deepcopy(old)
@@ -655,3 +661,36 @@ def test_sigkill_at_commit_boundaries(state, tmp_path, boundary):
         assert reopened.conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
     finally:
         reopened.close()
+
+
+def test_locked_database_reports_busy_not_corrupt(state, tmp_path):
+    other = sqlite3.connect(state.path, isolation_level=None)
+    try:
+        other.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(ControllerBusyError, match="controller busy"):
+            State.open(tmp_path, lock_timeout=0.2)
+        with pytest.raises(ControllerBusyError, match="controller busy"):
+            state.set_counters(highwater=9)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert state.control()["highwater"] == 4
+
+
+@pytest.mark.parametrize("phase, stopped", [("APPLY", []), ("VERIFY", []), ("PREPARE", ["app"])])
+def test_apply_or_maintenance_stop_requires_staged_images(state, phase, stopped):
+    plan = deepcopy(PLAN)
+    plan["stopped_for_maintenance"] = stopped
+    state.add_release(5, DIGEST, b"record", b"signature", DIGEST, "pending", IMAGES)
+    attempt = state.add_attempt(kind="deploy", release_seq=5, baseline_seq=None, plan=plan,
+                                recovery_action="none", started_at=AT)
+    before = metadata(state)
+    with pytest.raises(ValueError, match="not staged"):
+        with state.transaction() as conn:
+            conn.execute("UPDATE control SET phase=?, active_attempt_id=? WHERE id=1", (phase, attempt))
+    assert metadata(state) == before
+    staged = {"app": {"ref": IMAGE, "local_image_id": DIGEST}}
+    with state.transaction() as conn:
+        conn.execute("UPDATE releases SET images=? WHERE sequence=5", (json.dumps(staged),))
+        conn.execute("UPDATE control SET phase=?, active_attempt_id=? WHERE id=1", (phase, attempt))
+    assert state.control()["phase"] == phase

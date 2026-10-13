@@ -33,7 +33,8 @@ SECRET_PATTERN = re.compile(
     r"(?i)(?:token|secret|password|credential|api[_-]?key|authorization|bearer)"
     r"[\"']?\s*[:=]|\b(?:bearer|basic)\s+\S+|"
     r"(?:^|\s)--(?:token|secret|password|credential|api[_-]?key|authorization)\s+\S+|"
-    r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,})\b"
+    r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,})\b|"
+    r"\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@"  # user:password@ in a URL
 )
 _LOCKS = threading.local()
 
@@ -249,7 +250,7 @@ class State:
         if not path.exists(): raise MissingStateError("controller state database is missing")
         conn = None
         try:
-            conn = _connect(path, existing=True)
+            conn = _connect(path, existing=True, timeout=lock_timeout)
             check = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if check != "ok": raise CorruptStateError("controller state integrity check failed")
             row = conn.execute("SELECT schema FROM control WHERE id=1").fetchone()
@@ -258,6 +259,10 @@ class State:
             result = cls(path, conn, backup_roots=backup_roots, lock_timeout=lock_timeout)
             result.validate_rows()
             return result
+        except sqlite3.OperationalError as e:
+            if conn is not None: conn.close()
+            if _is_busy(e): raise ControllerBusyError("controller busy") from e
+            raise CorruptStateError("controller state database is corrupt") from e
         except sqlite3.DatabaseError as e:
             if conn is not None: conn.close()
             raise CorruptStateError("controller state database is corrupt") from e
@@ -311,7 +316,11 @@ class State:
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Commit a complete validated transition, or roll back every statement."""
         with self.mutation():
-            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as e:
+                if _is_busy(e): raise ControllerBusyError("controller busy") from e
+                raise
             try:
                 old = self.control()
                 yield self.conn
@@ -322,11 +331,21 @@ class State:
                 new = self.control()
                 for key in ("highwater", "rollback_floor"):
                     if new[key] < old[key]: raise ValueError(f"{key} cannot decrease")
+                self._require_staged_images(new)
                 self.conn.commit()
             except BaseException:
                 self.conn.rollback()
                 raise
 
+    def _require_staged_images(self, control: dict[str, Any]) -> None:
+        """Section 4: every required image has a local_image_id before APPLY or any maintenance stop."""
+        if control["active_attempt_id"] is None: return
+        release_seq, plan = self.conn.execute("SELECT release_seq,plan FROM attempts WHERE id=?", (control["active_attempt_id"],)).fetchone()
+        if release_seq is None: return
+        if control["phase"] not in ("APPLY", "VERIFY") and not contracts.parse_json(plan)["stopped_for_maintenance"]: return
+        images = contracts.parse_json(self.conn.execute("SELECT images FROM releases WHERE sequence=?", (release_seq,)).fetchone()[0])
+        unstaged = sorted(name for name, image in images.items() if image["local_image_id"] is None)
+        if unstaged: raise ValueError(f"image not staged before APPLY or maintenance stop: {unstaged[0]}")
     def control(self) -> dict[str, Any]:
         row = self.conn.execute("SELECT site_id,phase,highwater,rollback_floor,current_seq,previous_seq,active_attempt_id,degraded_reason FROM control WHERE id=1").fetchone()
         if not row: raise CorruptStateError("controller control row is missing")
@@ -372,10 +391,14 @@ def _event_detail(detail: Any) -> str:
     return detail
 
 
-def _connect(path: Path, *, existing: bool = False) -> sqlite3.Connection:
+def _is_busy(error: sqlite3.OperationalError) -> bool:
+    return "locked" in str(error) or "busy" in str(error)
+
+
+def _connect(path: Path, *, existing: bool = False, timeout: float = 3.0) -> sqlite3.Connection:
     # mode=rw prevents recreation if an expected database disappears during open.
     target = path.resolve().as_uri() + "?mode=rw" if existing else str(path)
-    conn = sqlite3.connect(target, isolation_level=None, uri=existing)
+    conn = sqlite3.connect(target, isolation_level=None, uri=existing, timeout=timeout)
     try:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA journal_mode=DELETE")
