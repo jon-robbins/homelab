@@ -333,14 +333,18 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
     copy_directory("files")
 
 
-def _manifest_site_id(root: Path) -> str:
+def _site_manifest(root: Path) -> Mapping[str, Any]:
     try:
         manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
     except (OSError, yaml.YAMLError) as error:
         raise VerificationError("site manifest is not readable") from error
-    if not isinstance(manifest, Mapping):
-        raise VerificationError("site manifest is not an object")
-    site_id = manifest.get("site_id")
+    if not isinstance(manifest, Mapping) or not isinstance(manifest.get("applications"), list):
+        raise VerificationError("site manifest has no applications array")
+    return manifest
+
+
+def _manifest_site_id(root: Path) -> str:
+    site_id = _site_manifest(root).get("site_id")
     if not isinstance(site_id, str):
         raise VerificationError("site manifest is missing site_id")
     return site_id
@@ -351,46 +355,23 @@ def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
     return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
 
 
-def _manifest_image_refs(root: Path, previous: Mapping[str, Any] | None, images: list[dict[str, Any]], approved: frozenset[str]) -> dict[str, str]:
-    try:
-        manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
-    except (OSError, yaml.YAMLError) as error:
-        raise VerificationError("site manifest is not readable") from error
-    if not isinstance(manifest, Mapping) or not isinstance(manifest.get("applications"), list):
-        raise VerificationError("site manifest applications are not an array")
+def _manifest_image_refs(root: Path, previous: Mapping[str, Any] | None, images: list[dict[str, Any]]) -> dict[str, str]:
+    """Map each site application to the newest released digest ref of its repository.
 
-    application_destinations: dict[str, str] = {}
-    for application in manifest["applications"]:
-        if not isinstance(application, Mapping):
-            raise VerificationError("site manifest application is not an object")
-        name = application.get("name")
-        destination = application.get("image")
-        if not isinstance(name, str) or not isinstance(destination, str):
-            raise VerificationError("site manifest application requires name and image")
-        if name in application_destinations:
-            raise VerificationError(f"site manifest has duplicate application: {name}")
-        if destination not in approved:
-            raise VerificationError(f"site application {name} must name a bare approved GHCR repository")
-        application_destinations[name] = destination
-
-    by_destination: dict[str, str] = {}
-    previous_images = previous.get("images", {}) if isinstance(previous, Mapping) else {}
-    if isinstance(previous_images, Mapping):
-        for reference in previous_images.values():
-            if isinstance(reference, str) and "@" in reference:
-                by_destination[reference.split("@", 1)[0]] = reference
-    for image in images:
-        destination = image.get("destination")
-        digest = image.get("manifest_digest")
-        if isinstance(destination, str) and isinstance(digest, str):
-            by_destination[destination] = f"{destination}@{digest}"
-
+    The compiler validates the manifest and the refs; this only joins them.
+    """
+    by_repository = {
+        reference.split("@", 1)[0]: reference
+        for reference in (previous or {}).get("images", {}).values()
+        if isinstance(reference, str) and "@" in reference
+    }
+    by_repository.update({item["destination"]: f"{item['destination']}@{item['manifest_digest']}" for item in images})
     references: dict[str, str] = {}
-    for name, destination in application_destinations.items():
-        reference = by_destination.get(destination)
-        if reference is None:
+    for application in _site_manifest(root)["applications"]:
+        name, repository = application.get("name"), application.get("image")
+        if repository not in by_repository:
             raise VerificationError(f"no released image reference for application: {name}")
-        references[name] = reference
+        references[name] = by_repository[repository]
     return references
 
 
@@ -436,7 +417,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
             raise VerificationError("build requested an unapproved destination")
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
-        image_refs = _manifest_image_refs(input_root, previous, images, approved)
+        image_refs = _manifest_image_refs(input_root, previous, images)
         result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")

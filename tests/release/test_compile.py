@@ -72,8 +72,8 @@ def _image_refs():
         ("tagged", "must be a bare approved GHCR repository"),
         ("digested", "must be a bare approved GHCR repository"),
         ("unapproved", "must be a bare approved GHCR repository"),
-        ("missing", "missing image reference for application: beta"),
-        ("extra", "no matching application: gamma"),
+        ("missing", "differs at beta"),
+        ("extra", "differs at gamma"),
     ],
 )
 def test_compiler_rejects_invalid_image_refs(tmp_path, kind, expected):

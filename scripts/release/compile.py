@@ -18,63 +18,36 @@ from .contracts import ValidationError, load_application_manifest
 
 
 _APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
-_DIGEST_REF = re.compile(r"^ghcr\.io/jon-robbins/homelab/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$")
+_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
 
 
-def _approved_repositories() -> dict[str, str]:
+def _approved_repositories() -> set[str]:
     try:
-        value = json.loads(_APPROVED_DESTINATIONS.read_bytes())
-        destinations = value["destinations"]
+        destinations = json.loads(_APPROVED_DESTINATIONS.read_bytes())["destinations"]
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValidationError("$.destinations", "invalid approved destination config") from error
-    if not isinstance(destinations, list):
-        raise ValidationError("$.destinations", "expected destination array")
-    prefix = "ghcr.io/jon-robbins/homelab/"
-    return {destination.removeprefix(prefix): destination for destination in destinations}
+    return set(destinations)
 
 
 def _pin_images(document: dict[str, Any], model: dict[str, Any], image_refs: Mapping[str, str]) -> None:
+    """Replace bare approved repositories in the site files with the release's digest refs."""
     approved = _approved_repositories()
-    applications = document.get("applications")
-    if not isinstance(applications, list):
-        raise ValidationError("$.applications", "expected application array")
-    if not isinstance(image_refs, Mapping) or not all(isinstance(key, str) and isinstance(value, str) for key, value in image_refs.items()):
-        raise ValidationError("$.image_refs", "expected image name to digest reference map")
-    application_names = {application["name"] for application in applications}
-    extra = sorted(set(image_refs) - application_names)
-    if extra:
-        raise ValidationError("$.image_refs", f"no matching application: {extra[0]}")
-    missing = sorted(application_names - set(image_refs))
-    if missing:
-        raise ValidationError("$.image_refs", f"missing image reference for application: {missing[0]}")
+    applications = {application["name"]: application for application in document["applications"]}
+    if set(image_refs) != set(applications):
+        difference = sorted(set(image_refs) ^ set(applications))
+        raise ValidationError("$.image_refs", f"must name exactly the manifest applications; differs at {difference[0]}")
     services = _managed_services(model)
-    all_services = model["services"]
-    for service_name, service in all_services.items():
-        if not isinstance(service, dict) or "image" not in service:
-            continue
-        if service.get("image") not in approved.values():
-            raise ValidationError(
-                f"$.services.{service_name}.image",
-                "must be a bare approved GHCR repository",
-            )
-        if service_name not in services:
-            raise ValidationError(
-                f"$.services.{service_name}.image",
-                "image is not permitted for an unmanaged service",
-            )
-    for application in applications:
-        name = application["name"]
-        service = services[name]
-        for path, owner in ((f"$.applications.{name}.image", application), (f"$.services.{name}.image", service)):
-            if not isinstance(owner, dict) or owner.get("image") not in approved.values():
-                raise ValidationError(path, "must be a bare approved GHCR repository")
+    for name, service in model["services"].items():
+        if isinstance(service, dict) and "image" in service and name not in services:
+            raise ValidationError(f"$.services.{name}.image", "image is not permitted for an unmanaged service")
+    for name, application in applications.items():
+        repository = application.get("image")
+        if repository not in approved or services[name].get("image") != repository:
+            raise ValidationError(f"$.applications.{name}.image", "must be a bare approved GHCR repository")
         reference = image_refs[name]
-        if not _DIGEST_REF.fullmatch(reference):
-            raise ValidationError(f"$.image_refs.{name}", "must be a digest-pinned GHCR reference")
-        if not reference.startswith(application["image"] + "@"):
-            raise ValidationError(f"$.image_refs.{name}", "does not match the application's approved repository")
-        application["image"] = reference
-        service["image"] = reference
+        if not (isinstance(reference, str) and reference.startswith(repository) and _DIGEST.fullmatch(reference[len(repository):])):
+            raise ValidationError(f"$.image_refs.{name}", "must be the application's repository pinned by digest")
+        application["image"] = services[name]["image"] = reference
 
 
 def _load_document(path: Path) -> Any:
