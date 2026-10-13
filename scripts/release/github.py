@@ -69,8 +69,18 @@ class GitHubClient:
     def read_commit(self, repository: str, sha: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}")
 
-    def pull_requests_for_commit(self, repository: str, sha: str) -> Any:
-        return self.request("GET", f"/repos/{self._repo(repository)}/commits/{sha}/pulls")
+    def pull_requests_for_commit(self, repository: str, sha: str) -> list[Any]:
+        """Return the full records of merged PRs whose merge commit is *sha*.
+
+        The commit-to-PR listing omits merged_by, which the owner check needs,
+        so each matching PR is re-read from the single-PR endpoint.
+        """
+        listed = self.request("GET", f"/repos/{self._repo(repository)}/commits/{quote(sha, safe='')}/pulls") or []
+        return [
+            self.request("GET", f"/repos/{self._repo(repository)}/pulls/{int(pr['number'])}")
+            for pr in listed
+            if isinstance(pr, Mapping) and pr.get("merged_at") and pr.get("merge_commit_sha") == sha
+        ]
 
     def rulesets(self, repository: str) -> Any:
         return self.request("GET", f"/repos/{self._repo(repository)}/rulesets?includes_parents=true")
