@@ -27,13 +27,20 @@ class Publication:
         self.sequence, self.commit_sha, self.noop = sequence, commit_sha, noop
 
 
-def verify_cosign_bundle(record_path: Path, bundle_path: Path, *, cosign: str = "cosign") -> None:
+def verify_cosign_bundle(record_path: Path, bundle_path: Path, *, cosign: str = "cosign",
+                        identity: str | None = None, issuer: str = COSIGN_OIDC_ISSUER,
+                        offline: bool = False, trusted_root: Path | None = None) -> None:
     """Verify the exact record with the release workflow's GitHub identity."""
     if not record_path.is_file() or not bundle_path.is_file():
         raise FeedError("record or Sigstore bundle is missing")
     command = [cosign, "verify-blob", "--bundle", str(bundle_path),
-               "--certificate-identity", signing_identity(),
-               "--certificate-oidc-issuer", COSIGN_OIDC_ISSUER, str(record_path)]
+               "--certificate-identity", identity or signing_identity(),
+               "--certificate-oidc-issuer", issuer]
+    if offline:
+        command.append("--offline")
+    if trusted_root is not None:
+        command.extend(("--trusted-root", str(trusted_root)))
+    command.append(str(record_path))
     completed = subprocess.run(command, capture_output=True, text=True)
     if completed.returncode:
         detail = (completed.stderr or completed.stdout or "cosign verification failed").strip()
