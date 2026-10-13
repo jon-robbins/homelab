@@ -98,6 +98,9 @@ def _check_homelab_ruleset(client: Any, repository: str) -> None:
     if main is None:
         raise VerificationError("homelab main ruleset is missing")
     detail = client.ruleset(repository, int(main["id"])) if hasattr(client, "ruleset") else main
+    if "bypass_actors" not in detail:
+        # GitHub omits bypass_actors for callers without Administration read.
+        raise VerificationError("cannot read homelab main ruleset bypass actors; PRIVATE_INPUT_READ_TOKEN needs Administration: Read on homelab")
     if detail.get("enforcement") != "active" or detail.get("bypass_actors") != []:
         raise VerificationError("homelab main ruleset is weakened")
     if detail.get("target") != "branch":
@@ -280,14 +283,14 @@ def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
     repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
-    ruleset_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN")) if os.environ.get("GITHUB_TOKEN") else client
-    _check_homelab_ruleset(ruleset_client, repository)
+    _check_homelab_ruleset(client, repository)
+    ancestry_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN")) if os.environ.get("GITHUB_TOKEN") else client
     previous = client.last_record(site_repository, "releases")
     next_sequence = int(previous["sequence"]) + 1 if previous else 1
     main_head = os.environ.get("GITHUB_SHA")
     if not main_head:
         raise VerificationError("release plan requires GITHUB_SHA (run inside the release workflow)")
-    _check_homelab_head_ancestry(ruleset_client, repository, main_head)
+    _check_homelab_head_ancestry(ancestry_client, repository, main_head)
     sha = _next_tooling_sha(client, repository, main_head, previous)
     tooling_sha = sha or (previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
@@ -395,6 +398,11 @@ def check_read(client: Any | None = None, *, output: Path | None = None) -> list
             results.append(_check_line("read", label, True, "default branch is readable"))
         except Exception as error:
             results.append(_check_line("read", label, False, f"{type(error).__name__}: {error}"))
+    try:
+        _check_homelab_ruleset(client, os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
+        results.append(_check_line("read", "homelab main ruleset", True, "active, no bypass actors, PR and force-push/deletion rules"))
+    except Exception as error:
+        results.append(_check_line("read", "homelab main ruleset", False, f"{type(error).__name__}: {error}"))
     try:
         artifacts_response = client.artifacts(os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab"))
         artifacts = artifacts_response.get("artifacts", ()) if isinstance(artifacts_response, Mapping) else artifacts_response
