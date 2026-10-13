@@ -127,3 +127,27 @@ def test_artifact_download_requires_a_redirect(monkeypatch, tmp_path):
     monkeypatch.setattr(github, "build_opener", lambda *_handlers: Opener())
     with pytest.raises(GitHubError, match="415"):
         GitHubClient("token").download_artifact_member("owner/repo", {"id": 9}, "oci-layout.tar", tmp_path)
+
+
+def test_pull_requests_for_commit_reads_full_records_for_merged_by():
+    client = GitHubClient("token")
+    sha = "b" * 40
+    calls = []
+    responses = {
+        f"/repos/owner/site/commits/{sha}/pulls": [
+            {"number": 2, "merged_at": "2026-10-12T13:40:30Z", "merge_commit_sha": sha},
+            {"number": 3, "merged_at": None, "merge_commit_sha": sha},
+            {"number": 4, "merged_at": "2026-10-12T13:40:30Z", "merge_commit_sha": "c" * 40},
+        ],
+        "/repos/owner/site/pulls/2": {"number": 2, "merged_by": {"login": "owner"}, "merge_commit_sha": sha},
+    }
+
+    def request(method, path, body=None, **kwargs):
+        calls.append(path)
+        return responses[path]
+
+    client.request = request
+    prs = client.pull_requests_for_commit("owner/site", sha)
+
+    assert prs == [{"number": 2, "merged_by": {"login": "owner"}, "merge_commit_sha": sha}]
+    assert calls == [f"/repos/owner/site/commits/{sha}/pulls", "/repos/owner/site/pulls/2"]
