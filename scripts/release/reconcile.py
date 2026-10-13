@@ -139,6 +139,7 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
             and run.get("head_sha") == sha
             and run.get("event") == "push"
             and run.get("head_branch") == "main"
+            and run.get("path", BUILD_WORKFLOW) == BUILD_WORKFLOW
         ]
         if not exact_runs:
             raise VerificationError(f"post-merge build for {sha} is not visible yet; waiting")
