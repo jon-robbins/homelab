@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import tarfile
 
 import pytest
 
@@ -22,11 +23,20 @@ def paths(tmp_path):
 
 def test_fixture_compiles_deterministically(tmp_path):
     inputs = paths(tmp_path)
-    first = compile_bundle(*inputs)
+    image_refs = {
+        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+    }
+    first = compile_bundle(*inputs, image_refs)
     first_bytes = inputs[-1].read_bytes()
-    second = compile_bundle(*inputs)
+    second = compile_bundle(*inputs, image_refs)
     assert second == first
     assert inputs[-1].read_bytes() == first_bytes
+    with tarfile.open(inputs[-1], "r") as bundle:
+        applications = json.loads(bundle.extractfile("applications.json").read())
+        compose = bundle.extractfile("compose.yaml").read().decode()
+    assert {item["name"]: item["image"] for item in applications["applications"]} == image_refs
+    assert all(reference in compose for reference in image_refs.values())
 
 
 @pytest.mark.parametrize("kind", ["missing", "image", "extra"])
@@ -36,7 +46,7 @@ def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     if kind == "missing":
         del compose["services"]["beta"]
     elif kind == "image":
-        manifest = manifest.replace("registry.invalid/beta@sha256:bbbb", "registry.invalid/beta@sha256:aaaaaaaa")
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-mcp", "ghcr.io/jon-robbins/homelab/homelab-agent")
     else:
         compose["services"]["gamma"] = {"image": "registry.invalid/gamma@sha256:" + "c" * 64}
     compose_path = tmp_path / "compose.json"
@@ -46,4 +56,4 @@ def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     args = (compose_path, manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
     expected = "missing from Compose: beta" if kind == "missing" else None
     with pytest.raises(ValueError, match=expected):
-        compile_bundle(*args)
+        compile_bundle(*args, {"alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64, "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64})

@@ -1,10 +1,10 @@
 {
   "services": {
     "alpha": {
-      "image": "registry.invalid/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "image": "ghcr.io/jon-robbins/homelab/homelab-agent"
     },
     "beta": {
-      "image": "registry.invalid/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      "image": "ghcr.io/jon-robbins/homelab/homelab-mcp"
     }
   }
 }

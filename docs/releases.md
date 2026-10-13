@@ -71,6 +71,11 @@ tree at the verified site SHA into the handoff artifact. The record's `site_id`
 comes from that manifest and its `rollback_floor` is carried forward. A plan
 with no source changes produces no record.
 
+Site `compose.json` and `manifest.yaml` files name approved GHCR repositories
+without tags or digests. Release planning supplies the `image_refs` map from
+repository name to manifest-digest reference; compilation injects those
+immutable references into both the bundle and the release record.
+
 ## Feed layout
 
 The feed is the `releases` branch of `homelab-site`. Each release is an

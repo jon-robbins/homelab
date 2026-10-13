@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -408,8 +409,13 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         # Keep the command useful for local operators and older callers that
         # already materialized inputs under the explicit environment paths.
         inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
-    digest = compile_bundle(*inputs, bundle_path)
     image_refs = plan_data.get("image_refs") or {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data.get("images", [])}
+    digest = compile_bundle(*inputs, bundle_path, image_refs)
+    with tarfile.open(bundle_path, "r") as bundle:
+        applications = json.loads(bundle.extractfile("applications.json").read())
+    bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
+    if bundle_images != image_refs:
+        raise VerificationError("release record image map does not match compiled bundle")
     record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
     data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
