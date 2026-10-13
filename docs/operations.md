@@ -7,8 +7,7 @@ images off-host. It does not deploy or start containers.
 The supported local gate is:
 
 ```bash
-pre-commit run --all-files
-nox -t no-docker
+scripts/dev/gate   # pre-commit + nox -t no-docker; in Linux on macOS
 ```
 
 The signed release feed from N6 is current. A host controller for N7–N11 is

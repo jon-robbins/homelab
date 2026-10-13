@@ -6,9 +6,13 @@ they do not publish or deploy it.
 Run the fast checks and all non-Docker suites from the repository root:
 
 ```bash
-pre-commit run --all-files
-nox -t no-docker
+scripts/dev/gate
 ```
+
+It runs `pre-commit run --all-files` and `nox -t no-docker`: directly on Linux,
+and in a pinned Linux container (`scripts/dev/gate.Dockerfile`) on macOS, so
+results match CI. Extra arguments go to nox, e.g. `scripts/dev/gate -s release`.
+`nox -t docker` runs the sessions that need Docker (Compose, docs).
 
 For focused work, run `python3 -m pytest -q -p no:cacheprovider tests/boundary`
 and the relevant package tests. Worker code lives in
