@@ -39,6 +39,26 @@ def test_fixture_compiles_deterministically(tmp_path):
     assert all(reference in compose for reference in image_refs.values())
 
 
+@pytest.mark.parametrize(
+    "image",
+    [
+        "docker.io/foo:latest",
+        "ghcr.io/jon-robbins/homelab/homelab-agent:latest",
+        "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64,
+    ],
+)
+def test_compiler_rejects_image_on_unmanaged_service(tmp_path, image):
+    compose = json.loads((ROOT / "compose.json").read_text())
+    compose["x-homelab-managed-services"] = ["alpha", "beta"]
+    compose["services"]["unmanaged"] = {"image": image}
+    compose_path = tmp_path / "compose.json"
+    compose_path.write_text(json.dumps(compose))
+    args = (compose_path, ROOT / "manifest.yaml", ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
+
+    with pytest.raises(ValueError, match="image is not permitted for an unmanaged service|must be a bare approved GHCR repository"):
+        compile_bundle(*args, _image_refs())
+
+
 def _image_refs():
     return {
         "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,

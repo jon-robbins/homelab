@@ -48,6 +48,20 @@ def _pin_images(document: dict[str, Any], model: dict[str, Any], image_refs: Map
     if missing:
         raise ValidationError("$.image_refs", f"missing image reference for application: {missing[0]}")
     services = _managed_services(model)
+    all_services = model["services"]
+    for service_name, service in all_services.items():
+        if not isinstance(service, dict) or "image" not in service:
+            continue
+        if service.get("image") not in approved.values():
+            raise ValidationError(
+                f"$.services.{service_name}.image",
+                "must be a bare approved GHCR repository",
+            )
+        if service_name not in services:
+            raise ValidationError(
+                f"$.services.{service_name}.image",
+                "image is not permitted for an unmanaged service",
+            )
     for application in applications:
         name = application["name"]
         service = services[name]
