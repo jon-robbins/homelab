@@ -72,7 +72,7 @@ def _record(sources, images, *, rollback_floor=4):
     }
 
 
-def _setup(monkeypatch, images):
+def _setup(monkeypatch, images, tmp_path=None):
     monkeypatch.setenv("GITHUB_SHA", "h2")
     monkeypatch.setattr(reconcile, "load_approved_destinations", lambda: {
         f"ghcr.io/jon-robbins/homelab/{image}" for image in images
@@ -86,6 +86,17 @@ def _setup(monkeypatch, images):
             (), {image: spec["manifest_digest"] for image, spec in builds.items()}, dict(builds)
         ),
     )
+    if tmp_path is not None:
+        inputs = tmp_path / "plan-inputs"
+        inputs.mkdir()
+        (inputs / "manifest.yaml").write_text(json.dumps({
+            "schema": 1,
+            "applications": [
+                {"name": image, "image": f"ghcr.io/jon-robbins/homelab/{image}"}
+                for image in sorted(images)
+            ],
+        }))
+        monkeypatch.setenv("RELEASE_INPUTS_DIR", str(inputs))
 
 
 def _build(image, digest):
@@ -99,6 +110,61 @@ def _build(image, digest):
     }
 
 
+def test_plan_output_signs_with_manifest_application_names(monkeypatch, tmp_path):
+    site = Path(__file__).parent / "fixtures" / "site"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml"):
+        shutil.copy2(site / name, inputs / name)
+    shutil.copytree(site / "files", inputs / "files")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(inputs))
+    monkeypatch.setenv("GITHUB_SHA", "h2")
+    approved = {
+        "ghcr.io/jon-robbins/homelab/homelab-agent",
+        "ghcr.io/jon-robbins/homelab/homelab-mcp",
+    }
+    monkeypatch.setattr(reconcile, "load_approved_destinations", lambda: approved)
+    monkeypatch.setattr(reconcile, "_materialize_site_inputs", lambda *_args: None)
+    monkeypatch.setattr(reconcile, "_manifest_site_id", lambda _root: "lab")
+    builds = {
+        "homelab-agent": _build("homelab-agent", "sha256:" + "a" * 64),
+        "homelab-mcp": _build("homelab-mcp", "sha256:" + "b" * 64),
+    }
+    monkeypatch.setattr(reconcile, "_attested_builds", lambda *_args: builds)
+    monkeypatch.setattr(
+        reconcile,
+        "verify_release",
+        lambda _client, _sources, _builds, **_kwargs: VerificationResult(
+            (), {image: spec["manifest_digest"] for image, spec in builds.items()}, builds
+        ),
+    )
+    plan = reconcile.plan(
+        Client(None, {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"}),
+        repository="homelab",
+        site_repository="site",
+    )
+    assert set(plan["image_refs"]) == {"alpha", "beta"}
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan))
+    signed = {}
+    def fake_sign_record(record, _destination):
+        signed["record"] = record
+        return b"signature"
+
+    monkeypatch.setattr(
+        reconcile,
+        "sign_record",
+        fake_sign_record,
+    )
+    reconcile.sign_plan(plan_path, tmp_path / "output")
+
+    with tarfile.open(tmp_path / "output" / "bundle.tar", "r") as bundle:
+        applications = json.loads(bundle.extractfile("applications.json").read())
+    bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
+    assert signed["record"]["images"] == bundle_images == plan["image_refs"]
+
+
 def test_carries_forward_unchanged_images(monkeypatch, tmp_path):
     images = {"agent", "mcp"}
     previous = _record(
@@ -107,7 +173,7 @@ def test_carries_forward_unchanged_images(monkeypatch, tmp_path):
          "mcp": "ghcr.io/jon-robbins/homelab/mcp@sha256:" + "b" * 64},
     )
     client = Client(previous, {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"})
-    _setup(monkeypatch, images)
+    _setup(monkeypatch, images, tmp_path)
     monkeypatch.setattr(reconcile, "_attested_builds", lambda *_args: {"agent": _build("agent", "sha256:" + "c" * 64)})
 
     result = reconcile.plan(client, repository="homelab", site_repository="site", output=tmp_path / "plan.json")
@@ -127,7 +193,7 @@ def test_first_release_requires_every_approved_image(monkeypatch):
         reconcile.plan(client, repository="homelab", site_repository="site")
 
 
-def test_site_only_change_preserves_full_image_map(monkeypatch):
+def test_site_only_change_preserves_full_image_map(monkeypatch, tmp_path):
     images = {"agent", "mcp"}
     image_map = {
         "agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64,
@@ -136,7 +202,7 @@ def test_site_only_change_preserves_full_image_map(monkeypatch):
     sources = {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"}
     previous = _record(sources, image_map)
     client = Client(previous, {"homelab": "h1", "homelab-site": "s2", "tracker-integrations": "t1"})
-    _setup(monkeypatch, images)
+    _setup(monkeypatch, images, tmp_path)
     monkeypatch.setenv("GITHUB_SHA", "h1")
 
     result = reconcile.plan(client, repository="homelab", site_repository="site")
@@ -147,7 +213,7 @@ def test_site_only_change_preserves_full_image_map(monkeypatch):
     assert result["site_id"] == "lab"
 
 
-def test_homelab_only_change_without_image_build_preserves_full_image_map(monkeypatch):
+def test_homelab_only_change_without_image_build_preserves_full_image_map(monkeypatch, tmp_path):
     images = {"agent", "mcp"}
     image_map = {
         "agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64,
@@ -156,7 +222,7 @@ def test_homelab_only_change_without_image_build_preserves_full_image_map(monkey
     sources = {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"}
     previous = _record(sources, image_map)
     client = Client(previous, {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"})
-    _setup(monkeypatch, images)
+    _setup(monkeypatch, images, tmp_path)
     monkeypatch.setattr(reconcile, "_attested_builds", lambda *_args: {})
 
     result = reconcile.plan(client, repository="homelab", site_repository="site")
@@ -209,7 +275,7 @@ def test_second_run_selects_oldest_commit_after_previous_position(monkeypatch):
     assert reconcile._next_tooling_sha(client, "homelab", "h3", previous) == "h2"
 
 
-def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch):
+def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch, tmp_path):
     images = {"agent"}
     previous = _record(
         {"homelab": "h1", "homelab-site": "s1", "tracker-integrations": "t1"},
@@ -222,7 +288,7 @@ def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch)
         "h0": {"parents": []},
     }
     client = HistoryClient(previous, {"homelab": "h3", "homelab-site": "s1", "tracker-integrations": "t1"}, history)
-    _setup(monkeypatch, images)
+    _setup(monkeypatch, images, tmp_path)
     monkeypatch.setenv("GITHUB_SHA", "h3")
     monkeypatch.setattr(reconcile, "_attested_builds", lambda _client, _repository, sha: {
         "agent": {**_build("agent", "sha256:" + sha[-1] * 64), "head_sha": sha}
@@ -238,7 +304,7 @@ def test_two_unreleased_merges_are_released_fifo_with_commit_images(monkeypatch)
     assert second["images"][0]["manifest_digest"] == "sha256:" + "3" * 64
 
 
-def test_live_main_ahead_of_run_commit_does_not_change_plan(monkeypatch):
+def test_live_main_ahead_of_run_commit_does_not_change_plan(monkeypatch, tmp_path):
     previous = _record(
         {"homelab": "h2", "homelab-site": "s1", "tracker-integrations": "t1"},
         {"agent": "ghcr.io/jon-robbins/homelab/agent@sha256:" + "a" * 64},
@@ -251,7 +317,7 @@ def test_live_main_ahead_of_run_commit_does_not_change_plan(monkeypatch):
         "h0": {"parents": []},
     }
     client = HistoryClient(previous, {"homelab": "h4", "homelab-site": "s1", "tracker-integrations": "t1"}, history)
-    _setup(monkeypatch, {"agent"})
+    _setup(monkeypatch, {"agent"}, tmp_path)
     monkeypatch.setenv("GITHUB_SHA", "h3")
     monkeypatch.setattr(reconcile, "_attested_builds", lambda _client, _repository, sha: {
         "agent": {**_build("agent", "sha256:" + sha[-1] * 64), "head_sha": sha}

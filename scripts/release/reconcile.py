@@ -13,9 +13,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+import yaml
+
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import ValidationError, load_application_manifest, load_release_record, parse_json, validate_digest
+from .contracts import ValidationError, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient, GitHubError
 from .sign import COSIGN_VERSION, record_bytes, sign_record
@@ -332,7 +334,12 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
 
 
 def _manifest_site_id(root: Path) -> str:
-    manifest = load_application_manifest((root / "manifest.yaml").read_bytes(), yaml=True)
+    try:
+        manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
+    except (OSError, yaml.YAMLError) as error:
+        raise VerificationError("site manifest is not readable") from error
+    if not isinstance(manifest, Mapping):
+        raise VerificationError("site manifest is not an object")
     site_id = manifest.get("site_id")
     if not isinstance(site_id, str):
         raise VerificationError("site manifest is missing site_id")
@@ -342,6 +349,49 @@ def _manifest_site_id(root: Path) -> str:
 def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
     prefix = "ghcr.io/jon-robbins/homelab/"
     return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
+
+
+def _manifest_image_refs(root: Path, previous: Mapping[str, Any] | None, images: list[dict[str, Any]], approved: frozenset[str]) -> dict[str, str]:
+    try:
+        manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
+    except (OSError, yaml.YAMLError) as error:
+        raise VerificationError("site manifest is not readable") from error
+    if not isinstance(manifest, Mapping) or not isinstance(manifest.get("applications"), list):
+        raise VerificationError("site manifest applications are not an array")
+
+    application_destinations: dict[str, str] = {}
+    for application in manifest["applications"]:
+        if not isinstance(application, Mapping):
+            raise VerificationError("site manifest application is not an object")
+        name = application.get("name")
+        destination = application.get("image")
+        if not isinstance(name, str) or not isinstance(destination, str):
+            raise VerificationError("site manifest application requires name and image")
+        if name in application_destinations:
+            raise VerificationError(f"site manifest has duplicate application: {name}")
+        if destination not in approved:
+            raise VerificationError(f"site application {name} must name a bare approved GHCR repository")
+        application_destinations[name] = destination
+
+    by_destination: dict[str, str] = {}
+    previous_images = previous.get("images", {}) if isinstance(previous, Mapping) else {}
+    if isinstance(previous_images, Mapping):
+        for reference in previous_images.values():
+            if isinstance(reference, str) and "@" in reference:
+                by_destination[reference.split("@", 1)[0]] = reference
+    for image in images:
+        destination = image.get("destination")
+        digest = image.get("manifest_digest")
+        if isinstance(destination, str) and isinstance(digest, str):
+            by_destination[destination] = f"{destination}@{digest}"
+
+    references: dict[str, str] = {}
+    for name, destination in application_destinations.items():
+        reference = by_destination.get(destination)
+        if reference is None:
+            raise VerificationError(f"no released image reference for application: {name}")
+        references[name] = reference
+    return references
 
 
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
@@ -384,13 +434,9 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "run_id": builds[image]["run_id"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        image_refs = dict(previous.get("images", {}) if previous else {})
-        image_refs.update({item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in images})
-        if set(image_refs) != all_images:
-            missing = sorted(all_images - set(image_refs))
-            raise VerificationError(f"release record image map is incomplete; missing {missing[0]}")
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
+        image_refs = _manifest_image_refs(input_root, previous, images, approved)
         result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
