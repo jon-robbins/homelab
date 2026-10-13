@@ -1,7 +1,7 @@
 # Reproduction image of the patched ~/qwen vLLM environment:
 # vllm 0.27.1 + 8 vendored patches + KVarN KV-cache port.
 # Spec: docs/superpowers/specs/2026-08-19-qwen-vllm-compose-design.md
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # patch: vendored .patch files at build time; libgomp1: torch wheels;
 # ca-certificates: pip over TLS.
