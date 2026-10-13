@@ -15,6 +15,9 @@ The signed release feed from N6 is current. A host controller for N7–N11 is
 still **Planned**. Private site operations and runtime backups belong outside
 this public repository.
 
-CI installs pinned versions of pre-commit and nox. When adding a GitHub
-Action, write its release tag first and run `pinact run`; pinact writes the
-commit SHA and trailing version comment that Dependabot maintains.
+CI installs pinned versions of pre-commit and nox. Pinact v5.0.0 is the
+repository's pinned action-pinning tool. Install it reproducibly with
+`go install github.com/suzuki-shunsuke/pinact/v5/cmd/pinact@v5.0.0`. When
+adding a GitHub Action, write its release tag first and run `pinact run`;
+pinact writes the commit SHA and trailing version comment that Dependabot
+maintains.

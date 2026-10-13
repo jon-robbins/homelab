@@ -23,6 +23,10 @@ repos:
     rev: v1.8.0
     hooks:
       - id: zizmor
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
   - repo: local
     hooks:
       - id: bash-syntax
@@ -30,11 +34,6 @@ repos:
         entry: bash -n
         language: system
         files: \.(sh)$
-      - id: gitleaks
-        name: gitleaks
-        entry: gitleaks detect --source . --config .gitleaks.toml --no-banner --redact
-        language: system
-        pass_filenames: false
       - id: public-readiness
         name: public readiness
         entry: python3 scripts/ci/public-readiness.py
@@ -43,5 +42,8 @@ repos:
       - id: workflow-security
         name: workflow security policy
         entry: python3 -m pytest -q tests/ci/test_workflow_security.py
-        language: system
+        language: python
+        additional_dependencies:
+          - pytest==8.3.5
+          - pyyaml==6.0.2
         pass_filenames: false
