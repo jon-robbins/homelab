@@ -19,8 +19,12 @@ def _ruleset(**overrides):
 
 
 class RulesetClient:
-    def __init__(self, detail):
+    def __init__(self, detail, default_branch="main"):
         self.detail = detail
+        self.default_branch = default_branch
+
+    def repository(self, repository):
+        return {"default_branch": self.default_branch}
 
     def rulesets(self, repository):
         return [{"id": 7, "name": "main"}]
@@ -55,6 +59,27 @@ def test_weakened_ruleset_fails(overrides):
 def test_missing_required_rule_fails():
     with pytest.raises(VerificationError, match="require PR"):
         reconcile._check_homelab_ruleset(RulesetClient(_ruleset(rules=[{"type": "pull_request"}])), "jon-robbins/homelab")
+
+
+def _targets(include, exclude=()):
+    return {"ref_name": {"include": list(include), "exclude": list(exclude)}}
+
+
+@pytest.mark.parametrize("include", [["refs/heads/main"], ["~DEFAULT_BRANCH"], ["~ALL"]])
+def test_ruleset_targeting_main_passes(include):
+    reconcile._check_homelab_ruleset(RulesetClient(_ruleset(conditions=_targets(include))), "jon-robbins/homelab")
+
+
+@pytest.mark.parametrize("conditions,default_branch", [
+    (_targets(["~DEFAULT_BRANCH"]), "trunk"),
+    (_targets(["refs/heads/release"]), "main"),
+    (_targets(["~ALL"], ["refs/heads/main"]), "main"),
+    (_targets(["~ALL"], ["~DEFAULT_BRANCH"]), "main"),
+])
+def test_ruleset_not_covering_main_fails(conditions, default_branch):
+    client = RulesetClient(_ruleset(conditions=conditions), default_branch=default_branch)
+    with pytest.raises(VerificationError, match="does not target main"):
+        reconcile._check_homelab_ruleset(client, "jon-robbins/homelab")
 
 
 class CheckReadClient(RulesetClient):
