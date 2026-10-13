@@ -1,5 +1,7 @@
 import json
+import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,43 @@ class Client:
         if repository.endswith("tracker-integrations"):
             return self.heads["tracker-integrations"]
         return self.heads[repository]
+
+
+def test_sign_plan_record_images_equal_bundle_images(monkeypatch, tmp_path):
+    site = Path(__file__).parent / "fixtures" / "site"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml"):
+        shutil.copy2(site / name, inputs / name)
+    shutil.copytree(site / "files", inputs / "files")
+    monkeypatch.setenv("RELEASE_INPUTS_DIR", str(inputs))
+
+    image_refs = {
+        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+    }
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({
+        "release": True,
+        "site_id": "lab",
+        "sequence": 1,
+        "sha": "tooling",
+        "sources": {"homelab": "tooling", "homelab-site": "site", "tracker-integrations": "tracker"},
+        "image_refs": image_refs,
+    }))
+    signed = {}
+
+    def fake_sign_record(record, destination):
+        signed["record"] = record
+        return b"signature"
+
+    monkeypatch.setattr(reconcile, "sign_record", fake_sign_record)
+    reconcile.sign_plan(plan, tmp_path / "output")
+
+    with tarfile.open(tmp_path / "output" / "bundle.tar", "r") as bundle:
+        applications = json.loads(bundle.extractfile("applications.json").read())
+    bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
+    assert signed["record"]["images"] == bundle_images == image_refs
 
 
 def _record(sources, images, *, rollback_floor=4):

@@ -39,6 +39,54 @@ def test_fixture_compiles_deterministically(tmp_path):
     assert all(reference in compose for reference in image_refs.values())
 
 
+def _image_refs():
+    return {
+        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("tagged", "must be a bare approved GHCR repository"),
+        ("digested", "must be a bare approved GHCR repository"),
+        ("unapproved", "must be a bare approved GHCR repository"),
+        ("missing", "missing image reference for application: beta"),
+        ("extra", "no matching application: gamma"),
+    ],
+)
+def test_compiler_rejects_invalid_image_refs(tmp_path, kind, expected):
+    compose = json.loads((ROOT / "compose.json").read_text())
+    manifest = (ROOT / "manifest.yaml").read_text()
+    if kind == "tagged":
+        image = "ghcr.io/jon-robbins/homelab/homelab-agent:latest"
+        compose["services"]["alpha"]["image"] = image
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+    elif kind == "digested":
+        image = "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64
+        compose["services"]["alpha"]["image"] = image
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+    elif kind == "unapproved":
+        image = "ghcr.io/jon-robbins/homelab/not-approved"
+        compose["services"]["alpha"]["image"] = image
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+
+    compose_path = tmp_path / "compose.json"
+    compose_path.write_text(json.dumps(compose))
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(manifest)
+    image_refs = _image_refs()
+    if kind == "missing":
+        del image_refs["beta"]
+    elif kind == "extra":
+        image_refs["gamma"] = "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64
+
+    args = (compose_path, manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
+    with pytest.raises(ValueError, match=expected):
+        compile_bundle(*args, image_refs)
+
+
 @pytest.mark.parametrize("kind", ["missing", "image", "extra"])
 def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     compose = json.loads((ROOT / "compose.json").read_text())
