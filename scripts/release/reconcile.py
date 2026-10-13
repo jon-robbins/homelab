@@ -105,8 +105,11 @@ def _check_homelab_ruleset(client: Any, repository: str) -> None:
         raise VerificationError("homelab main ruleset is weakened")
     if detail.get("target") != "branch":
         raise VerificationError("homelab main ruleset is not branch-targeted")
-    conditions = detail.get("conditions", {}).get("ref_name", {}).get("include", ())
-    if "refs/heads/main" not in conditions:
+    ref_name = detail.get("conditions", {}).get("ref_name", {})
+    include, exclude = set(ref_name.get("include", ())), set(ref_name.get("exclude", ()))
+    default_is_main = bool(include & {"~DEFAULT_BRANCH"} or exclude & {"~DEFAULT_BRANCH"}) and client.repository(repository).get("default_branch") == "main"
+    main_names = {"refs/heads/main", "~ALL"} | ({"~DEFAULT_BRANCH"} if default_is_main else set())
+    if not include & main_names or exclude & (main_names | {"refs/heads/main"}):
         raise VerificationError("homelab main ruleset does not target main")
     types = {rule.get("type") for rule in detail.get("rules", ())}
     if not {"pull_request", "non_fast_forward", "deletion"}.issubset(types):
