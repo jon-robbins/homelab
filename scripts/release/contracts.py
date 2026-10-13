@@ -51,11 +51,15 @@ APPLICATION_FIELDS = {
     "semantic_probes": (True, "ProbeID[]"),
     "gpu": (False, "GPU"),
 }
-MANIFEST_FIELDS = {"schema": (True, "SchemaVersion"), "applications": (True, "Application[]")}
+MANIFEST_FIELDS = {
+    "schema": (True, "SchemaVersion"),
+    "site_id": (False, "Name"),
+    "applications": (True, "Application[]"),
+}
 SOURCES_FIELDS = {
     "homelab": (True, "GitSHA"),
-    "homelab_site": (True, "GitSHA"),
-    "tracker_integrations": (False, "GitSHA"),
+    "homelab-site": (True, "GitSHA"),
+    "tracker-integrations": (False, "GitSHA"),
 }
 RELEASE_RECORD_FIELDS = {
     "schema": (True, "SchemaVersion"),
@@ -78,19 +82,6 @@ PROBE_RESULT_FIELDS = {
     "duration_ms": (True, "NonnegativeInteger"),
     "detail": (True, "BoundedString"),
 }
-BUILD_PROVENANCE_FIELDS = {
-    "schema": (True, "SchemaVersion"),
-    "repository": (True, "Repository"),
-    "workflow_ref": (True, "WorkflowRef"),
-    "run_id": (True, "PositiveInteger"),
-    "run_attempt": (True, "PositiveInteger"),
-    "source_sha": (True, "GitSHA"),
-    "image": (True, "Name"),
-    "manifest_digest": (True, "Digest"),
-    "built_at": (True, "Timestamp"),
-}
-
-
 def _path(path: str, key: str) -> str:
     return f"{path}.{key}" if path != "$" else f"$.{key}"
 
@@ -240,21 +231,6 @@ def validate_probe_result(value: Any) -> dict[str, Any]:
     return result
 
 
-def validate_build_provenance(value: Any) -> dict[str, Any]:
-    """Validate and return a BuildProvenance mapping."""
-    provenance = _object(value, "$", BUILD_PROVENANCE_FIELDS)
-    _schema_one(provenance["schema"], "$.schema")
-    validate_repository(provenance["repository"], "$.repository")
-    validate_workflow_ref(provenance["workflow_ref"], "$.workflow_ref")
-    validate_positive_integer(provenance["run_id"], "$.run_id")
-    validate_positive_integer(provenance["run_attempt"], "$.run_attempt")
-    validate_git_sha(provenance["source_sha"], "$.source_sha")
-    validate_name(provenance["image"], "$.image")
-    validate_digest(provenance["manifest_digest"], "$.manifest_digest")
-    validate_timestamp(provenance["built_at"], "$.built_at")
-    return provenance
-
-
 def _string_array(value: Any, path: str, validator) -> list[str]:
     if not isinstance(value, list):
         raise ValidationError(path, "expected array")
@@ -322,6 +298,8 @@ def validate_application_manifest(
     if manifest["schema"] != 1 or isinstance(manifest["schema"], bool):
         raise ValidationError("$.schema", "unsupported schema version; expected 1")
     applications = manifest["applications"]
+    if "site_id" in manifest:
+        validate_name(manifest["site_id"], "$.site_id")
     if not isinstance(applications, list):
         raise ValidationError("$.applications", "expected array")
 
@@ -464,11 +442,6 @@ def load_release_record(source: str | bytes, *, yaml: bool = False) -> dict[str,
 def load_probe_result(source: str | bytes, *, yaml: bool = False) -> dict[str, Any]:
     """Parse and validate a ProbeResult."""
     return _load_contract(source, validate_probe_result, yaml=yaml)
-
-
-def load_build_provenance(source: str | bytes, *, yaml: bool = False) -> dict[str, Any]:
-    """Parse and validate a BuildProvenance."""
-    return _load_contract(source, validate_build_provenance, yaml=yaml)
 
 
 # Friendly aliases for callers that use the contract names directly.

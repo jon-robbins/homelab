@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,12 @@ ALLOWED_TRIGGERS = {
 GITHUB_HOSTED_RUNNERS = {"ubuntu-latest"}
 FULL_COMMIT_SHA = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 SECRETS_CONTEXT = re.compile(r"\bsecrets\s*(?:\.|\[)", re.IGNORECASE)
+SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*|\[\s*['\"])([A-Z][A-Z0-9_]*)", re.IGNORECASE)
+RELEASE_SECRETS = {
+    "verify": "PRIVATE_INPUT_READ_TOKEN",
+    "sign": None,
+    "feed": "SITE_FEED_TOKEN",
+}
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -118,7 +125,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
 
     def assert_no_legacy_authority(
-        self, workflow: dict[str, Any], *, allow_package_write: bool = False
+        self, workflow: dict[str, Any], *, allow_package_write: bool = False,
+        allow_attestation: bool = False
     ) -> None:
         triggers = workflow.get("on")
         self.assertIsInstance(triggers, dict)
@@ -140,8 +148,14 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertIsInstance(job.get("runs-on"), str)
             self.assertIn(job.get("runs-on"), GITHUB_HOSTED_RUNNERS)
             if "permissions" in job:
+                if allow_attestation and job_name == "build" and isinstance(job.get("permissions"), dict) and job["permissions"].get("id-token") == "write":
+                    self.assertEqual(
+                        job["permissions"],
+                        {"contents": "read", "id-token": "write", "attestations": "write"},
+                    )
+                    continue
                 if allow_package_write and job["permissions"].get("packages") == "write":
-                    self.assertEqual(job["permissions"], {"contents": "read", "packages": "write"})
+                    self.assertEqual(job["permissions"], {"contents": "read", "actions": "read", "packages": "write"})
                     self.assertEqual(job.get("environment"), "production-release")
                     self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
                 else:
@@ -168,6 +182,256 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertFalse(has_secrets_context_reference(value), value)
 
         assert_no_secrets(workflow)
+
+    def assert_release_policy(self, workflow: dict[str, Any]) -> None:
+        self.assertEqual(
+            workflow.get("on"),
+            {
+                "schedule": [{"cron": "7,22,37,52 * * * *"}],
+                "workflow_dispatch": {
+                    "inputs": {
+                        "mode": {
+                            "description": "Release operation",
+                            "type": "choice",
+                            "options": ["reconcile", "check"],
+                            "default": "reconcile",
+                            "required": "true",
+                        }
+                    }
+                },
+            },
+        )
+        self.assertEqual(workflow.get("permissions"), {"contents": "read"})
+        self.assertEqual(
+            workflow.get("concurrency"),
+            {"group": "release-reconciler", "cancel-in-progress": "false"},
+        )
+        jobs = workflow.get("jobs", {})
+        self.assertEqual(set(jobs), {"verify", "publish", "sign", "feed", "check-read", "check-sign", "check-feed"})
+
+        def secret_names(value: object) -> list[str]:
+            if isinstance(value, dict):
+                result: list[str] = []
+                for child in value.values():
+                    result.extend(secret_names(child))
+                return result
+            if isinstance(value, list):
+                result = []
+                for child in value:
+                    result.extend(secret_names(child))
+                return result
+            return SECRET_REFERENCE.findall(str(value)) if isinstance(value, str) else []
+
+        for job_name in ("verify", "publish", "sign", "feed"):
+            job = jobs[job_name]
+            expected_if = "github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')"
+            if job_name == "publish":
+                expected_if += " && needs.verify.outputs.has_publish_images == 'true'"
+            elif job_name != "verify":
+                expected_if = (
+                    "always() && " + expected_if
+                    + " && needs.verify.result == 'success'"
+                    + " && needs.verify.outputs.has_release == 'true'"
+                    + " && (needs.publish.result == 'success' || needs.publish.result == 'skipped')"
+                )
+                if job_name == "feed":
+                    expected_if += " && needs.sign.result == 'success'"
+            self.assertEqual(job.get("if"), expected_if)
+            self.assertIsInstance(job, dict)
+            if job_name == "publish":
+                self.assertEqual(job.get("uses"), "./.github/workflows/reusable-publish.yml")
+                self.assertNotIn("environment", job)
+                self.assertEqual(
+                    job.get("permissions"),
+                    {"contents": "read", "actions": "read", "packages": "write"},
+                )
+                self.assertEqual(secret_names(job), [])
+                continue
+
+            self.assertEqual(job.get("runs-on"), "ubuntu-latest")
+            self.assertEqual(job.get("environment"), "production-release")
+            if job_name == "verify":
+                self.assertEqual(
+                    job.get("permissions"),
+                    {"contents": "read", "actions": "read"},
+                )
+            else:
+                expected_permissions = {"contents": "read", "id-token": "write"} if job_name == "sign" else {"contents": "read"}
+                self.assertEqual(job.get("permissions"), expected_permissions)
+            actions = [step["uses"] for step in job.get("steps", []) if "uses" in step]
+            self.assertIn(
+                "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+                actions,
+            )
+            checkout = next(step for step in job["steps"] if step.get("name") == "Checkout tooling")
+            expected_ref = "${{ needs.verify.outputs.sha }}" if job_name in {"sign", "feed"} else "${{ github.sha }}"
+            self.assertEqual(checkout.get("with", {}).get("ref"), expected_ref)
+
+            references = []
+            for value in job.get("env", {}).values():
+                references.extend(SECRET_REFERENCE.findall(str(value)))
+            for step in job.get("steps", []):
+                for value in step.get("env", {}).values():
+                    references.extend(SECRET_REFERENCE.findall(str(value)))
+            expected_secret = RELEASE_SECRETS[job_name]
+            self.assertEqual(references, [] if expected_secret is None else [expected_secret])
+
+            # A protected job may expose exactly its mapped environment secret;
+            # this also covers secrets accidentally placed in a run/with field.
+            self.assertEqual(secret_names(job), [] if expected_secret is None else [expected_secret])
+
+        self.assertNotIn("env", jobs["sign"])
+        for job_name, secret_name in {
+            "check-read": "PRIVATE_INPUT_READ_TOKEN",
+            "check-sign": None,
+            "check-feed": "SITE_FEED_TOKEN",
+        }.items():
+            job = jobs[job_name]
+            self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'")
+            self.assertEqual(job.get("environment"), "production-release")
+            self.assertEqual(job.get("runs-on"), "ubuntu-latest")
+            expected_permissions = {"contents": "read", "id-token": "write"} if job_name == "check-sign" else {"contents": "read", "actions": "read"} if job_name == "check-read" else {"contents": "read"}
+            self.assertEqual(job.get("permissions"), expected_permissions)
+            self.assertEqual(secret_names(job), [] if secret_name is None else [secret_name])
+            self.assertEqual(
+                [step["uses"] for step in job.get("steps", []) if "uses" in step].count("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
+                1,
+            )
+
+    def test_always_jobs_check_every_need_result(self) -> None:
+        for path in workflow_paths():
+            workflow = load_workflow(path)
+            for job_name, job in workflow.get("jobs", {}).items():
+                condition = str(job.get("if", ""))
+                if "always()" not in condition:
+                    continue
+                needs = job.get("needs", [])
+                needs = [needs] if isinstance(needs, str) else needs
+                for dependency in needs:
+                    with self.subTest(workflow=path.name, job=job_name, dependency=dependency):
+                        self.assertIn(f"needs.{dependency}.result", condition)
+
+    def test_release_workflow_policy(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_without_production_environment(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["sign"].pop("environment")
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_hard_coded_signing_key_id(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["sign"]["env"] = {"RELEASE_SIGNING_KEY_ID": "release-v1"}
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_in_wrong_job(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["feed"]["env"] = {
+            "RELEASE_SIGNING_KEY": "${{ secrets.RELEASE_SIGNING_KEY }}"
+        }
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_in_reusable_publish_job(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        workflow["jobs"]["publish"]["with"]["unexpected-secret"] = (
+            "${{ secrets.RELEASE_SIGNING_KEY }}"
+        )
+
+        with self.assertRaises(AssertionError):
+            self.assert_release_policy(workflow)
+
+    def test_release_policy_rejects_secret_outside_release_workflow(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "ci.yml")
+        workflow["jobs"]["validate"]["env"] = {
+            "TOKEN": "${{ secrets.SITE_FEED_TOKEN }}"
+        }
+
+        with self.assertRaises(AssertionError):
+            self.assert_no_legacy_authority(workflow)
+
+    def test_release_output_references_are_declared_and_written(self) -> None:
+        workflow_path = WORKFLOWS / "release.yml"
+        workflow = load_workflow(workflow_path)
+        needs_references: list[tuple[str, str]] = []
+        step_references: list[tuple[str, str, str]] = []
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+            elif isinstance(value, str):
+                name_pattern = r"[" + "A-Za-z" + r"0-9_-]+"
+                output_segment = "out" + "puts"
+                captured_name = "(" + name_pattern + ")"
+                needs_references.extend(
+                    re.findall(r"needs\." + captured_name + r"\." + output_segment + r"\." + captured_name, value)
+                )
+
+        visit(workflow)
+        for job_name, job in workflow["jobs"].items():
+            outputs = job.get("outputs", {})
+            steps = {step.get("id") for step in job.get("steps", []) if step.get("id")}
+            for output_value in outputs.values():
+                name_pattern = r"[" + "A-Za-z" + r"0-9_-]+"
+                output_segment = "out" + "puts"
+                captured_name = "(" + name_pattern + ")"
+                match = re.fullmatch(r"\$\{\{\s*steps\." + name_pattern + r"\." + output_segment + r"\." + name_pattern + r"\s*\}\}", str(output_value))
+                if match:
+                    parts = re.fullmatch(r"\$\{\{\s*steps\." + captured_name + r"\." + output_segment + r"\." + captured_name + r"\s*\}\}", str(output_value))
+                    assert parts is not None
+                    step_references.append((job_name, parts.group(1), parts.group(2)))
+            for referenced_job, output_name in needs_references:
+                if referenced_job == job_name:
+                    self.assertIn(output_name, outputs)
+            self.assertTrue(steps or not outputs)
+
+        from scripts.release.reconcile import write_plan_outputs
+
+        with tempfile.NamedTemporaryFile() as output_file:
+            write_plan_outputs(
+                {"sha": "a" * 40, "run_id": 123, "images": [{"image": "api"}]},
+                output_file.name,
+            )
+            written_outputs = {
+                line.partition("=")[0]
+                for line in output_file.read().decode("utf-8").splitlines()
+            }
+        for job_name, step_id, output_name in step_references:
+            with self.subTest(job=job_name, step=step_id, output=output_name):
+                self.assertIn(step_id, {step.get("id") for step in workflow["jobs"][job_name].get("steps", [])})
+                self.assertIn(output_name, written_outputs)
+
+    def test_release_jobs_install_dependencies_before_reconcile(self) -> None:
+        workflow = load_workflow(WORKFLOWS / "release.yml")
+        for job_name in ("verify", "sign", "feed"):
+            with self.subTest(job=job_name):
+                steps = workflow["jobs"][job_name]["steps"]
+                reconcile_indexes = [
+                    index
+                    for index, step in enumerate(steps)
+                    if "scripts.release" in str(step.get("run", ""))
+                ]
+                self.assertTrue(reconcile_indexes)
+                first_reconcile = min(reconcile_indexes)
+                install_indexes = [
+                    index
+                    for index, step in enumerate(steps[:first_reconcile])
+                    if "config/release/requirements.txt" in str(step.get("run", ""))
+                    and "--require-hashes" in str(step.get("run", ""))
+                    and "python3 -m venv" in str(step.get("run", ""))
+                ]
+                self.assertTrue(install_indexes)
+                self.assertLess(max(install_indexes), first_reconcile)
 
     def assert_candidate_ci_policy(self, workflow: dict[str, Any]) -> None:
         self.assertEqual(
@@ -209,6 +473,16 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(checkout.get("with", {}).get("persist-credentials"), "false")
 
         step_by_name = {step["name"]: step for step in steps}
+        self.assertNotIn("Create changed images environment", step_by_name)
+        self.assertNotIn("Qwen runtime regressions", step_by_name)
+        qwen_tests = step_by_name["Qwen code Telegram tests"]["run"]
+        for test_name in (
+            "test_response_contract.py",
+            "test_entrypoint.sh",
+            "test_role_render.sh",
+            "test_system_policy.sh",
+        ):
+            self.assertIn(test_name, qwen_tests)
         worker_setup_index = next(
             index
             for index, step in enumerate(steps)
@@ -240,11 +514,11 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertLess(worker_setup_index, ops_index)
 
         worker_setup = step_by_name["Create workers environment"]["run"]
-        self.assertIn('apps/homelab-workers/.venv/bin" >> "${GITHUB_PATH}"', worker_setup)
-        self.assertIn('pip" install -e "${WORKERS_DIR}[dev]"', worker_setup)
-        self.assertEqual(
+        self.assertIn('"${RUNNER_TEMP}/workers-venv/bin/pip" install -q -e "${WORKERS_DIR}[dev]"', worker_setup)
+        self.assertIn('python3 -m venv "${RUNNER_TEMP}/workers-venv"', worker_setup)
+        self.assertIn(
+            '"${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_workflow_security.py',
             step_by_name["Workflow security policy"]["run"],
-            "python3 -m pytest -q tests/ci/test_workflow_security.py",
         )
 
         self.assertEqual(
@@ -259,8 +533,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
 
         media_setup = step_by_name["Create media agent environment"]["run"]
-        self.assertIn('apps/media-agent/.venv/bin" >> "${GITHUB_PATH}"', media_setup)
-        self.assertIn('pip" install -e "${MEDIA_DIR}[dev]"', media_setup)
+        self.assertIn('"${RUNNER_TEMP}/media-agent-venv/bin/pip" install -q -e "${MEDIA_DIR}[dev]"', media_setup)
+        self.assertIn('python3 -m venv "${RUNNER_TEMP}/media-agent-venv"', media_setup)
         self.assertIsNone(
             step_by_name["Package pytest"].get("working-directory")
         )
@@ -360,9 +634,15 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertTrue(paths)
         for path in paths:
             with self.subTest(workflow=path.name):
-                self.assert_no_legacy_authority(
-                    load_workflow(path), allow_package_write=path.name == "reusable-publish.yml"
-                )
+                workflow = load_workflow(path)
+                if path.name == "release.yml":
+                    self.assert_release_policy(workflow)
+                else:
+                    self.assert_no_legacy_authority(
+                        workflow,
+                        allow_package_write=path.name == "reusable-publish.yml",
+                        allow_attestation=path.name == "post-merge-build.yml",
+                    )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:
         """Same-repo calls use the local ./ form, which runs at the caller's own commit;
@@ -371,6 +651,9 @@ class WorkflowSecurityTests(unittest.TestCase):
         for job_name, job in workflow["jobs"].items():
             with self.subTest(job=job_name):
                 reference = job.get("uses")
+                if reference is None:
+                    self.assertIsInstance(job.get("runs-on"), str)
+                    continue
                 self.assertIsInstance(reference, str)
                 if reference.startswith("./"):
                     self.assertNotIn("@", reference)

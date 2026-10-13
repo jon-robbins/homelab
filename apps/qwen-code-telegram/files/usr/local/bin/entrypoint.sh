@@ -19,12 +19,25 @@ fail() { echo "[entrypoint] FAIL: $*" >&2; exit 2; }
 # Phase 0: Mount checks — ensure no accidental writable host /home leaks in.
 # ---------------------------------------------------------------------------
 # (No host mounts beyond the single named volume workdir/ and secrets; enforced
-#  by compose. If somehow /homelab or similar is present, refuse to start.)
-for p in /homelab "${HOME}"; do
-  if [ -d "$p" ]; then
-    fail "refusing to start: forbidden path $p is present in container"
+# by compose. The image user's own home is expected, but extra /home entries
+# and /homelab indicate an accidental host mount.)
+check_forbidden_mounts() {
+  local home_root="/home"
+  local own_home="${HOME}"
+  local path
+
+  if [ -d /homelab ]; then
+    fail "refusing to start: forbidden path /homelab is present in container"
   fi
-done
+  if [ -d "$home_root" ]; then
+    while IFS= read -r path; do
+      if [ "$path" != "$own_home" ]; then
+        fail "refusing to start: forbidden path $path is present in container"
+      fi
+    done < <(find "$home_root" -mindepth 1 -maxdepth 1 -type d -print)
+  fi
+}
+check_forbidden_mounts
 
 # ---------------------------------------------------------------------------
 # Phase 1: Hydrate Docker secrets into env vars (SECRET FILE → env export).

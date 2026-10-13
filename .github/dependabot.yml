@@ -1,5 +1,9 @@
 version: 2
 updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
   - package-ecosystem: docker
     directory: /compose
     schedule:
@@ -30,5 +34,9 @@ updates:
       interval: weekly
   - package-ecosystem: docker
     directory: /config/caddy
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /config/release
     schedule:
       interval: weekly

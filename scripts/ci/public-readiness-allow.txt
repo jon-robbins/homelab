@@ -16,7 +16,6 @@ apps/homelab-workers/src/homelab_workers/mcp_gap_closer/redact.py token-shaped #
 apps/homelab-workers/src/homelab_workers/tests/test_autobrr_push_verify.py token-shaped # Synthetic release-name fixtures.
 apps/homelab-workers/src/homelab_workers/tests/test_mcp_gap_redact.py token-shaped # Synthetic credential fixture.
 apps/homelab-workers/src/homelab_workers/tests/test_qbt_exclusive.py token-shaped # Synthetic release-name fixtures.
-apps/qwen-code-telegram/tests/test_runtime_regressions.sh token-shaped # Synthetic installed-runtime path fixtures.
 config/seerr/entrypoint.sh token-shaped # Synthetic JavaScript replacement fixture.
 scripts/lib/managed-secrets.sh token-shaped # Synthetic shell variable-name parser fixture.
 scripts/ops/ensure-sonarr-scene-mappings.sh token-shaped # Synthetic title used by the local API check.

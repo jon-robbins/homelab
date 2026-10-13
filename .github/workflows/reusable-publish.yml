@@ -12,6 +12,12 @@ on:
       manifest-digest:
         required: true
         type: string
+      run-id:
+        required: true
+        type: string
+      release-sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -25,11 +31,13 @@ jobs:
     # here, on main, inside the branch-restricted production-release environment.
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download OCI artifact
@@ -37,12 +45,25 @@ jobs:
         with:
           name: ${{ inputs.artifact-name }}
           path: artifact
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
 
-      - name: Copy and verify OCI artifact
+      - name: Verify and promote OCI artifact
         env:
-          GHCR_PUBLISH_TOKEN: ${{ github.token }}
-        run: >-
-          python3 scripts/release/artifacts.py publish
-          --artifact artifact/oci-layout.tar
-          --destination "${{ inputs.destination }}"
-          --expected-manifest-digest "${{ inputs.manifest-digest }}"
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          INPUT_DESTINATION: ${{ inputs.destination }}
+          INPUT_RELEASE_SHA: ${{ inputs.release-sha }}
+          INPUT_MANIFEST_DIGEST: ${{ inputs.manifest-digest }}
+        run: |
+          set -euo pipefail
+          source="oci-archive:artifact/oci-layout.tar"
+          destination="docker://${INPUT_DESTINATION}:sha-${INPUT_RELEASE_SHA}"
+          gh attestation verify artifact/oci-layout.tar \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/post-merge-build.yml" \
+            --source-digest "$INPUT_RELEASE_SHA"
+          skopeo copy --preserve-digests --dest-creds "github-actions:${GITHUB_TOKEN}" "$source" "$destination"
+          actual="$(skopeo inspect --creds "github-actions:${GITHUB_TOKEN}" --format '{{.Digest}}' "$destination")"
+          test "$actual" = "$INPUT_MANIFEST_DIGEST"

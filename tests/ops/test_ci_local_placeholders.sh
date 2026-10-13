@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Static checks: CI placeholders must not leak into live e2e/nightly mutations.
+# Static checks: the local gate has no live mutation modes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -26,16 +26,8 @@ if awk '
   fail "ci-local must not source export-ci-secret-placeholders.sh at top level"
 fi
 
-[[ -x "${ROOT}/scripts/ops/homelab-compose.py" ]] \
-  || fail "homelab-compose.py must be executable as the canonical entrypoint"
-grep -q 'homelab-compose.py" up -d --remove-orphans' "${CI_LOCAL}" \
-  || fail "e2e/nightly mutation must use homelab-compose.py"
-if grep -q 'scripts/ops/homelab-compose.sh' "${CI_LOCAL}"; then
-  fail "ci-local must consistently use the canonical homelab-compose.py entrypoint"
+if grep -Eq '\be2e\b|\bnightly\b' "${CI_LOCAL}"; then
+  fail "retired e2e/nightly modes must not appear in ci-local.sh"
 fi
-grep -q 'refusing to mutate with placeholders' "${CI_LOCAL}" \
-  || fail "live modes must refuse when Infisical bootstrap is missing"
 
 pass "ci-local placeholder scoping"
-
-bash "${ROOT}/tests/ops/test_ci_quarantine.sh" || fail "test_ci_quarantine.sh failed"

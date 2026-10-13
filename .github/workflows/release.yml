@@ -1,0 +1,218 @@
+name: Release reconciler
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Release operation
+        type: choice
+        options:
+          - reconcile
+          - check
+        default: reconcile
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-reconciler
+  cancel-in-progress: false
+
+env:
+  RELEASE_INPUTS_DIR: release-inputs
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Verify release inputs
+        id: plan
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile plan --output release-plan.json
+      - name: Upload release plan
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: release-plan
+          path: |
+            release-plan.json
+            release-inputs
+
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      images: ${{ steps.plan.outputs.images }}
+      has_images: ${{ steps.plan.outputs.has_images }}
+      has_release: ${{ steps.plan.outputs.has_release }}
+      has_publish_images: ${{ steps.plan.outputs.has_publish_images }}
+
+  publish:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.outputs.has_publish_images == 'true'
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.verify.outputs.images) }}
+    uses: ./.github/workflows/reusable-publish.yml
+    with:
+      artifact-name: ${{ matrix.image.artifact_name }}
+      destination: ${{ matrix.image.destination }}
+      manifest-digest: ${{ matrix.image.manifest_digest }}
+      run-id: ${{ matrix.image.run_id }}
+      release-sha: ${{ needs.verify.outputs.sha }}
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+
+  sign:
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.result == 'success' && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Install pinned cosign
+        uses: ./.github/actions/install-cosign
+      - name: Download release plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-plan
+      - name: Build and sign release record
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile sign --plan release-plan.json --output-dir release-output
+      - name: Upload signed release
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: signed-release
+          path: release-output
+
+  feed:
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && needs.verify.result == 'success' && needs.verify.outputs.has_release == 'true' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') && needs.sign.result == 'success'
+    needs: [verify, publish, sign]
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Install pinned cosign
+        uses: ./.github/actions/install-cosign
+      - name: Download signed release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: signed-release
+          path: release-output
+      - name: Download release plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-plan
+      - name: Publish release feed
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile feed --directory release-output
+
+  check-read:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Check read credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope read
+  check-sign:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Install pinned cosign
+        uses: ./.github/actions/install-cosign
+      - name: Check signing credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope sign
+
+  check-feed:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: read
+    env:
+      SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install release dependencies
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/release-venv"
+          "${RUNNER_TEMP}/release-venv/bin/pip" install --require-hashes -r config/release/requirements.txt
+      - name: Check feed credential
+        run: >-
+          "${RUNNER_TEMP}/release-venv/bin/python" -m scripts.release.reconcile check --scope feed

@@ -14,4 +14,3 @@ A signed release feed (N6) and a host controller for N7–N11 are **Planned**.
 Until those exist, do not describe a release feed, automatic host pull, or
 controller reconciliation as available behavior. Private site operations and
 runtime backups belong outside this public repository.
-

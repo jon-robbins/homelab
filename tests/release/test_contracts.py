@@ -5,7 +5,6 @@ import pytest
 
 from scripts.release.contracts import (
     APPLICATION_FIELDS,
-    BUILD_PROVENANCE_FIELDS,
     MANIFEST_FIELDS,
     PROBE_RESULT_FIELDS,
     RELEASE_RECORD_FIELDS,
@@ -13,7 +12,6 @@ from scripts.release.contracts import (
     ValidationError,
     ValidationErrors,
     load_application_manifest,
-    load_build_provenance,
     load_probe_result,
     load_release_record,
     parse_json,
@@ -52,7 +50,7 @@ def release_record(**overrides):
         "site_id": "home",
         "sequence": 3,
         "tooling_git_sha": GIT_SHA,
-        "sources": {"homelab": GIT_SHA, "homelab_site": "b" * 40},
+        "sources": {"homelab": GIT_SHA, "homelab-site": "b" * 40},
         "images": {"web": IMAGE},
         "bundle_sha256": "sha256:" + "c" * 64,
         "rollback_floor": 2,
@@ -72,22 +70,6 @@ def probe_result(**overrides):
         "observed_at": "2026-09-27T00:00:00Z",
         "duration_ms": 25,
         "detail": "ok",
-    }
-    value.update(overrides)
-    return value
-
-
-def build_provenance(**overrides):
-    value = {
-        "schema": 1,
-        "repository": "acme/homelab",
-        "workflow_ref": "refs/heads/main",
-        "run_id": 42,
-        "run_attempt": 2,
-        "source_sha": "a" * 40,
-        "image": "web",
-        "manifest_digest": "sha256:" + "b" * 64,
-        "built_at": "2026-09-27T00:00:00Z",
     }
     value.update(overrides)
     return value
@@ -144,9 +126,6 @@ def test_schema_field_table_matches_validator():
     assert set(probe["properties"]) == set(PROBE_RESULT_FIELDS)
     assert set(probe["required"]) == {k for k, (required, _) in PROBE_RESULT_FIELDS.items() if required}
 
-    provenance = json.loads((ROOT / "schemas/provenance.schema.json").read_text())
-    assert set(provenance["properties"]) == set(BUILD_PROVENANCE_FIELDS)
-    assert set(provenance["required"]) == {k for k, (required, _) in BUILD_PROVENANCE_FIELDS.items() if required}
 
 
 def test_valid_release_record_accepted():
@@ -179,32 +158,15 @@ def test_release_record_rejects_invalid_rollback_floor(rollback_floor):
         load_release_record(json.dumps(release_record(rollback_floor=rollback_floor)))
 
 
-def test_release_record_sources_require_homelab_and_allow_tracker_integrations():
+def test_release_record_sources_require_homelab_and_allow_optional_tracker_source():
     with pytest.raises(ValidationError, match=r"^\$\.sources\.homelab"):
-        load_release_record(json.dumps(release_record(sources={"homelab_site": GIT_SHA})))
-    document = release_record(sources={"homelab": GIT_SHA, "homelab_site": GIT_SHA, "tracker_integrations": GIT_SHA})
-    assert load_release_record(json.dumps(document))["sources"]["tracker_integrations"] == GIT_SHA
+        load_release_record(json.dumps(release_record(sources={"homelab-site": GIT_SHA})))
+    document = release_record(sources={"homelab": GIT_SHA, "homelab-site": GIT_SHA, "tracker-integrations": GIT_SHA})
+    assert load_release_record(json.dumps(document))["sources"]["tracker-integrations"] == GIT_SHA
 
 
 def test_valid_probe_result_accepted():
     assert load_probe_result(json.dumps(probe_result()))["result"] == "PASS"
-
-
-def test_valid_build_provenance_accepted():
-    assert load_build_provenance(json.dumps(build_provenance()))["image"] == "web"
-
-
-@pytest.mark.parametrize("field", list(BUILD_PROVENANCE_FIELDS))
-def test_build_provenance_required_fields(field):
-    document = build_provenance()
-    document.pop(field)
-    with pytest.raises(ValidationError, match=rf"^\$\.{field}"):
-        load_build_provenance(json.dumps(document))
-
-
-def test_build_provenance_rejects_unknown_field():
-    with pytest.raises(ValidationError, match=r"^\$\.extra"):
-        load_build_provenance(json.dumps(build_provenance(extra=True)))
 
 
 @pytest.mark.parametrize("field", list(PROBE_RESULT_FIELDS))

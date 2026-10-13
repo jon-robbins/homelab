@@ -1,0 +1,32 @@
+{
+  "artifacts": [
+    {
+      "id": 101,
+      "name": "oci-agent",
+      "expired": false,
+      "created_at": "2026-10-12T20:00:00Z",
+      "workflow_run": {
+        "id": 41,
+        "head_branch": "main",
+        "head_sha": "h2",
+        "run_number": 10,
+        "event": "push",
+        "workflow_id": 123
+      }
+    },
+    {
+      "id": 102,
+      "name": "oci-agent",
+      "expired": false,
+      "created_at": "2026-10-12T21:00:00Z",
+      "workflow_run": {
+        "id": 42,
+        "head_branch": "main",
+        "head_sha": "h2",
+        "run_number": 11,
+        "event": "push",
+        "workflow_id": 123
+      }
+    }
+  ]
+}

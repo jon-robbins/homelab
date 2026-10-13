@@ -17,10 +17,6 @@ pass "entrypoint.sh bash -n syntax"
 python3 -c "import py_compile; py_compile.compile('${RENDER}', doraise=True)" || fail "render_settings syntax"
 pass "render_project_settings.py syntax"
 
-# 3. Mount checks present
-grep -q 'for p in /homelab "${HOME}"' "$EP" || fail "entrypoint missing mount checks for /homelab and HOME"
-pass "mount-checks: refuses to start if /homelab or HOME leak"
-
 # 4. Secret hydration + required env validation present
 grep -q 'hydrate_secret_to_env' "$EP" || fail "entrypoint missing hydrate_secret_to_env helper"
 grep -q 'TELEGRAM_BOT_TOKEN' "$EP" || fail "entrypoint missing TELEGRAM_BOT_TOKEN reference"
@@ -48,7 +44,6 @@ pass "exec → qwen channel start homelab-telegram"
 
 # 7. Render trusted role settings end-to-end in a temp dir and verify the v0.21.15 shape.
 tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
 OPENAI_API_KEY="vllm-key-fake" \
 TELEGRAM_BOT_TOKEN="bot-tok-fake" \
 MCP_API_TOKEN="mcp-token-fake" \

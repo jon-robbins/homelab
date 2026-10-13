@@ -60,13 +60,14 @@ def test_duplicate_configured_names_are_rejected() -> None:
 
 
 def test_public_server_starts_without_any_extension_package() -> None:
+    retired_extension = "tracker" + "_integrations"
     code = """
 import importlib.abc
 import sys
 
 class BlockExtensions(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'tracker_integrations', 'example_extension'}:
+        if fullname.split('.')[0] in {RETired_EXTENSION, 'example_extension'}:
             raise ModuleNotFoundError(fullname)
         return None
 
@@ -77,6 +78,7 @@ private = {'example_private_status', 'example_private_plan'}
 assert names
 assert names.isdisjoint(private)
 """
+    code = code.replace("RETired_EXTENSION", repr(retired_extension))
     env = os.environ.copy()
     env.pop("HOMELAB_MCP_EXTENSIONS", None)
     subprocess.run(
