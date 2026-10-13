@@ -259,10 +259,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                 expected_permissions = {"contents": "read", "id-token": "write"} if job_name == "sign" else {"contents": "read"}
                 self.assertEqual(job.get("permissions"), expected_permissions)
             actions = [step["uses"] for step in job.get("steps", []) if "uses" in step]
-            self.assertIn(
-                "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-                actions,
-            )
+            # Pinned to a full SHA; the exact SHA is tool-maintained (Dependabot), not asserted here.
+            self.assertTrue(any(re.fullmatch(r"actions/checkout@[0-9a-f]{40}", action) for action in actions))
             checkout = next(step for step in job["steps"] if step.get("name") == "Checkout tooling")
             # Every release job runs the tooling at the workflow commit (tooling_git_sha).
             self.assertEqual(checkout.get("with", {}).get("ref"), "${{ github.sha }}")
@@ -294,7 +292,7 @@ class WorkflowSecurityTests(unittest.TestCase):
             self.assertEqual(job.get("permissions"), expected_permissions)
             self.assertEqual(secret_names(job), [] if secret_name is None else [secret_name])
             self.assertEqual(
-                [step["uses"] for step in job.get("steps", []) if "uses" in step].count("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
+                sum(bool(re.fullmatch(r"actions/checkout@[0-9a-f]{40}", step.get("uses", ""))) for step in job.get("steps", [])),
                 1,
             )
 
@@ -307,9 +305,11 @@ class WorkflowSecurityTests(unittest.TestCase):
                     continue
                 needs = job.get("needs", [])
                 needs = [needs] if isinstance(needs, str) else needs
+                # The result check may live in the condition or in a step (fail when not success).
+                steps = str(job.get("steps", []))
                 for dependency in needs:
                     with self.subTest(workflow=path.name, job=job_name, dependency=dependency):
-                        self.assertIn(f"needs.{dependency}.result", condition)
+                        self.assertIn(f"needs.{dependency}.result", condition + steps)
 
     def test_release_workflow_policy(self) -> None:
         workflow = load_workflow(WORKFLOWS / "release.yml")
@@ -439,108 +439,37 @@ class WorkflowSecurityTests(unittest.TestCase):
             {"pull_request": {}, "push": {"branches": ["main"]}},
         )
         self.assertEqual(workflow.get("permissions"), {"contents": "read"})
+        jobs = workflow.get("jobs", {})
+        # Required status checks in the main ruleset: validate, gitleaks, public-readiness.
+        self.assertTrue({"validate", "gitleaks", "public-readiness"} <= set(jobs))
         self.assertEqual(
-            set(workflow.get("jobs", {})),
-            {"validate", "gitleaks", "image-builds", "public-readiness"},
+            set(jobs),
+            {"pre-commit", "session-list", "nox-sessions", "validate", "gitleaks",
+             "zizmor", "pinact", "image-builds", "public-readiness"},
         )
 
-        validate = workflow["jobs"]["validate"]
-        self.assertEqual(validate.get("runs-on"), "ubuntu-latest")
-        self.assertEqual(
-            validate.get("env"),
-            {
-                "SKIP_HOST_PORT_PREFLIGHT": "1",
-                "COMPOSE_ENV_FILES": "/dev/null",
-            },
-        )
+        for job_name, job in jobs.items():
+            self.assertEqual(job.get("runs-on"), "ubuntu-latest", job_name)
+            self.assertIn(job.get("permissions"), (None, {"contents": "read"}), job_name)
+            for step in job.get("steps", []):
+                action = step.get("uses", "")
+                if action.startswith("actions/checkout@"):
+                    self.assertEqual(step.get("with", {}).get("persist-credentials"), "false", job_name)
+                if action and not action.startswith("./"):
+                    self.assertRegex(action, r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$", job_name)
 
-        steps = validate.get("steps", [])
-        actions = [step["uses"] for step in steps if "uses" in step]
-        self.assertEqual(
-            actions,
-            [
-                "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-                "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
-            ],
-        )
-        for action in actions:
-            owner_action, commit = action.rsplit("@", 1)
-            self.assertIn("/", owner_action)
-            self.assertEqual(len(commit), 40)
-            self.assertTrue(all(character in "0123456789abcdef" for character in commit))
+        # validate aggregates the suites; it must fail when any of them did not succeed.
+        validate = jobs["validate"]
+        self.assertEqual(set(validate.get("needs", [])), {"pre-commit", "nox-sessions"})
+        self.assertIn("always()", str(validate.get("if", "")))
+        validate_runs = "\n".join(step.get("run", "") for step in validate.get("steps", []))
+        validate_env = {key: value for step in validate.get("steps", []) for key, value in step.get("env", {}).items()}
+        for dependency in ("pre-commit", "nox-sessions"):
+            variable = next(key for key, value in validate_env.items() if value == f"${{{{ needs.{dependency}.result }}}}")
+            self.assertIn(f'test "${variable}" = success', validate_runs)
 
-        checkout = next(step for step in steps if step.get("name") == "Checkout")
-        self.assertEqual(checkout.get("with", {}).get("persist-credentials"), "false")
-
-        step_by_name = {step["name"]: step for step in steps}
-        self.assertNotIn("Create changed images environment", step_by_name)
-        self.assertNotIn("Qwen runtime regressions", step_by_name)
-        qwen_tests = step_by_name["Qwen code Telegram tests"]["run"]
-        for test_name in (
-            "test_response_contract.py",
-            "test_entrypoint.sh",
-            "test_role_render.sh",
-            "test_system_policy.sh",
-        ):
-            self.assertIn(test_name, qwen_tests)
-        worker_setup_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Create workers environment"
-        )
-        policy_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Workflow security policy"
-        )
-        compose_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Compose config with synthetic secrets"
-        )
-        shell_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Compose shell tests"
-        )
-        ops_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Ops shell tests"
-        )
-        self.assertLess(worker_setup_index, policy_index)
-        self.assertLess(worker_setup_index, compose_index)
-        self.assertLess(worker_setup_index, shell_index)
-        self.assertLess(worker_setup_index, ops_index)
-
-        worker_setup = step_by_name["Create workers environment"]["run"]
-        self.assertIn('"${RUNNER_TEMP}/workers-venv/bin/pip" install -q -e "${WORKERS_DIR}[dev]"', worker_setup)
-        self.assertIn('python3 -m venv "${RUNNER_TEMP}/workers-venv"', worker_setup)
-        self.assertIn(
-            '"${RUNNER_TEMP}/workers-venv/bin/python" -m pytest -q tests/ci/test_workflow_security.py',
-            step_by_name["Workflow security policy"]["run"],
-        )
-
-        self.assertEqual(
-            step_by_name["Compose shell tests"]["run"],
-            'bash "${GITHUB_WORKSPACE}/scripts/ci/run-compose-tests.sh"',
-        )
-
-        compose_script = step_by_name["Compose config with synthetic secrets"]["run"]
-        self.assertIn(
-            "scripts/ci/compose-config-check.sh",
-            compose_script,
-        )
-
-        media_setup = step_by_name["Create media agent environment"]["run"]
-        self.assertIn('"${RUNNER_TEMP}/media-agent-venv/bin/pip" install -q -e "${MEDIA_DIR}[dev]"', media_setup)
-        self.assertIn('python3 -m venv "${RUNNER_TEMP}/media-agent-venv"', media_setup)
-        self.assertIsNone(
-            step_by_name["Package pytest"].get("working-directory")
-        )
-        self.assertIsNone(
-            step_by_name["Media agent pytest"].get("working-directory")
-        )
+        self.assertEqual(jobs["nox-sessions"].get("needs"), "session-list")
+        self.assertIn("fromJSON(needs.session-list.outputs", str(jobs["nox-sessions"].get("strategy", {}).get("matrix")))
 
         prohibited_words = private_markers(range(48, 52))
         spaced_commands = private_markers(range(60, 62))
@@ -548,17 +477,18 @@ class WorkflowSecurityTests(unittest.TestCase):
             marker + " " if marker in spaced_commands else marker
             for marker in private_markers(range(52, 62))
         )
-        for step in steps:
-            self.assertFalse(
-                any(word in step.get("name", "").lower().split() for word in prohibited_words),
-                step.get("name", ""),
-            )
-            for line in step.get("run", "").splitlines():
-                command = line.strip().lower()
+        for job in jobs.values():
+            for step in job.get("steps", []):
                 self.assertFalse(
-                    any(fragment in command for fragment in prohibited_commands),
-                    line,
+                    any(word in step.get("name", "").lower().split() for word in prohibited_words),
+                    step.get("name", ""),
                 )
+                for line in step.get("run", "").splitlines():
+                    command = line.strip().lower()
+                    self.assertFalse(
+                        any(fragment in command for fragment in prohibited_commands),
+                        line,
+                    )
 
         gitleaks = workflow["jobs"]["gitleaks"]
         self.assertEqual(gitleaks.get("if"), "github.event_name == 'pull_request'")

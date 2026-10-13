@@ -31,3 +31,4 @@ tests/compose/test_seerr_entrypoint.sh token-shaped # Synthetic YAML key parser 
 tests/integration/telegram_reports.py token-shaped # Synthetic Telegram token-shape regex.
 tests/integration/test_telegram_cases.py token-shaped # Synthetic Telegram token fixtures.
 apps/qwen-serve/requirements.lock.txt private-network # Public dependency version is not an IP address.
+tests/ci/test_action_pins.py token-shaped # Action reference regex fixture is not a credential.
