@@ -54,6 +54,13 @@ def release(session: nox.Session) -> None:
     session.run("pytest", "-q", "tests/release")
 
 
+@nox.session(python=PYTHON, tags=["no-docker"])
+def controller(session: nox.Session) -> None:
+    install(session, "pytest")
+    session.env["PYTHONPATH"] = str(ROOT)
+    session.run("pytest", "-q", "tests/controller")
+
+
 @nox.session(python=PYTHON, tags=["docker"])
 def compose_config(session: nox.Session) -> None:
     session.run("bash", "scripts/ci/compose-config-check.sh", external=True)
