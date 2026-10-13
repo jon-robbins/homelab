@@ -96,7 +96,8 @@ class GitHubClient:
     def workflow_runs(self, repository: str, workflow: str, sha: str, *, event: str = "push", branch: str = "main") -> Any:
         return self.request(
             "GET",
-            f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow, safe='/')}/runs"
+            # The endpoint takes a workflow file name or ID, not its repository path.
+            f"/repos/{self._repo(repository)}/actions/workflows/{quote(workflow.rsplit('/', 1)[-1], safe='')}/runs"
             f"?head_sha={quote(sha, safe='')}&event={quote(event, safe='')}&branch={quote(branch, safe='')}&per_page=100",
         )
 

@@ -16,6 +16,20 @@ def test_artifact_lookup_uses_repository_artifacts_endpoint():
     )]
 
 
+def test_workflow_runs_uses_workflow_file_name():
+    client = GitHubClient("token")
+    calls = []
+    client.request = lambda method, path, body=None, **kwargs: calls.append((method, path)) or {"workflow_runs": []}
+
+    client.workflow_runs("owner/repo", ".github/workflows/post-merge-build.yml", "a" * 40)
+
+    assert calls == [(
+        "GET",
+        "/repos/owner/repo/actions/workflows/post-merge-build.yml/runs"
+        f"?head_sha={'a' * 40}&event=push&branch=main&per_page=100",
+    )]
+
+
 def test_missing_reads_only_ignore_not_found():
     client = GitHubClient("token")
 

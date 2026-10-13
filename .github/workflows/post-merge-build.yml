@@ -23,7 +23,12 @@ jobs:
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
+          # A change to the build recipe or the approved image list rebuilds every
+          # image, so one push yields a full verified set (also the first-release bootstrap).
           filters: |
+            recipe:
+              - '.github/workflows/post-merge-build.yml'
+              - 'config/release/approved-ghcr-destinations.json'
             homelab-agent:
               - 'apps/homelab-agent/**'
               - 'apps/homelab-agent/Dockerfile'
@@ -56,6 +61,7 @@ jobs:
           FILTER_QWEN_CODE_TELEGRAM: ${{ steps.filter.outputs.qwen-code-telegram }}
           FILTER_QWEN_SERVE: ${{ steps.filter.outputs.qwen-serve }}
           FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
+          FILTER_RECIPE: ${{ steps.filter.outputs.recipe }}
         run: |
           matrix=$(jq -cn '[
             {"dockerfile":"apps/homelab-agent/Dockerfile","context":"apps/homelab-agent","image":"homelab-agent","changed":env.FILTER_HOMELAB_AGENT},
@@ -65,7 +71,7 @@ jobs:
             {"dockerfile":"apps/qwen-code-telegram/Dockerfile","context":"apps/qwen-code-telegram","image":"qwen-code-telegram","changed":env.FILTER_QWEN_CODE_TELEGRAM},
             {"dockerfile":"apps/qwen-serve/Dockerfile","context":"apps/qwen-serve","image":"qwen-serve","changed":env.FILTER_QWEN_SERVE},
             {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY}
-          ] | map(select(.changed == "true") | del(.changed)) | {include:.}')
+          ] | map(select(.changed == "true" or env.FILTER_RECIPE == "true") | del(.changed)) | {include:.}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:

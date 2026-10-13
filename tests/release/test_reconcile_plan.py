@@ -292,6 +292,8 @@ def test_artifacts_are_bound_to_successful_workflow_run_fixture(monkeypatch):
 @pytest.mark.parametrize("runs, message", [
     ([], "not visible yet"),
     ([{"head_sha": "h2", "event": "push", "head_branch": "main", "status": "completed", "conclusion": "failure"}], "still running or failed"),
+    ([{"head_sha": "h2", "event": "push", "head_branch": "main", "status": "completed", "conclusion": "success",
+       "path": ".github/workflows/ci.yml"}], "not visible yet"),
 ])
 def test_pending_or_failed_post_merge_build_waits(runs, message):
     with pytest.raises(VerificationError, match=message):
