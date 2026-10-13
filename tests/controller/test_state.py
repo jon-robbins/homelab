@@ -330,6 +330,30 @@ def test_malformed_json_rejected_on_write_and_read(state, tmp_path, column):
         State.open(tmp_path)
 
 
+@pytest.mark.parametrize("column,raw", [
+    ("images", json.dumps(IMAGES).replace('"local_image_id":', '"local_image_id": -1, "local_image_id":')),
+    ("plan", json.dumps(PLAN).replace('"may_have_run":', '"may_have_run": -1, "may_have_run":')),
+    ("loaded_secrets", json.dumps(STAMPS).replace('"size":', '"size": -1, "size":')),
+    ("images", json.dumps(IMAGES).replace('"app":', '"app": {}, "app":')),
+    ("plan", json.dumps(PLAN).replace('"changed_services":', '"changed_services": -1, "changed_services":')),
+    ("loaded_secrets", json.dumps(STAMPS).replace('"APP_KEY":', '"APP_KEY": {}, "APP_KEY":')),
+])
+def test_duplicate_json_keys_rejected_on_write_and_read(state, tmp_path, column, raw):
+    seed(state)
+    before = metadata(state)
+    with pytest.raises(ValueError, match="invalid state transition"):
+        with state.transaction() as conn:
+            conn.execute("UPDATE control SET phase='PREPARE',highwater=5")
+            conn.execute(f"UPDATE {TABLE[column]} SET {column}=?", (raw,))
+    assert metadata(state) == before
+    state.conn.execute(f"UPDATE {TABLE[column]} SET {column}=?", (raw,))
+    corrupted = metadata(state)
+    with pytest.raises(CorruptStateError) as exc:
+        State.open(tmp_path)
+    assert "duplicate object key" in str(exc.value.__cause__)
+    assert metadata(state) == corrupted
+
+
 def test_valid_nested_records_and_helpers(state, tmp_path):
     seed(state)
     with state.transaction() as conn:
@@ -412,6 +436,10 @@ def test_snapshot_shape_and_bounds(tmp_path, change):
     "Bearer fake-token-123456789",
     "bearer=fake-token-123456789",
     "Authorization: Basic fake-token-123456789",
+    "deploy --token fake-token-123456789",
+    "deploy --password fake-password-123456789",
+    "deploy --TOKEN\tfake-token-123456789",
+    "deploy --api-key 'fake-token-123456789'",
 ])
 def test_event_secrets_never_persist(state, detail):
     before = metadata(state)

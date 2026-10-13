@@ -28,10 +28,11 @@ class ControllerBusyError(StateError): pass
 
 PHASES = ("IDLE", "PREPARE", "APPLY", "VERIFY", "FAIL", "DEGRADED")
 # Reject sensitive field names even when quoted (JSON), and authorization
-# schemes whose credentials follow whitespace rather than a colon/equal sign.
+# schemes and command options whose credentials follow whitespace.
 SECRET_PATTERN = re.compile(
     r"(?i)(?:token|secret|password|credential|api[_-]?key|authorization|bearer)"
     r"[\"']?\s*[:=]|\b(?:bearer|basic)\s+\S+|"
+    r"(?:^|\s)--(?:token|secret|password|credential|api[_-]?key|authorization)\s+\S+|"
     r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,})\b"
 )
 _LOCKS = threading.local()
@@ -280,7 +281,7 @@ class State:
             try:
                 contracts.validate_sequence(row[0]); contracts.validate_digest(row[1]); contracts.validate_digest(row[4])
                 if not isinstance(row[2], bytes) or not isinstance(row[3], bytes) or row[5] not in {"pending", "committed", "failed", "skipped"}: raise ValueError()
-                _image_map(json.loads(row[6]))
+                _image_map(contracts.parse_json(row[6]))
             except Exception as e: raise CorruptStateError("invalid release images JSON") from e
         for row in self.conn.execute("SELECT id,kind,release_seq,baseline_seq,plan,recovery_action,started_at,finished_at,failure FROM attempts"):
             try:
@@ -288,14 +289,14 @@ class State:
                 if row[1] not in {"deploy","secret-activation","recovery"} or row[5] not in {"none","restore-baseline","manual"}: raise ValueError()
                 contracts.validate_timestamp(row[6]); contracts.validate_timestamp(row[7]) if row[7] is not None else None
                 _str(row[8]) if row[8] is not None else None
-                self.validate_plan(json.loads(row[4]))
+                self.validate_plan(contracts.parse_json(row[4]))
             except Exception as e: raise CorruptStateError("invalid attempt plan JSON") from e
         for row in self.conn.execute("SELECT service,observed_at,container_id,image_id,spec_matches,health,semantic,loaded_secrets FROM observations"):
             try:
                 contracts.validate_name(row[0]); contracts.validate_timestamp(row[1]); _str(row[2]) if row[2] is not None else None
                 contracts.validate_digest(row[3]) if row[3] is not None else None
                 if row[4] not in (0,1) or row[5] not in {"pass","fail","error"} or row[6] not in {"pass","fail","error"}: raise ValueError()
-                m=json.loads(row[7]);
+                m=contracts.parse_json(row[7]);
                 if not isinstance(m, dict): raise ValueError()
                 for name, stamp in m.items(): contracts.validate_secret_name(name); _stamp(stamp)
             except Exception as e: raise CorruptStateError("invalid loaded_secrets JSON") from e
