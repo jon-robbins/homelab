@@ -1,14 +1,14 @@
 schema: 1
 applications:
   - name: alpha
-    image: registry.invalid/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    image: ghcr.io/jon-robbins/homelab/homelab-agent
     rollback: automatic
     depends_on: []
     secrets: []
     health_probe: alpha-health
     semantic_probes: [alpha-route]
   - name: beta
-    image: registry.invalid/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    image: ghcr.io/jon-robbins/homelab/homelab-mcp
     rollback: manual
     depends_on: [alpha]
     secrets: []

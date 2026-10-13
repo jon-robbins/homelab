@@ -7,14 +7,17 @@ import json
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+import yaml
+
 from .bundle import bundle_sha256
 from .compile import compile_bundle
-from .contracts import ValidationError, load_application_manifest, load_release_record, parse_json, validate_digest
+from .contracts import ValidationError, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient, GitHubError
 from .sign import COSIGN_VERSION, record_bytes, sign_record
@@ -330,9 +333,18 @@ def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path)
     copy_directory("files")
 
 
+def _site_manifest(root: Path) -> Mapping[str, Any]:
+    try:
+        manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
+    except (OSError, yaml.YAMLError) as error:
+        raise VerificationError("site manifest is not readable") from error
+    if not isinstance(manifest, Mapping) or not isinstance(manifest.get("applications"), list):
+        raise VerificationError("site manifest has no applications array")
+    return manifest
+
+
 def _manifest_site_id(root: Path) -> str:
-    manifest = load_application_manifest((root / "manifest.yaml").read_bytes(), yaml=True)
-    site_id = manifest.get("site_id")
+    site_id = _site_manifest(root).get("site_id")
     if not isinstance(site_id, str):
         raise VerificationError("site manifest is missing site_id")
     return site_id
@@ -341,6 +353,26 @@ def _manifest_site_id(root: Path) -> str:
 def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
     prefix = "ghcr.io/jon-robbins/homelab/"
     return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
+
+
+def _manifest_image_refs(root: Path, previous: Mapping[str, Any] | None, images: list[dict[str, Any]]) -> dict[str, str]:
+    """Map each site application to the newest released digest ref of its repository.
+
+    The compiler validates the manifest and the refs; this only joins them.
+    """
+    by_repository = {
+        reference.split("@", 1)[0]: reference
+        for reference in (previous or {}).get("images", {}).values()
+        if isinstance(reference, str) and "@" in reference
+    }
+    by_repository.update({item["destination"]: f"{item['destination']}@{item['manifest_digest']}" for item in images})
+    references: dict[str, str] = {}
+    for application in _site_manifest(root)["applications"]:
+        name, repository = application.get("name"), application.get("image")
+        if repository not in by_repository:
+            raise VerificationError(f"no released image reference for application: {name}")
+        references[name] = by_repository[repository]
+    return references
 
 
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
@@ -383,13 +415,9 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "run_id": builds[image]["run_id"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        image_refs = dict(previous.get("images", {}) if previous else {})
-        image_refs.update({item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in images})
-        if set(image_refs) != all_images:
-            missing = sorted(all_images - set(image_refs))
-            raise VerificationError(f"release record image map is incomplete; missing {missing[0]}")
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
+        image_refs = _manifest_image_refs(input_root, previous, images)
         result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -408,8 +436,13 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         # Keep the command useful for local operators and older callers that
         # already materialized inputs under the explicit environment paths.
         inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
-    digest = compile_bundle(*inputs, bundle_path)
     image_refs = plan_data.get("image_refs") or {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data.get("images", [])}
+    digest = compile_bundle(*inputs, bundle_path, image_refs)
+    with tarfile.open(bundle_path, "r") as bundle:
+        applications = json.loads(bundle.extractfile("applications.json").read())
+    bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
+    if bundle_images != image_refs:
+        raise VerificationError("release record image map does not match compiled bundle")
     record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
     data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
