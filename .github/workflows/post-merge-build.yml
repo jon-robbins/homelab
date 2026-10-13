@@ -109,7 +109,7 @@ jobs:
           subject-path: oci-layout.tar
 
       - name: Upload OCI artifact
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: oci-${{ matrix.image }}
           path: oci-layout.tar
