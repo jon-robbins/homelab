@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 from pathlib import Path
+import tempfile
 from typing import Any, Callable
 
-from scripts.release.contracts import load_release_record
+from scripts.release.contracts import load_release_record, parse_json
 from scripts.release.feed import verify_cosign_bundle
 
 
@@ -24,7 +24,7 @@ class HostPolicy:
 def load_host_policy(path: Path | str) -> HostPolicy:
     """Load schema 1 host policy, rejecting unknown or missing keys."""
     try:
-        value = json.loads(Path(path).read_text())
+        value = parse_json(Path(path).read_bytes())
     except (OSError, ValueError) as error:
         raise ValueError("invalid host policy") from error
     fields = {"schema", "site_id", "signer_identity", "oidc_issuer", "trusted_root", "feed_directory"}
@@ -50,8 +50,14 @@ def verify_record(record_dir: Path | str, policy: HostPolicy | Path | str,
     signature_bytes = signature_path.read_bytes()
     if not policy.trusted_root.is_file():
         raise ValueError("cached Sigstore trusted root is missing")
-    verifier(record_path, signature_path, identity=policy.signer_identity,
-             issuer=policy.oidc_issuer, offline=True, trusted_root=policy.trusted_root)
+    with tempfile.TemporaryDirectory(prefix="release-record-") as snapshot:
+        snapshot_dir = Path(snapshot)
+        snapshot_record = snapshot_dir / "record.json"
+        snapshot_signature = snapshot_dir / "record.sigstore.json"
+        snapshot_record.write_bytes(record_bytes)
+        snapshot_signature.write_bytes(signature_bytes)
+        verifier(snapshot_record, snapshot_signature, identity=policy.signer_identity,
+                 issuer=policy.oidc_issuer, offline=True, trusted_root=policy.trusted_root)
     record = load_release_record(record_bytes)
     if record["site_id"] != policy.site_id:
         raise ValueError("release record site_id does not match host policy")
