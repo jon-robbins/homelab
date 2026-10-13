@@ -95,7 +95,8 @@ jobs:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ needs.verify.outputs.sha }}
+          # Release tooling runs at the workflow commit (tooling_git_sha), not the candidate.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Install release dependencies
         run: |
@@ -129,7 +130,8 @@ jobs:
       - name: Checkout tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ needs.verify.outputs.sha }}
+          # Release tooling runs at the workflow commit (tooling_git_sha), not the candidate.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Install release dependencies
         run: |

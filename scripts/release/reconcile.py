@@ -266,7 +266,8 @@ def _next_tooling_sha(client: Any, repository: str, head: str, previous: Mapping
     """Return the oldest unreleased first-parent commit, or the head at bootstrap."""
     if previous is None:
         return head
-    position = previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab")
+    # The candidate position is the released homelab source, not the tooling revision.
+    position = previous.get("sources", {}).get("homelab") or previous.get("tooling_git_sha")
     if not isinstance(position, str):
         raise VerificationError("previous release has no homelab tooling position")
     if position == head:
@@ -389,7 +390,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     sha = _next_tooling_sha(client, repository, main_head, previous)
     if previous is None:
         sha = _bootstrap_sha(client, repository, main_head, _destination_images(load_approved_destinations()))
-    tooling_sha = sha or (previous.get("tooling_git_sha") or previous.get("sources", {}).get("homelab") if previous else main_head)
+    tooling_sha = sha or (previous.get("sources", {}).get("homelab") or previous.get("tooling_git_sha") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
     tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
     sources = {"homelab": tooling_sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}
@@ -418,7 +419,7 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
         _materialize_site_inputs(client, site_repository, site_sha, input_root)
         image_refs = _manifest_image_refs(input_root, previous, images)
-        result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root)}
+        result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root), "tooling_git_sha": main_head}
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return result
@@ -443,7 +444,7 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
     if bundle_images != image_refs:
         raise VerificationError("release record image map does not match compiled bundle")
-    record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
+    record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["tooling_git_sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
     data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
 
