@@ -9,15 +9,26 @@ import re
 from typing import Any, Mapping
 from urllib.error import HTTPError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from pathlib import Path
+from shutil import copyfileobj
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from zipfile import ZipFile
-from io import BytesIO
 
 
 class GitHubError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """Surface redirects so the GitHub token is never sent to the storage host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_DOWNLOAD_CHUNK = 1024 * 1024
 
 
 class GitHubClient:
@@ -101,15 +112,38 @@ class GitHubClient:
             f"?head_sha={quote(sha, safe='')}&event={quote(event, safe='')}&branch={quote(branch, safe='')}&per_page=100",
         )
 
-    def artifact_zip(self, repository: str, artifact_id: int) -> bytes:
-        return self.request("GET", f"/repos/{self._repo(repository)}/actions/artifacts/{artifact_id}/zip", accept="application/octet-stream")
+    def artifact_download_url(self, repository: str, artifact_id: int) -> str:
+        """Return the short-lived storage URL GitHub redirects an artifact zip to."""
+        path = f"/repos/{self._repo(repository)}/actions/artifacts/{artifact_id}/zip"
+        headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {self.token}", "X-GitHub-Api-Version": "2022-11-28"}
+        try:
+            with build_opener(_NoRedirect).open(Request(self.api + path, headers=headers)):
+                pass
+        except HTTPError as error:
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if location and location.startswith("https://"):
+                return location
+            detail = error.read().decode(errors="replace")
+            raise GitHubError(f"GitHub API {error.code} GET {path}: {detail[:300]}", status_code=error.code) from error
+        raise GitHubError(f"GitHub API GET {path}: expected a redirect to artifact storage")
 
-    def artifact_files(self, repository: str, artifact: Mapping[str, Any]) -> dict[str, bytes]:
-        raw = self.artifact_zip(repository, int(artifact["id"]))
-        if not isinstance(raw, bytes):
-            raise GitHubError("artifact download was not binary")
-        with ZipFile(BytesIO(raw)) as archive:
-            return {name: archive.read(name) for name in archive.namelist() if not name.endswith("/")}
+    def download_artifact_member(self, repository: str, artifact: Mapping[str, Any], member: str, directory: Path) -> Path:
+        """Stream an artifact zip to *directory* and extract one member to disk."""
+        url = self.artifact_download_url(repository, int(artifact["id"]))
+        zip_path = directory / "artifact.zip"
+        # The storage URL is pre-signed; no GitHub credentials go to it.
+        with urlopen(Request(url)) as response, zip_path.open("wb") as handle:
+            copyfileobj(response, handle, _DOWNLOAD_CHUNK)
+        target = directory / Path(member).name
+        try:
+            with ZipFile(zip_path) as archive:
+                if member not in archive.namelist():
+                    raise GitHubError(f"artifact {artifact.get('name')} has no {member}")
+                with archive.open(member) as source, target.open("wb") as handle:
+                    copyfileobj(source, handle, _DOWNLOAD_CHUNK)
+        finally:
+            zip_path.unlink(missing_ok=True)
+        return target
 
     def ref(self, repository: str, branch: str) -> str:
         value = self.request("GET", f"/repos/{self._repo(repository)}/git/ref/heads/{quote(branch, safe='')}")
