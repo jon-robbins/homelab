@@ -436,7 +436,7 @@ class WorkflowSecurityTests(unittest.TestCase):
     def assert_candidate_ci_policy(self, workflow: dict[str, Any]) -> None:
         self.assertEqual(
             workflow.get("on"),
-            {"pull_request": {}, "push": {"branches": ["main"]}},
+            {"pull_request": {}, "push": {"branches": ["main", "m-*"]}},
         )
         self.assertEqual(workflow.get("permissions"), {"contents": "read"})
         jobs = workflow.get("jobs", {})

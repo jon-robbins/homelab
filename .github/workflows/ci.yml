@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request: {}
   push:
-    branches: [main]
+    # Milestone branches (m-*) get full CI on every bead push, before their PR exists.
+    branches: [main, "m-*"]
 
 permissions:
   contents: read
