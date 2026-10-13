@@ -14,11 +14,11 @@ import yaml
 
 from .bundle import build, bundle_sha256, verify
 from .compose_policy import validate_compose_model
-from .contracts import ValidationError, load_application_manifest
+from .contracts import DIGEST_PATTERN, ValidationError, load_application_manifest
 
 
 _APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
-_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
+_DIGEST = re.compile("@" + DIGEST_PATTERN)
 
 
 def _approved_repositories() -> set[str]:
@@ -151,8 +151,12 @@ def compile_bundle(
     document = _load_document(manifest)
     if not isinstance(document, dict):
         raise ValidationError("$", "expected application manifest object")
-    _check_application_alignment(document, model)
-    _pin_images(document, model, image_refs)
+    try:
+        _check_application_alignment(document, model)
+        _pin_images(document, model, image_refs)
+    except (KeyError, TypeError, AttributeError) as error:
+        # Pinning runs before schema validation, so a malformed manifest lands here.
+        raise ValidationError("$.applications", f"malformed application manifest: {error!r}") from error
     validate_compose_model(model, root=compose.parent)
     document = load_application_manifest(
         json.dumps(document).encode(),
@@ -160,7 +164,6 @@ def compile_bundle(
         gpu_profiles=set(gpu_profiles),
         site_policy=policy,
     )
-    _check_application_alignment(document, model)
     if not files.is_dir() or files.is_symlink():
         raise ValidationError("$.files", "expected regular directory")
 

@@ -5,6 +5,7 @@ import tarfile
 import pytest
 
 from scripts.release.compile import compile_bundle
+from scripts.release.contracts import ValidationError
 
 
 ROOT = Path(__file__).parent / "fixtures" / "site"
@@ -125,3 +126,11 @@ def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     expected = "missing from Compose: beta" if kind == "missing" else None
     with pytest.raises(ValueError, match=expected):
         compile_bundle(*args, {"alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64, "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64})
+
+
+def test_compiler_reports_malformed_manifest_as_validation_error(tmp_path):
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text("schema: 1\nsite_id: s\napplications:\n  - image: ghcr.io/jon-robbins/homelab/homelab-agent\n", encoding="utf-8")
+    args = (ROOT / "compose.json", manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
+    with pytest.raises(ValidationError, match="malformed application manifest"):
+        compile_bundle(*args, {})

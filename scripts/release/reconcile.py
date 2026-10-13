@@ -436,7 +436,7 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
         # Keep the command useful for local operators and older callers that
         # already materialized inputs under the explicit environment paths.
         inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
-    image_refs = plan_data.get("image_refs") or {item["image"]: item["destination"] + "@" + item["manifest_digest"] for item in plan_data.get("images", [])}
+    image_refs = plan_data["image_refs"]
     digest = compile_bundle(*inputs, bundle_path, image_refs)
     with tarfile.open(bundle_path, "r") as bundle:
         applications = json.loads(bundle.extractfile("applications.json").read())
