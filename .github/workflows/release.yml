@@ -37,7 +37,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -93,7 +93,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Release tooling runs at the workflow commit (tooling_git_sha), not the candidate.
           ref: ${{ github.sha }}
@@ -128,7 +128,7 @@ jobs:
       SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Release tooling runs at the workflow commit (tooling_git_sha), not the candidate.
           ref: ${{ github.sha }}
@@ -163,7 +163,7 @@ jobs:
       PRIVATE_INPUT_READ_TOKEN: ${{ secrets.PRIVATE_INPUT_READ_TOKEN }}
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -183,7 +183,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -207,7 +207,7 @@ jobs:
       SITE_FEED_TOKEN: ${{ secrets.SITE_FEED_TOKEN }}
     steps:
       - name: Checkout tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
