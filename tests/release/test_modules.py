@@ -40,7 +40,11 @@ def test_module_rejects_broken_contract_rules(tmp_path, kwargs):
 
 def test_module_rejects_wrong_path(tmp_path):
     path = tmp_path / "wrong.yml"
-    path.write_text(yaml.safe_dump({"services": {"wrong": {"image": IMAGE}}}), encoding="utf-8")
+    document = {"services": {"wrong": {
+        "image": IMAGE, "healthcheck": {"test": ["CMD", "true"]},
+        "labels": {"homelab.state": "stateless"},
+    }}}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValidationError, match="modules/<app\\|edge>"):
         validate_module(path, ENV)
 
@@ -53,6 +57,15 @@ def test_disabled_healthcheck_requires_probe(tmp_path, healthcheck):
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValidationError, match="healthcheck or homelab.probe"):
         validate_module(path, ENV)
+
+
+def test_config_files_are_not_host_binds(tmp_path):
+    path = write_module(tmp_path)
+    document = yaml.safe_load(path.read_text())
+    document["services"]["whoami"]["configs"] = [{"source": "settings", "target": "/etc/settings"}]
+    document["configs"] = {"settings": {"file": "/repo/site/files/settings"}}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    validate_module(path, ENV)
 
 
 def write_plugin(root, readme="whoami", service="whoami"):

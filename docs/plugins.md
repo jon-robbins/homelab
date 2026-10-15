@@ -1,15 +1,25 @@
 # Plugins
 
-A plugin packages homelab-specific services. A code-free plugin lives under
-`homelab-site/plugins/<name>/`; a code plugin is enabled by its repository.
-Both contain `homelab-plugin.yaml`, `README.md`, and modules below
-`modules/app/` or `modules/edge/`.
+A plugin packages services specific to one homelab. Its directory contains:
 
-The README must describe every service and its `site.env` keys. Plugin service
-names cannot collide with platform modules. Plugins may depend on platform
-modules, but platform modules never depend on plugins. Repository-owned images
-must come from that repository's declared namespace and, like upstream images,
-are pinned by digest.
+```text
+homelab-plugin.yaml  # contract: 1, name and description
+README.md            # services, site.env keys and how to run them
+modules/app/*.yml    # or modules/edge/*.yml
+```
+
+Code-free plugins live under the site as `plugins/<name>/` and are enabled
+with `{path: plugins/<name>}`. A plugin with its own code is enabled with
+`{repository: owner/repository}` and keeps its modules in that repository.
+Code repositories also declare `image_namespace`; their images must come
+from that namespace. All images, including upstream images, are digest
+pinned.
+
+Modules are discovered below `modules/<tier>/`; no service list is kept in
+sync. They follow the module contract, may depend on platform modules, and
+cannot reuse a platform service name. Platform modules never depend on a
+plugin. Validation also requires the README to mention every shipped service
+as a complete name, not merely as a substring.
 
 See [`examples/plugin-hello`](../examples/plugin-hello/) and
 [`examples/site`](../examples/site/) for a complete path-plugin example.
