@@ -1,53 +1,33 @@
-"""Check configured non-test Python source line budgets."""
+"""Check configured non-test source line budgets."""
 
 import json
 import sys
-import tokenize
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "config/ci/budgets.json"
-IGNORED_PARTS = {"test", "tests"}
-
-
 def source_files(root: Path, path: str):
     target = root / path
     if target.is_file():
         candidates = [target]
     else:
-        candidates = target.rglob("*.py")
+        candidates = target.rglob("*")
     return (
         file
         for file in candidates
-        if file.suffix == ".py"
-        and not any(
-            part in IGNORED_PARTS or part.startswith("test_")
-            for part in file.relative_to(root).parts
-        )
+        if file.is_file()
+        and file.suffix in {".py", ".sh"}
+        and "tests" not in file.relative_to(root).parts
+        and not (file.suffix == ".py" and (file.name.startswith("test_") or file.name.endswith("_test.py")))
     )
 
 
 def source_lines(path: Path) -> int:
-    lines = set()
-    with path.open(encoding="utf-8") as source:
-        physical_lines = source.readlines()
-        source.seek(0)
-        for token in tokenize.generate_tokens(source.readline):
-            if token.type not in {
-                tokenize.ENCODING,
-                tokenize.ENDMARKER,
-                tokenize.NL,
-                tokenize.NEWLINE,
-                tokenize.INDENT,
-                tokenize.DEDENT,
-                tokenize.COMMENT,
-            }:
-                for line_number in range(token.start[0], token.end[0] + 1):
-                    line = physical_lines[line_number - 1]
-                    if line.strip():
-                        lines.add(line_number)
-    return len(lines)
+    return sum(
+        bool(line.strip()) and not line.lstrip().startswith("#")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def violations(root: Path, config: dict) -> list[str]:
