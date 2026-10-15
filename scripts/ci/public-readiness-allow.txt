@@ -2,7 +2,6 @@
 scripts/ci/public-readiness.py private-network # Scanner documentation networks and private ranges are regex fixtures.
 scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain token-shaped examples by design.
 scripts/release/compose_policy.py token-shaped # Compose variable parser regex is not a credential.
-scripts/controller/state.py token-shaped # Event redaction regex contains synthetic credential shapes.
 tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
 tests/ops/test_infisical_agent_config.py token-shaped # Test credential is deliberately synthetic.
 tests/ops/test_infisical_agent_pilot_contract.sh token-shaped # Test credential is deliberately synthetic.
