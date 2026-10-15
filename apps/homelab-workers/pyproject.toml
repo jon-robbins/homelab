@@ -23,6 +23,23 @@ homelab-seerr-request-reconciler = "homelab_workers.cli.seerr_reconciler:main"
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+extend-select = ["C901"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/homelab_workers/cli/arr_missing_search.py" = ["C901"]
+"src/homelab_workers/cli/qbt_events.py" = ["C901"]
+"src/homelab_workers/integration/bazarr_subtitles.py" = ["C901"]
+"src/homelab_workers/shared/arr_acquire.py" = ["C901"]
+"src/homelab_workers/shared/autobrr.py" = ["C901"]
+"src/homelab_workers/shared/radarr_releases.py" = ["C901"]
+"src/homelab_workers/shared/seerr_reconciler.py" = ["C901"]
+"src/homelab_workers/shared/sonarr_releases.py" = ["C901"]
+"src/homelab_workers/tests/test_seerr_reconciler_cli.py" = ["C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
 [tool.pytest.ini_options]
 testpaths = ["src/homelab_workers/tests"]
 pythonpath = ["src"]

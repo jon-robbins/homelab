@@ -19,6 +19,11 @@ def install(session: nox.Session, *packages: str) -> None:
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
+def complexity_budget(session: nox.Session) -> None:
+    session.run("python", str(ROOT / "scripts/ci/complexity_budget.py"))
+
+
+@nox.session(python=PYTHON, tags=["no-docker"])
 def workers(session: nox.Session) -> None:
     install(session, f"{WORKERS}[dev]")
     session.run("pytest", "-q", str(WORKERS / "src/homelab_workers/tests"))

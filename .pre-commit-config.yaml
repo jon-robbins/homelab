@@ -29,6 +29,11 @@ repos:
       - id: gitleaks
   - repo: local
     hooks:
+      - id: complexity-budget
+        name: complexity budget
+        entry: python3 scripts/ci/complexity_budget.py
+        language: system
+        pass_filenames: false
       - id: bash-syntax
         name: bash -n tracked shell scripts
         entry: bash -n

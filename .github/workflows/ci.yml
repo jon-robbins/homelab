@@ -26,6 +26,8 @@ jobs:
           python -m pip install pre-commit==4.2.0 nox==2025.2.9
       - name: Run pre-commit
         run: pre-commit run --all-files
+      - name: Check complexity budgets
+        run: python scripts/ci/complexity_budget.py
 
   session-list:
     runs-on: ubuntu-latest
