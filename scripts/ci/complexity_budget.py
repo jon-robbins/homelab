@@ -31,6 +31,8 @@ def source_files(root: Path, path: str):
 def source_lines(path: Path) -> int:
     lines = set()
     with path.open(encoding="utf-8") as source:
+        physical_lines = source.readlines()
+        source.seek(0)
         for token in tokenize.generate_tokens(source.readline):
             if token.type not in {
                 tokenize.ENCODING,
@@ -41,7 +43,10 @@ def source_lines(path: Path) -> int:
                 tokenize.DEDENT,
                 tokenize.COMMENT,
             }:
-                lines.add(token.start[0])
+                for line_number in range(token.start[0], token.end[0] + 1):
+                    line = physical_lines[line_number - 1]
+                    if line.strip() and not line.lstrip().startswith("#"):
+                        lines.add(line_number)
     return len(lines)
 
 
