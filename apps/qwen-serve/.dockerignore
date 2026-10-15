@@ -1,6 +1,0 @@
-*
-!Dockerfile
-!requirements.lock.txt
-!entrypoint.sh
-!patches/**
-!kvarn/**
