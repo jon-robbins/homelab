@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 RUNTIME_PROJECT="homelab_runtime_smoke"
 RUNTIME_NETWORK="${RUNTIME_PROJECT}_net"
 TEST_COMPOSE_FILE="$(mktemp "${TMPDIR:-/tmp}/runtime-compose.XXXXXX.yml")"
-SERVICES=("flaresolverr" "internal-dashboard")
+SERVICES=("flaresolverr")
 
 declare -i total=0
 declare -i passed=0
@@ -70,7 +70,6 @@ require_docker() {
 }
 
 bu""ild_runtime_compose_file() {
-  local fixture_path="${REPO_ROOT}/tests/runtime/fixtures/internal-dashboard"
   cat >"${TEST_COMPOSE_FILE}" <<EOF
 services:
   flaresolverr:
@@ -80,15 +79,6 @@ services:
     environment:
       - LOG_LEVEL=info
       - TZ=\${TZ:-UTC}
-    networks:
-      - runtime_net
-
-  internal-dashboard:
-    image: nginx:alpine
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - ${fixture_path}:/usr/share/nginx/html:ro
     networks:
       - runtime_net
 
@@ -181,9 +171,6 @@ run_endpoint_checks() {
       flaresolverr)
         # / responds 200 on healthy startup and confirms in-network HTTP reachability.
         http_check "endpoint-flaresolverr-root" "http://flaresolverr:8191/" '^(200)$'
-        ;;
-      internal-dashboard)
-        http_check "endpoint-internal-dashboard-index" "http://internal-dashboard/index.html" '^(200)$'
         ;;
     esac
   done

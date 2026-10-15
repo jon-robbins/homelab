@@ -54,7 +54,6 @@ services:
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Movies:/movies
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/TV:/tv
       - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/.seed/Seeding:/seeding
-      - ../config/qbittorrent/autorun-offload.sh:/scripts/autorun-offload.sh:ro
       # Completion hook entrypoint: set autorun_program=/scripts/dispatcher.sh "%I" after deploy
       - ../config/qbittorrent/dispatcher.sh:/scripts/dispatcher.sh:ro
     mem_limit: 4g

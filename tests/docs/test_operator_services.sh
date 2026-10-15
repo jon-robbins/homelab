@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 mapfile -t services < <(docker compose config --services 2>/dev/null | sort)
-required=(autobrr bazarr qbittorrent homelab-mcp)
+required=(autobrr bazarr qbittorrent)
 fail=0
 for svc in "${required[@]}"; do
   if ! printf '%s\n' "${services[@]}" | grep -qx "$svc"; then

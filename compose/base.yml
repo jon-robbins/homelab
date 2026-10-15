@@ -6,8 +6,6 @@ include:
   - path: download.yml
   - path: workers.yml
   - path: autobrr.yml
-  - path: llm.yml
-  - path: files.yml
 
 networks:
   homelab_net:

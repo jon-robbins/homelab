@@ -4,7 +4,6 @@
 HASH="$1"
 [ -n "$HASH" ] || exit 0
 
-OFFLOAD_URL="${QBT_DISPATCH_OFFLOAD_URL:-http://homelab-qbt-offload:8099/v1/offload}"
 EVENTS_URL="${QBT_DISPATCH_EVENTS_URL:-http://homelab-qbt-events:8101/v1/torrent-finished}"
 TIMEOUT_SECS="${QBT_DISPATCH_TIMEOUT_SECS:-5}"
 
@@ -35,8 +34,8 @@ post_one() {
   fi
 
   soft_block=0
-  # Offload / disk-optimize are best-effort: never fail the completion bus.
-  if [ "$name" = "offload" ] || [ "$name" = "disk-optimize" ]; then
+  # Disk optimization is best-effort: never fail the completion bus.
+  if [ "$name" = "disk-optimize" ]; then
     soft_block=1
   fi
 
@@ -53,10 +52,7 @@ post_one() {
 
 BODY="{\"hash\":\"$HASH\"}"
 FAIL=0
-post_one offload "$OFFLOAD_URL" "$BODY" &
-pid1=$!
 post_one events "$EVENTS_URL" "$BODY" &
-pid2=$!
-wait $pid1 || FAIL=1
-wait $pid2 || FAIL=1
+pid=$!
+wait $pid || FAIL=1
 exit $FAIL

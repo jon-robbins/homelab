@@ -13,8 +13,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     restart: unless-stopped
-    # Tailscale :443 must wait for tailscale0 — see scripts/ops/start-tailscale-bound-services.sh
-    # (Docker cannot bind ${TAILSCALE_IP} before the address exists; that aborts :80/:8443 too.)
+    # Tailscale :443 must wait for tailscale0 (Docker cannot bind the address before it exists).
     ports:
       - "80:80"
       - "8443:443"

@@ -1,14 +1,6 @@
 [extend]
 useDefault = true
 
-# Synthetic API key used only to test redaction; it is never a runtime credential.
-[[allowlists]]
-description = "Synthetic API key used only to test redaction"
-condition = "AND"
-regexTarget = "line"
-paths = ['.*homelab-workers/src/homelab_workers/tests/test_mcp_gap_redact.*']
-regexes = ['API_KEY="abcdEFGH1234567890abcdEFGH1234"']
-
 [[allowlists]]
 description = "Synthetic release signing key used only by policy tests"
 paths = ['tests/release/test_checks.py']

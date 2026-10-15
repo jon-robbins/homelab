@@ -9,12 +9,11 @@ import pytest
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 TARGET_MODULES = (
     PACKAGE_ROOT / "shared" / "qbt_offload.py",
-    PACKAGE_ROOT / "cli" / "qbt_offload.py",
     PACKAGE_ROOT / "cli" / "arr_missing_search.py",
     PACKAGE_ROOT / "cli" / "seerr_reconciler.py",
     PACKAGE_ROOT / "cli" / "qbt_events.py",
 )
-GENERIC_QBT_OFFLOAD_MODULES = TARGET_MODULES[:2]
+GENERIC_QBT_OFFLOAD_MODULES = TARGET_MODULES[:1]
 PRIVATE_IMPORT_PREFIXES = ("tl_", "seed_group_")
 PRIVATE_POLICY_LITERALS = (
     "seed-group",

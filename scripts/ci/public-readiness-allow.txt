@@ -13,9 +13,7 @@ tests/ci/test_public_readiness.py private-network # Test inputs intentionally ex
 tests/ci/test_public_readiness.py token-shaped # Test inputs intentionally exercise token-shaped detection.
 tests/ci/test_workflow_security.py token-shaped # Workflow SHA regex fixture is not a credential.
 .gitleaks.toml token-shaped # Synthetic credential fixture used by the leak scanner.
-apps/homelab-workers/src/homelab_workers/mcp_gap_closer/redact.py token-shaped # Synthetic token prefixes used by the redaction regexes.
 apps/homelab-workers/src/homelab_workers/tests/test_autobrr_push_verify.py token-shaped # Synthetic release-name fixtures.
-apps/homelab-workers/src/homelab_workers/tests/test_mcp_gap_redact.py token-shaped # Synthetic credential fixture.
 apps/homelab-workers/src/homelab_workers/tests/test_qbt_exclusive.py token-shaped # Synthetic release-name fixtures.
 config/seerr/entrypoint.sh token-shaped # Synthetic JavaScript replacement fixture.
 scripts/lib/managed-secrets.sh token-shaped # Synthetic shell variable-name parser fixture.
@@ -31,5 +29,4 @@ tests/compose/test_network_definitions.sh token-shaped # Synthetic YAML key pars
 tests/compose/test_seerr_entrypoint.sh token-shaped # Synthetic YAML key parser fixture.
 tests/integration/telegram_reports.py token-shaped # Synthetic Telegram token-shape regex.
 tests/integration/test_telegram_cases.py token-shaped # Synthetic Telegram token fixtures.
-apps/qwen-serve/requirements.lock.txt private-network # Public dependency version is not an IP address.
 tests/ci/test_action_pins.py token-shaped # Action reference regex fixture is not a credential.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Host media-mount verification helpers for boot orchestrator (P0/P2).
+# Host media-mount verification helpers.
 # Can be sourced or executed standalone.
 #
 # Standalone usage:

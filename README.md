@@ -21,7 +21,6 @@ cover the main extension points.
 | --- | --- | --- |
 | Compose modules | Built | [compose/](compose/base.yml) aggregates the public modules. |
 | Workers | Built | [apps/homelab-workers/](apps/homelab-workers/) contains packaged workers. |
-| MCP core + extension interface | Built | [apps/homelab-mcp/](apps/homelab-mcp/) exposes the core and private extension boundary. |
 | CI | Built | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) renders, tests, scans, and builds. |
 | Off-host OCI build lane | Built | CI builds images without deploying them. |
 | Signed release feed (N6) | Built | See [release notes](docs/operations.md). |
@@ -79,8 +78,7 @@ tests/                boundary, CI, Compose, and release tests
 The modules are [base.yml](compose/base.yml), [network.yml](compose/network.yml),
 [arr.yml](compose/arr.yml), [media.yml](compose/media.yml),
 [download.yml](compose/download.yml), [workers.yml](compose/workers.yml),
-[autobrr.yml](compose/autobrr.yml), [llm.yml](compose/llm.yml), and
-[files.yml](compose/files.yml).
+[autobrr.yml](compose/autobrr.yml), [llm.yml](compose/llm.yml).
 
 ## Private extensions
 

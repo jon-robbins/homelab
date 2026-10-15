@@ -36,8 +36,8 @@ def test_sign_plan_record_images_equal_bundle_images(monkeypatch, tmp_path):
     monkeypatch.setenv("RELEASE_INPUTS_DIR", str(inputs))
 
     image_refs = {
-        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
-        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+        "alpha": "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "b" * 64,
     }
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({
@@ -123,15 +123,15 @@ def test_plan_output_signs_with_manifest_application_names(monkeypatch, tmp_path
     monkeypatch.setenv("RELEASE_INPUTS_DIR", str(inputs))
     monkeypatch.setenv("GITHUB_SHA", "h2")
     approved = {
-        "ghcr.io/jon-robbins/homelab/homelab-agent",
-        "ghcr.io/jon-robbins/homelab/homelab-mcp",
+        "ghcr.io/jon-robbins/homelab/caddy",
+        "ghcr.io/jon-robbins/homelab/homelab-workers",
     }
     monkeypatch.setattr(reconcile, "load_approved_destinations", lambda: approved)
     monkeypatch.setattr(reconcile, "_materialize_site_inputs", lambda *_args: None)
     monkeypatch.setattr(reconcile, "_manifest_site_id", lambda _root: "lab")
     builds = {
-        "homelab-agent": _build("homelab-agent", "sha256:" + "a" * 64),
-        "homelab-mcp": _build("homelab-mcp", "sha256:" + "b" * 64),
+        "caddy": _build("caddy", "sha256:" + "a" * 64),
+        "homelab-workers": _build("homelab-workers", "sha256:" + "b" * 64),
     }
     monkeypatch.setattr(reconcile, "_attested_builds", lambda *_args: builds)
     monkeypatch.setattr(

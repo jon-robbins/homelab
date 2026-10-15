@@ -29,47 +29,21 @@ jobs:
             recipe:
               - '.github/workflows/post-merge-build.yml'
               - 'config/release/approved-ghcr-destinations.json'
-            homelab-agent:
-              - 'apps/homelab-agent/**'
-              - 'apps/homelab-agent/Dockerfile'
-            homelab-mcp:
-              - 'apps/homelab-mcp/**'
-              - 'apps/homelab-mcp/Dockerfile'
-              - 'apps/homelab-workers/**'
             homelab-workers:
               - 'apps/homelab-workers/**'
               - 'apps/homelab-workers/Dockerfile'
-            media-agent:
-              - 'apps/media-agent/**'
-              - 'apps/media-agent/Dockerfile'
-            qwen-code-telegram:
-              - 'apps/qwen-code-telegram/**'
-              - 'apps/qwen-code-telegram/Dockerfile'
-            qwen-serve:
-              - 'apps/qwen-serve/**'
-              - 'apps/qwen-serve/Dockerfile'
             caddy:
               - 'config/caddy/**'
               - 'config/caddy/Dockerfile'
       - name: Create build matrix
         id: matrix
         env:
-          FILTER_HOMELAB_AGENT: ${{ steps.filter.outputs.homelab-agent }}
-          FILTER_HOMELAB_MCP: ${{ steps.filter.outputs.homelab-mcp }}
           FILTER_HOMELAB_WORKERS: ${{ steps.filter.outputs.homelab-workers }}
-          FILTER_MEDIA_AGENT: ${{ steps.filter.outputs.media-agent }}
-          FILTER_QWEN_CODE_TELEGRAM: ${{ steps.filter.outputs.qwen-code-telegram }}
-          FILTER_QWEN_SERVE: ${{ steps.filter.outputs.qwen-serve }}
           FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
           FILTER_RECIPE: ${{ steps.filter.outputs.recipe }}
         run: |
           matrix=$(jq -cn '[
-            {"dockerfile":"apps/homelab-agent/Dockerfile","context":"apps/homelab-agent","image":"homelab-agent","changed":env.FILTER_HOMELAB_AGENT},
-            {"dockerfile":"apps/homelab-mcp/Dockerfile","context":".","image":"homelab-mcp","changed":env.FILTER_HOMELAB_MCP},
             {"dockerfile":"apps/homelab-workers/Dockerfile","context":"apps/homelab-workers","image":"homelab-workers","changed":env.FILTER_HOMELAB_WORKERS},
-            {"dockerfile":"apps/media-agent/Dockerfile","context":"apps/media-agent","image":"media-agent","changed":env.FILTER_MEDIA_AGENT},
-            {"dockerfile":"apps/qwen-code-telegram/Dockerfile","context":"apps/qwen-code-telegram","image":"qwen-code-telegram","changed":env.FILTER_QWEN_CODE_TELEGRAM},
-            {"dockerfile":"apps/qwen-serve/Dockerfile","context":"apps/qwen-serve","image":"qwen-serve","changed":env.FILTER_QWEN_SERVE},
             {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY}
           ] | map(select(.changed == "true" or env.FILTER_RECIPE == "true") | del(.changed)) | {include:.}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -92,7 +66,6 @@ jobs:
           persist-credentials: false
 
       - name: Free runner disk space
-        # Large CUDA images (qwen-serve) exceed the default free disk once exported as an OCI archive.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force >/dev/null

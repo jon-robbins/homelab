@@ -109,12 +109,12 @@ copy_template_if_missing() {
 
 setup_configs() {
     mkdir -p data/caddy/data data/caddy/config data/cloudflared \
-      data/qbt-events data/qbt-offload data/seerr-request-reconciler
+      data/qbt-events data/seerr-request-reconciler
     # Docker creates missing bind-mount dirs as root; ensure worker-writable before first up.
     if [[ -n "${PUID:-}" && -n "${PGID:-}" ]]; then
-        chown "${PUID}:${PGID}" data/qbt-events data/qbt-offload data/seerr-request-reconciler 2>/dev/null || true
+        chown "${PUID}:${PGID}" data/qbt-events data/seerr-request-reconciler 2>/dev/null || true
     elif [[ "$(id -u)" -eq 0 ]]; then
-        chown 1000:1000 data/qbt-events data/qbt-offload data/seerr-request-reconciler 2>/dev/null || true
+        chown 1000:1000 data/qbt-events data/seerr-request-reconciler 2>/dev/null || true
     fi
     info "Ensured required data directories exist"
 

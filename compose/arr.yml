@@ -116,35 +116,6 @@ services:
     logging: *default-logging
     pids_limit: 500
 
-  readarr:
-    image: lscr.io/linuxserver/readarr:0.4.19-nightly@sha256:4f291128d1a5538be73c2a30473d7cdd0820e223dc8b8533b0cbc5659000dcbe
-    networks:
-      - homelab_net
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - DAC_OVERRIDE
-      - FOWNER
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-    volumes:
-      - ${APP_DATA_DIR:-../data}/readarr:/config
-      - ${MEDIA_HDD_PATH:-/mnt/media-hdd}/Books:/books
-      - ${MEDIA_NVME_PATH:-/mnt/media-nvme}/Incoming:/downloads
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8787 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-    logging: *default-logging
-    pids_limit: 500
 
   bazarr:
     image: lscr.io/linuxserver/bazarr@sha256:cb57afc3bd35558e1e7062658f9d4d18a0b4c474f10afe55f0ccfd867025f24f

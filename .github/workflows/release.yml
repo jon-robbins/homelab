@@ -1,8 +1,14 @@
 name: Release reconciler
 
 on:
+  # Event-driven (D11): runs after the post-merge image build on main succeeds, and when homelab-site or a plugin
+  # repo dispatches it on merge. The daily schedule is only a backstop.
+  workflow_run:  # zizmor: ignore[dangerous-triggers] same-repo push-to-main build only; artifacts are attestation-verified
+    workflows: ["Post-merge credential-free builds"]
+    types: [completed]
+    branches: [main]
   schedule:
-    - cron: '7,22,37,52 * * * *'
+    - cron: '17 4 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -26,7 +32,7 @@ env:
 
 jobs:
   verify:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check') && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment: production-release
     permissions:

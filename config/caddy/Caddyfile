@@ -6,14 +6,6 @@
 {$BASE_DOMAIN:example.homelab.local} {
 	encode gzip zstd
 	@internal remote_ip 127.0.0.1
-	handle_path /dashboard* {
-		handle @internal {
-			reverse_proxy internal-dashboard:8080
-		}
-		handle {
-			respond "Unauthorized Access" 403
-		}
-	}
 	handle /sonarr* {
 		reverse_proxy sonarr:8989
 	}
@@ -22,9 +14,6 @@
 	}
 	handle /prowlarr* {
 		reverse_proxy prowlarr:9696
-	}
-	handle /readarr* {
-		reverse_proxy readarr:8787
 	}
 	redir /bazarr /bazarr/ 301
 	handle /bazarr* {
@@ -59,9 +48,6 @@
 	}
 	handle /prowlarr* {
 		reverse_proxy prowlarr:9696
-	}
-	handle /readarr* {
-		reverse_proxy readarr:8787
 	}
 	redir /bazarr /bazarr/ 301
 	handle /bazarr* {

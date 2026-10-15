@@ -11,21 +11,34 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.4,<0.16", "pytest-httpx>=0.30"]
-mcp-gap = ["cursor-sdk>=1.0.24"]
 
 [project.scripts]
 qbt-seed-slots = "homelab_workers.cli.qbt_seed_slots:main"
 qbt-arr-post-import = "homelab_workers.cli.qbt_arr_post_import:main"
 homelab-arr-missing-search = "homelab_workers.cli.arr_missing_search:main"
-homelab-qbt-offload = "homelab_workers.cli.qbt_offload:main"
 homelab-qbt-events = "homelab_workers.cli.qbt_events:main"
-homelab-mcp-gap-inbox-sync = "homelab_workers.cli.mcp_gap_inbox_sync:main"
-homelab-mcp-gap-cloud-runner = "homelab_workers.cli.mcp_gap_cloud_runner:main"
 homelab-seerr-request-reconciler = "homelab_workers.cli.seerr_reconciler:main"
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+extend-select = ["C901"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/homelab_workers/cli/arr_missing_search.py" = ["C901"]
+"src/homelab_workers/cli/qbt_events.py" = ["C901"]
+"src/homelab_workers/integration/bazarr_subtitles.py" = ["C901"]
+"src/homelab_workers/shared/arr_acquire.py" = ["C901"]
+"src/homelab_workers/shared/autobrr.py" = ["C901"]
+"src/homelab_workers/shared/radarr_releases.py" = ["C901"]
+"src/homelab_workers/shared/seerr_reconciler.py" = ["C901"]
+"src/homelab_workers/shared/sonarr_releases.py" = ["C901"]
+"src/homelab_workers/tests/test_seerr_reconciler_cli.py" = ["C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.pytest.ini_options]
 testpaths = ["src/homelab_workers/tests"]

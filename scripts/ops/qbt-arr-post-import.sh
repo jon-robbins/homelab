@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Relocate Sonarr/Radarr imports from NVMe staging to HDD library paths in qBittorrent.
-# Runs inside homelab-mcp (homelab_net + host media mounts) so arr/qBT APIs are reachable.
+# Runs inside homelab-workers (homelab_net + host media mounts) so arr/qBT APIs are reachable.
 # Suggested crontab: */5 * * * * ${HOMELAB_ROOT}/scripts/ops/qbt-arr-post-import.sh >> ${HOMELAB_ROOT}/logs/qbt-arr-post-import.log 2>&1
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-CONTAINER="${HOMELAB_MCP_CONTAINER:-homelab-homelab-mcp-1}"
+CONTAINER="${HOMELAB_WORKERS_CONTAINER:-homelab-homelab-workers-1}"
 
 if docker inspect "${CONTAINER}" >/dev/null 2>&1; then
   exec docker exec "${CONTAINER}" qbt-arr-post-import "$@"
 fi
 
-# Fallback: one-shot container on homelab_net when homelab-mcp is not running.
+# Fallback: one-shot container on homelab_net when homelab-workers is not running.
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/lib/managed-secrets.sh"
 
@@ -26,10 +26,10 @@ source_nonsecret_env "${REPO_ROOT}/.env"
 
 MEDIA_NVME="${MEDIA_NVME_PATH:-/mnt/media-nvme}"
 MEDIA_HDD="${MEDIA_HDD_PATH:-/mnt/media-hdd}"
-IMAGE="${HOMELAB_WORKERS_IMAGE:-local/homelab-mcp:latest}"
+IMAGE="${HOMELAB_WORKERS_IMAGE:-local/homelab-workers:latest}"
 
 exec docker run --rm --network homelab_net --user "${PUID:-1000}:${PGID:-1000}" \
-  -v "${REPO_ROOT}/data/homelab-mcp:/data" \
+  -v "${REPO_ROOT}/data/homelab-workers:/data" \
   -v "${MEDIA_NVME}:${MEDIA_NVME}" \
   -v "${MEDIA_HDD}:${MEDIA_HDD}" \
   -e SONARR_INTERNAL_URL="${SONARR_INTERNAL_URL:-http://sonarr:8989/sonarr}" \

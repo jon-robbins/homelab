@@ -27,8 +27,6 @@ echo "    (simulates WAN client hitting home.* on :443 / :8443, not Cloudflare T
 check "/" '^(200|301|302|403)$' "GET / (root)"
 
 # @internal_only paths must NOT return 200 to WAN
-check "/dashboard" '^(403|401)$' "GET /dashboard (must be blocked)"
-check "/dashboard/" '^(403|401)$' "GET /dashboard/ (must be blocked)"
 check "/sonarr" '^(403|401)$' "GET /sonarr (must be blocked)"
 check "/radarr" '^(403|401)$' "GET /radarr (must be blocked)"
 check "/qbittorrent/" '^(403|401)$' "GET /qbittorrent/ (must be blocked)"

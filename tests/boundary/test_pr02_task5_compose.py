@@ -16,9 +16,7 @@ PUBLIC_NAMES = (
     "download.yml",
     "media.yml",
     "autobrr.yml",
-    "files.yml",
     "workers.yml",
-    "llm.yml",
     "network.yml",
 )
 PUBLIC = tuple(ROOT / "compose" / name for name in PUBLIC_NAMES)
@@ -62,14 +60,6 @@ class ComposeBoundaryTests(unittest.TestCase):
         self.assertRegex(compose_text, r"TAILSCALE_IP:-127\.0\.0\.1")
         self.assertRegex(compose_text, r"\./example-data/[A-Za-z0-9_./-]+")
 
-    def test_internal_dashboard_image_pinned_immutably(self):
-        document = yaml.safe_load((ROOT / "compose/llm.yml").read_text(encoding="utf-8"))
-        image = document["services"]["internal-dashboard"]["image"]
-        self.assertRegex(
-            image,
-            r"^nginxinc/nginx-unprivileged:alpine@sha256:[a-f0-9]{64}$",
-        )
-
     def test_public_compose_yaml_validity(self):
         for path in (*PUBLIC, AGGREGATE):
             with self.subTest(path=path):
@@ -103,7 +93,6 @@ class ComposeBoundaryTests(unittest.TestCase):
             "download.yml": ("qbittorrent",),
             "media.yml": ("plex",),
             "autobrr.yml": ("autobrr",),
-            "files.yml": ("filebrowser",),
             "network.yml": ("caddy",),
         }
         for filename, services in required.items():
