@@ -1,3 +1,4 @@
+import base64
 import fcntl
 import io
 import json
@@ -90,6 +91,31 @@ def test_fetch_newest_rejects_v1_bundle(feed_repo):
 
     with pytest.raises(ValueError, match="unexpected archive member"):
         fetch_newest(3, policy)
+
+
+def test_fetch_newest_rejects_record_sequence_mismatch(feed_repo):
+    policy, worktree, bare, bundle = feed_repo
+    _publish(worktree, bare, 4, bundle, record=_record(5, bundle))
+
+    with pytest.raises(ValueError, match="record sequence"):
+        fetch_newest(3, policy)
+
+
+def test_fetch_newest_configures_basic_feed_auth(feed_repo, monkeypatch):
+    policy, _, _, _ = feed_repo
+    original_run = subprocess.run
+    fetch_environment = {}
+
+    def run(*command, **kwargs):
+        if command[0][0] == "git" and "fetch" in command[0]:
+            fetch_environment.update(kwargs["env"])
+        return original_run(*command, **kwargs)
+
+    monkeypatch.setattr("scripts.controller.feed.subprocess.run", run)
+    fetch_newest(1, policy)
+
+    expected = base64.b64encode(b"x-access-token:read-token").decode()
+    assert fetch_environment["GIT_CONFIG_VALUE_0"] == f"Authorization: Basic {expected}"
 
 
 def test_materialize_publishes_read_only_release(tmp_path, feed_repo):

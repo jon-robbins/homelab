@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, replace
 import os
 from pathlib import Path
@@ -70,8 +71,9 @@ def fetch_newest(highwater: int, policy: HostPolicy | Any) -> Candidate | None:
         env = os.environ.copy()
         token = _token(policy)
         if token:
+            credentials = base64.b64encode(f"x-access-token:{token}".encode()).decode()
             env.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraHeader",
-                        "GIT_CONFIG_VALUE_0": f"Authorization: Bearer {token}"})
+                        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {credentials}"})
         subprocess.run(["git", "-C", str(root), "fetch", "--quiet", "--depth=1",
                         _feed_url(policy), "refs/heads/releases:refs/remotes/feed/releases"],
                        check=True, capture_output=True, text=True, env=env)
@@ -104,6 +106,8 @@ def fetch_newest(highwater: int, policy: HostPolicy | Any) -> Candidate | None:
             raw = (record_dir / "record.json").read_bytes()
             record = load_release_record(raw)
             signature = (record_dir / "record.sigstore.json").read_bytes()
+        if record["sequence"] != sequence:
+            raise ValueError(f"record sequence does not match records/{sequence}")
         bundle = (record_dir / "bundle.tar").read_bytes()
         verify_bundle(bundle)
         return Candidate(sequence, record, raw, signature, bundle)
