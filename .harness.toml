@@ -3,5 +3,6 @@
 [harness]
 tracker = "../homelab-plans"   # Beads tracker (hp-*)
 base_branch = "main"
+wait_for_ci = true             # after pushing an accepted bead, wait for hosted CI; red reopens the bead (M1.7)
 test_command = "python3 -m pytest -q -p no:cacheprovider tests/boundary tests/ci"  # run by the harness on each commit
 # Models: harness defaults (round 1 / round 2 / pro); see agent-harness examples/harness.toml.
