@@ -90,6 +90,13 @@ public_managed_set = managed_set - {
     "TELEGRAM_MCP_API_TOKEN",
     "TELEGRAM_OWNER_BOT_TOKEN",
     "TELEGRAM_OWNER_MCP_API_TOKEN",
+    "HOMELAB_AGENT_API_TOKEN",
+    "MEDIA_AGENT_TOKEN",
+    "GEMINI_API_KEY",
+    "MCP_API_TOKEN",
+    "VLLM_API_KEY",
+    "AUTOBRR_API_KEY",
+    "PLEX_TOKEN",
 }
 
 top_secrets = config.get("secrets") or {}
