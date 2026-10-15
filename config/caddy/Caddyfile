@@ -23,9 +23,6 @@
 	handle /prowlarr* {
 		reverse_proxy prowlarr:9696
 	}
-	handle /readarr* {
-		reverse_proxy readarr:8787
-	}
 	redir /bazarr /bazarr/ 301
 	handle /bazarr* {
 		reverse_proxy bazarr:6767
@@ -59,9 +56,6 @@
 	}
 	handle /prowlarr* {
 		reverse_proxy prowlarr:9696
-	}
-	handle /readarr* {
-		reverse_proxy readarr:8787
 	}
 	redir /bazarr /bazarr/ 301
 	handle /bazarr* {

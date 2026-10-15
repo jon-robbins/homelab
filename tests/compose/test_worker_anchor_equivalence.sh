@@ -69,7 +69,7 @@ for name in worker_services:
             "\x74l-auth",
         }:
             continue
-    if name in {"homelab-qbt-offload", "homelab-qbt-events", "homelab-ratio-scheduler", "homelab-\x74l-disk-optimize", "homelab-\x74l-thank", "homelab-plex-ratio-ready", "homelab-\x74l-fl-labeler", "\x74l-intake-gate", "\x74l-intake-monitor", "\x74l-intake-recheck"}:
+    if name in {"homelab-qbt-events", "homelab-ratio-scheduler", "homelab-\x74l-disk-optimize", "homelab-\x74l-thank", "homelab-plex-ratio-ready", "homelab-\x74l-fl-labeler", "\x74l-intake-gate", "\x74l-intake-monitor", "\x74l-intake-recheck"}:
         if "QBITTORRENT_INTERNAL_URL" not in env:
             bad.append((name, "QBITTORRENT_INTERNAL_URL", "missing"))
 

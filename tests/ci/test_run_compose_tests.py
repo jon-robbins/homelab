@@ -25,7 +25,6 @@ ALL_TESTS = [
     "test_arr_missing_search_service.sh",
     "test_autobrr_compose.sh",
     "test_seerr_entrypoint.sh",
-    "test_boot_orchestrator.sh",
     "test_worker_anchor_equivalence.sh",
     "test_homelab_agent_service.sh",
 ]

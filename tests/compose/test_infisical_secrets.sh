@@ -137,7 +137,6 @@ expected_grants = {
     "homelab-mcp": MCP_SECRETS,
     "media-agent": MEDIA_AGENT_SECRETS,
     "homelab-agent": HOMELAB_AGENT_SECRETS,
-    "homelab-qbt-offload": QBT,
     "homelab-qbt-events": QBT,
     "homelab-seerr-request-reconciler": [
         *QBT,

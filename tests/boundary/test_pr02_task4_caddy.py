@@ -30,7 +30,7 @@ class CaddyBoundaryTests(unittest.TestCase):
 
     def test_arr_routes_preserve_prefix_and_non_base_routes_strip(self):
         public = PUBLIC.read_text(encoding="utf-8")
-        for service in ("sonarr", "radarr", "prowlarr", "readarr", "bazarr"):
+        for service in ("sonarr", "radarr", "prowlarr", "bazarr"):
             self.assertRegex(public, rf"handle /{service}\*\s*\{{\s*reverse_proxy")
         for service in ("overseerr", "qbittorrent", "autobrr", "dashboard"):
             self.assertIn(f"handle_path /{service}*", public)

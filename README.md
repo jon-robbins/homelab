@@ -79,8 +79,7 @@ tests/                boundary, CI, Compose, and release tests
 The modules are [base.yml](compose/base.yml), [network.yml](compose/network.yml),
 [arr.yml](compose/arr.yml), [media.yml](compose/media.yml),
 [download.yml](compose/download.yml), [workers.yml](compose/workers.yml),
-[autobrr.yml](compose/autobrr.yml), [llm.yml](compose/llm.yml), and
-[files.yml](compose/files.yml).
+[autobrr.yml](compose/autobrr.yml), [llm.yml](compose/llm.yml).
 
 ## Private extensions
 

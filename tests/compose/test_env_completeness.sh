@@ -19,7 +19,6 @@ COMPOSE_FILES=(
   "compose/workers.yml"
   "compose/autobrr.yml"
   "compose/llm.yml"
-  "compose/files.yml"
 )
 
 declare -A all_vars=()

@@ -6,22 +6,6 @@
 # Precedence: Environment Variables > config/workers.yaml > Python Dataclass Defaults.
 # ==============================================================================
 
-# --- Boot Orchestrator ---
-boot:
-  ingress_smoke:
-    enabled: true
-    required: true
-    wait_seconds: 90
-    timeout_seconds: 5
-    routes:
-      - name: qbittorrent
-        url: http://${TAILSCALE_IP}/qbittorrent/
-        host_header: example-homelab
-        accepted_statuses:
-          - 200
-          - 401
-          - 403
-
 # --- qBittorrent NVMe-to-HDD Offload Worker ---
 offload:
   catchup_seconds: 3600

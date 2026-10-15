@@ -16,7 +16,6 @@ PUBLIC_NAMES = (
     "download.yml",
     "media.yml",
     "autobrr.yml",
-    "files.yml",
     "workers.yml",
     "llm.yml",
     "network.yml",
@@ -103,7 +102,6 @@ class ComposeBoundaryTests(unittest.TestCase):
             "download.yml": ("qbittorrent",),
             "media.yml": ("plex",),
             "autobrr.yml": ("autobrr",),
-            "files.yml": ("filebrowser",),
             "network.yml": ("caddy",),
         }
         for filename, services in required.items():

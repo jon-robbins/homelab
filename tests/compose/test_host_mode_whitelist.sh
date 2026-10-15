@@ -14,7 +14,6 @@ COMPOSE_FILES=(
   "compose/workers.yml"
   "compose/autobrr.yml"
   "compose/llm.yml"
-  "compose/files.yml"
 )
 
 ALLOWED_HOST_SERVICES=(

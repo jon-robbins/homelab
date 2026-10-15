@@ -15,4 +15,4 @@ as it exists; planned items are explicitly marked and are not available yet.
 
 The remaining short reference pages are retained for stable links and point to
 the relevant current contract: [Caddy](caddy-guide.md), [Prowlarr routing](prowlarr-caddy-routing.md),
-[boot](boot-orchestrator.md), [hardware](hardware.md), and [architecture notes](architecture.md).
+[hardware](hardware.md), and [architecture notes](architecture.md).
