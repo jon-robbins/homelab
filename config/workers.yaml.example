@@ -6,16 +6,6 @@
 # Precedence: Environment Variables > config/workers.yaml > Python Dataclass Defaults.
 # ==============================================================================
 
-# --- qBittorrent NVMe-to-HDD Offload Worker ---
-offload:
-  catchup_seconds: 3600
-  min_hdd_free_bytes: 10737418240
-  status_path: /state/status.json
-  status_max_age_seconds: 7200
-  # Put site-specific exclusions in private configuration.
-  excluded_tags: []
-  excluded_categories: []
-
 # --- Arr Missing Search Scheduler ---
 arr_missing_search:
   enabled: false

@@ -10,6 +10,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 grep -qE '^[[:space:]]*llm_net:' compose/base.yml || fail "llm_net must be defined in compose/base.yml"
 grep -qE '^[[:space:]]*internal:[[:space:]]*true' compose/base.yml || fail "llm_net must be internal in base.yml"
 
+for f in compose/network.yml compose/arr.yml compose/media.yml compose/download.yml compose/workers.yml compose/llm.yml compose/autobrr.yml; do
   [[ -f "$f" ]] || continue
   if grep -qE '^networks:' "$f"; then
     fail "$f must not declare a top-level networks: block (owned by compose/base.yml)"
