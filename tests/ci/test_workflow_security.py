@@ -187,7 +187,12 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(
             workflow.get("on"),
             {
-                "schedule": [{"cron": "7,22,37,52 * * * *"}],
+                "workflow_run": {
+                    "workflows": ["Post-merge credential-free builds"],
+                    "types": ["completed"],
+                    "branches": ["main"],
+                },
+                "schedule": [{"cron": "17 4 * * *"}],
                 "workflow_dispatch": {
                     "inputs": {
                         "mode": {
@@ -225,7 +230,12 @@ class WorkflowSecurityTests(unittest.TestCase):
         for job_name in ("verify", "publish", "sign", "feed"):
             job = jobs[job_name]
             expected_if = "github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.mode != 'check')"
-            if job_name == "publish":
+            if job_name == "verify":
+                expected_if += (
+                    " && (github.event_name != 'workflow_run'"
+                    " || github.event.workflow_run.conclusion == 'success')"
+                )
+            elif job_name == "publish":
                 expected_if += " && needs.verify.outputs.has_publish_images == 'true'"
             elif job_name != "verify":
                 expected_if = (
