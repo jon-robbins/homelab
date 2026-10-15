@@ -14,7 +14,7 @@ from .contracts import ValidationError, ValidationErrors
 
 
 _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
-_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z" "0-9_]*)\}")
+_VARIABLE = re.compile(r"\$\{([A-Za-z_]\w*)\}", re.ASCII)
 _PROBE = re.compile(r"^http://:[0-9]+.*$")
 _SCHEMAS = Path(__file__).parents[2] / "schemas"
 
@@ -91,8 +91,13 @@ def _validate_schema(value: Any, name: str) -> None:
     _schema_check(value, schema)
 
 
+def _site_env_keys() -> set[str]:
+    schema = json.loads((_SCHEMAS / "site.schema.json").read_text(encoding="utf-8"))
+    return set(schema["$defs"]["siteEnv"]["properties"])
+
+
 def _roots(site_env: Mapping[str, str]) -> tuple[Path, ...]:
-    values = [value for key, value in site_env.items() if key == "APP_DATA_DIR" or "MEDIA" in key]
+    values = [site_env[key] for key in ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH") if key in site_env]
     return tuple(Path(value).expanduser().resolve(strict=False) for value in values if value)
 
 
@@ -125,6 +130,21 @@ def validate_module(path: str | Path, site_env: Mapping[str, str]) -> dict[str, 
     if not isinstance(service, dict):
         errors.append(_error(f"$.services.{service_name}", "expected service object"))
         raise ValidationErrors(errors)
+    allowed_keys = _site_env_keys()
+
+    def check_variables(value: Any, field: str) -> None:
+        if isinstance(value, str):
+            for match in _VARIABLE.finditer(value):
+                if match.group(1) not in allowed_keys:
+                    errors.append(_error(field, f"undeclared site.env key {match.group(1)}"))
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                check_variables(child, f"{field}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                check_variables(child, f"{field}[{index}]")
+
+    check_variables(document, "$")
     image = service.get("image")
     if not isinstance(image, str) or _DIGEST.fullmatch(image) is None:
         errors.append(_error(f"$.services.{service_name}.image", "image must be pinned by digest"))
@@ -184,7 +204,12 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     readme = plugin / "README.md"
     text = readme.read_text(encoding="utf-8") if readme.exists() else ""
     for module in modules:
-        validate_module(module, site_env)
+        compose = validate_module(module, site_env)
+        namespace = metadata.get("image_namespace")
+        if namespace:
+            image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
+            if image != namespace and not image.startswith((f"{namespace}/", f"{namespace}:")):
+                errors.append(_error("$.image_namespace", f"image for {module.stem} is outside {namespace}"))
         if module.stem in names:
             errors.append(_error("$.modules", f"plugin service collides with platform module: {module.stem}"))
         if re.search(rf"(?<![\w-]){re.escape(module.stem)}(?![\w-])", text) is None:
@@ -194,7 +219,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     return metadata
 
 
-def validate_site(path: str | Path) -> dict[str, Any]:
+def validate_site(path: str | Path, platform_modules: set[str] | None = None) -> dict[str, Any]:
     site = Path(path)
     document = _load(site / "site.yaml")
     _validate_schema(document, "site")
@@ -205,7 +230,7 @@ def validate_site(path: str | Path) -> dict[str, Any]:
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 env[key] = value
-    platform = _module_names(site.parent) if (site.parent / "modules").exists() else set()
+    platform = _module_names(_SCHEMAS.parent) if platform_modules is None else platform_modules
     for name, source in (document.get("plugins") or {}).items():
         if isinstance(source, dict) and "path" in source:
             validate_plugin(site / source["path"], env, platform)

@@ -14,7 +14,7 @@ ENV = {"APP_DATA_DIR": "/srv/homelab/data", "MEDIA_HDD_PATH": "/srv/media"}
 
 def write_module(root, *, service="whoami", image=IMAGE, volume="${APP_DATA_DIR}/whoami", health=True, state=True):
     path = root / "modules" / "app" / f"{service}.yml"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     service_doc = {"image": image, "volumes": [f"{volume}:/data"]}
     if health:
         service_doc["healthcheck"] = {"test": ["CMD", "true"]}
@@ -76,6 +76,21 @@ def test_config_files_are_not_host_binds(tmp_path):
     validate_module(path, ENV)
 
 
+def test_media_note_is_not_a_bind_root(tmp_path):
+    path = write_module(tmp_path, volume="/etc/passwd")
+    with pytest.raises(ValidationError, match="outside site.env data/media roots"):
+        validate_module(path, {**ENV, "MEDIA_NOTE": "/etc"})
+
+
+def test_undeclared_variable_in_environment_is_rejected(tmp_path):
+    path = write_module(tmp_path)
+    document = yaml.safe_load(path.read_text())
+    document["services"]["whoami"]["environment"] = {"VALUE": "${UNKNOWN}"}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ValidationError, match="undeclared site.env key UNKNOWN"):
+        validate_module(path, {**ENV, "UNKNOWN": "value"})
+
+
 def write_plugin(root, readme="whoami", service="whoami"):
     plugin = root / "plugin"
     plugin.mkdir()
@@ -95,6 +110,35 @@ def test_plugin_rejects_readme_without_exact_service_name(tmp_path):
 def test_plugin_rejects_platform_name_collision(tmp_path):
     with pytest.raises(ValidationError, match="collides with platform module"):
         validate_plugin(write_plugin(tmp_path), ENV, {"whoami"})
+
+
+def test_code_plugin_rejects_image_outside_declared_namespace(tmp_path):
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="outside ghcr.io/owner/plugin"):
+        validate_plugin(plugin, ENV)
+
+
+def test_code_plugin_accepts_image_in_declared_namespace(tmp_path):
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
+    write_module(plugin, image="ghcr.io/owner/plugin@sha256:" + "a" * 64)
+    validate_plugin(plugin, ENV)
+
+
+def test_separate_site_uses_supplied_platform_catalog(tmp_path):
+    site = tmp_path / "separate-site"
+    site.mkdir()
+    write_plugin(site)
+    (site / "site.env").write_text("APP_DATA_DIR=/srv/homelab/data\n", encoding="utf-8")
+    (site / "site.yaml").write_text(
+        "contract: 1\nsite_id: separate\nplugins:\n  plugin: {path: plugin}\n"
+        "services:\n  whoami: {}\nmanaged: [whoami]\n", encoding="utf-8"
+    )
+    with pytest.raises(ValidationError, match="collides with platform module"):
+        validate_site(site, {"whoami"})
 
 
 def test_schemas_are_applied(tmp_path):
