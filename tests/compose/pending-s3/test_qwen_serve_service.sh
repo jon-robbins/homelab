@@ -12,8 +12,8 @@ grep -qE '^[[:space:]]*qwen-serve:' compose/llm.yml \
 
 block="$(awk '/^  qwen-serve:/{f=1;next} f && /^  [a-z]/{f=0} f' compose/llm.yml)"
 
-# External access: loopback + Tailscale IP only (Trae via tailnet, qwen-chat
-# and probes via localhost). Never 0.0.0.0 — Docker-published ports bypass UFW.
+# External access: loopback + Tailscale IP only (Trae via tailnet, probes
+# via localhost). Never 0.0.0.0 — Docker-published ports bypass UFW.
 grep -qE '^[[:space:]]*-[[:space:]]*"127\.0\.0\.1:18020:18020"' <<<"$block" \
   || fail "qwen-serve must publish 127.0.0.1:18020 for host-local clients"
 grep -qE '^[[:space:]]*-[[:space:]]*"\$\{QWEN_SERVE_TAILSCALE_IP:-100\.106\.194\.32\}:18020:18020"' <<<"$block" \
