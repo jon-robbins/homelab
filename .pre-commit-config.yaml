@@ -1,0 +1,49 @@
+default_language_version:
+  python: python3
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff
+        files: ^apps/(homelab-workers|homelab-mcp|homelab-agent|media-agent)/.*\.py$
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        exclude: ^(apps/qwen-code-telegram/(vendor/|tests/)|tests/)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.8.0
+    hooks:
+      - id: zizmor
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: bash-syntax
+        name: bash -n tracked shell scripts
+        entry: bash -n
+        language: system
+        files: \.(sh)$
+      - id: public-readiness
+        name: public readiness
+        entry: python3 scripts/ci/public-readiness.py
+        language: system
+        pass_filenames: false
+      - id: workflow-security
+        name: workflow security policy
+        entry: python3 -m pytest -q tests/ci/test_workflow_security.py
+        language: python
+        additional_dependencies:
+          - pytest==8.3.5
+          - pyyaml==6.0.2
+        pass_filenames: false

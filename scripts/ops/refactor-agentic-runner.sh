@@ -444,7 +444,7 @@ context_files_for() {
     system-inventory:tests-ci)
       printf '%s\n' \
         .github/workflows/ci.yml .github/workflows/nightly-deploy.yml .github/workflows/render-md-mermaid.yml \
-        scripts/ci/ci-local.sh scripts/ci/ci-watch.sh scripts/ci/gh-actions-local.sh \
+        scripts/ci/ci-watch.sh scripts/ci/gh-actions-local.sh \
         tests/compose/run_tests.sh tests/compose/test_yaml_syntax.sh tests/compose/test_env_completeness.sh \
         tests/compose/test_no_hardcoded_paths.sh tests/compose/test_caddy_labels.sh \
         tests/compose/test_network_definitions.sh tests/compose/test_host_mode_whitelist.sh \
@@ -496,7 +496,7 @@ context_files_for() {
       ;;
     homelab-workers-e2e:*)
       git -C "$ROOT" ls-files 'apps/homelab-workers/**' 'tests/integration/**' 'tests/runtime/**' \
-        '.github/workflows/nightly-deploy.yml' 'scripts/ci/ci-local.sh' 'docs/**/*.md' 'README.md'
+        '.github/workflows/nightly-deploy.yml' 'docs/**/*.md' 'README.md'
       ;;
     ops-scripts-ci-cd:*)
       git -C "$ROOT" ls-files 'scripts/**' 'tests/compose/**' 'tests/integration/**' 'tests/runtime/**' \

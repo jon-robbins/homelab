@@ -24,7 +24,7 @@ cover the main extension points.
 | MCP core + extension interface | Built | [apps/homelab-mcp/](apps/homelab-mcp/) exposes the core and private extension boundary. |
 | CI | Built | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) renders, tests, scans, and builds. |
 | Off-host OCI build lane | Built | CI builds images without deploying them. |
-| Signed release feed (N6) | Planned | See [release notes](docs/operations.md). |
+| Signed release feed (N6) | Built | See [release notes](docs/operations.md). |
 | Host controller (N7–N11) | Planned | No controller or host pull path is shipped. |
 
 ## Architecture at a glance
@@ -39,7 +39,7 @@ flowchart LR
 ```
 
 The public repository ends at the CI/build boundary. Private site overlays may
-connect extensions at runtime; the signed feed and controller are planned.
+connect extensions at runtime; the host controller remains planned.
 
 ## Quick Start
 

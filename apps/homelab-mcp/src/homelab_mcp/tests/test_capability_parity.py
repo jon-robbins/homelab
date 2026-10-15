@@ -7,7 +7,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-import pytest
 
 
 _PROBE = """

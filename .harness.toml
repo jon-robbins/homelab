@@ -4,9 +4,4 @@
 tracker = "../homelab-plans"   # Beads tracker (hp-*)
 base_branch = "main"
 test_command = "python3 -m pytest -q -p no:cacheprovider tests/boundary tests/ci"  # run by the harness on each commit
-
-[models]  # "model" or "model:effort"
-implementer = "gpt-5.6-luna:medium"
-reviewer = "gpt-5.6-terra:medium"
-implementer_pro = "gpt-5.6-luna:high"   # used after two rejected reviews
-reviewer_pro = "gpt-5.6-terra:high"
+# Models: harness defaults (round 1 / round 2 / pro); see agent-harness examples/harness.toml.

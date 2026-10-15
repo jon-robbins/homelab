@@ -16,7 +16,7 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: Find changed images
@@ -87,7 +87,7 @@ jobs:
       matrix: ${{ fromJSON(needs.changed-images.outputs.matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
 
@@ -99,23 +99,26 @@ jobs:
           df -h /
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build OCI layout
+        env:
+          BUILD_DOCKERFILE: ${{ matrix.dockerfile }}
+          BUILD_CONTEXT: ${{ matrix.context }}
         run: >-
           docker buildx build
           --platform linux/amd64
-          --file "${{ matrix.dockerfile }}"
+          --file "$BUILD_DOCKERFILE"
           --output "type=oci,dest=oci-layout.tar"
-          "${{ matrix.context }}"
+          "$BUILD_CONTEXT"
 
       - name: Attest OCI layout
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v2.3.0
         with:
           subject-path: oci-layout.tar
 
       - name: Upload OCI artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oci-${{ matrix.image }}
           path: oci-layout.tar

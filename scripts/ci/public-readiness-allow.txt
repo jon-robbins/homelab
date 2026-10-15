@@ -2,8 +2,8 @@
 scripts/ci/public-readiness.py private-network # Scanner documentation networks and private ranges are regex fixtures.
 scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain token-shaped examples by design.
 scripts/release/compose_policy.py token-shaped # Compose variable parser regex is not a credential.
+scripts/controller/state.py token-shaped # Event redaction regex contains synthetic credential shapes.
 tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
-tests/ops/test_ci_local_placeholders.sh token-shaped # Test placeholder is deliberately synthetic.
 tests/ops/test_infisical_agent_config.py token-shaped # Test credential is deliberately synthetic.
 tests/ops/test_infisical_agent_pilot_contract.sh token-shaped # Test credential is deliberately synthetic.
 tests/ops/test_infisical_agent_reload.py token-shaped # Test credentials are deliberately synthetic.
@@ -11,6 +11,7 @@ tests/ops/test_managed_secrets.py token-shaped # Test credentials are deliberate
 tests/runtime/test_seerr_download_path_health.sh token-shaped # Test credential is deliberately synthetic.
 tests/ci/test_public_readiness.py private-network # Test inputs intentionally exercise private-network detection.
 tests/ci/test_public_readiness.py token-shaped # Test inputs intentionally exercise token-shaped detection.
+tests/ci/test_workflow_security.py token-shaped # Workflow SHA regex fixture is not a credential.
 .gitleaks.toml token-shaped # Synthetic credential fixture used by the leak scanner.
 apps/homelab-workers/src/homelab_workers/mcp_gap_closer/redact.py token-shaped # Synthetic token prefixes used by the redaction regexes.
 apps/homelab-workers/src/homelab_workers/tests/test_autobrr_push_verify.py token-shaped # Synthetic release-name fixtures.
@@ -31,3 +32,4 @@ tests/compose/test_seerr_entrypoint.sh token-shaped # Synthetic YAML key parser 
 tests/integration/telegram_reports.py token-shaped # Synthetic Telegram token-shape regex.
 tests/integration/test_telegram_cases.py token-shaped # Synthetic Telegram token fixtures.
 apps/qwen-serve/requirements.lock.txt private-network # Public dependency version is not an IP address.
+tests/ci/test_action_pins.py token-shaped # Action reference regex fixture is not a credential.
