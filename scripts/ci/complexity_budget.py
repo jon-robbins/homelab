@@ -45,7 +45,7 @@ def source_lines(path: Path) -> int:
             }:
                 for line_number in range(token.start[0], token.end[0] + 1):
                     line = physical_lines[line_number - 1]
-                    if line.strip() and not line.lstrip().startswith("#"):
+                    if line.strip():
                         lines.add(line_number)
     return len(lines)
 

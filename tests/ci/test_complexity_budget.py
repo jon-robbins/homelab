@@ -21,7 +21,7 @@ def test_over_budget(tmp_path):
 
 def test_multiline_strings_count_each_physical_line(tmp_path):
     (tmp_path / "src").mkdir()
-    (tmp_path / "src/code.py").write_text('value = """one\ntwo\nthree\n"""\n')
+    (tmp_path / "src/code.py").write_text('value = """one\n# two\nthree\n"""\n')
     assert violations(tmp_path, budget(tmp_path, 4)) == []
     assert violations(tmp_path, budget(tmp_path, 3)) == ["src: 4 > 3"]
 
