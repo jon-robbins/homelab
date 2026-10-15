@@ -1,14 +1,14 @@
 schema: 1
 applications:
   - name: alpha
-    image: ghcr.io/jon-robbins/homelab/homelab-agent
+    image: ghcr.io/jon-robbins/homelab/caddy
     rollback: automatic
     depends_on: []
     secrets: []
     health_probe: alpha-health
     semantic_probes: [alpha-route]
   - name: beta
-    image: ghcr.io/jon-robbins/homelab/homelab-mcp
+    image: ghcr.io/jon-robbins/homelab/homelab-workers
     rollback: manual
     depends_on: [alpha]
     secrets: []

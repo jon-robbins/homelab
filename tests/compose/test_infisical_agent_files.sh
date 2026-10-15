@@ -68,8 +68,6 @@ config = json.loads(
             "compose",
             "-f",
             "docker-compose.yml",
-            "--profile",
-            "qwen-serve",
             "config",
             "--format",
             "json",
@@ -112,33 +110,9 @@ for key in public_managed_set:
         failures.append(f"secret {key} must not use environment source")
 
 QBT = ["QBITTORRENT_USERNAME", "QBITTORRENT_PASSWORD"]
-MCP_SECRETS = [
-    "MCP_API_TOKEN",
-    "MEDIA_AGENT_TOKEN",
-    *QBT,
-    "SONARR_API_KEY",
-    "RADARR_API_KEY",
-    "PROWLARR_API_KEY",
-    "OVERSEERR_API_KEY",
-    "AUTOBRR_API_KEY",
-    "PLEX_TOKEN",
-]
-MEDIA_AGENT_SECRETS = [
-    "MEDIA_AGENT_TOKEN",
-    "GEMINI_API_KEY",
-    "SONARR_API_KEY",
-    "RADARR_API_KEY",
-    "PROWLARR_API_KEY",
-    *QBT,
-]
-HOMELAB_AGENT_SECRETS = ["HOMELAB_AGENT_API_TOKEN", "MCP_API_TOKEN", "VLLM_API_KEY"]
-
 expected_grants = {
     "caddy": ["\x43LOUDFLARE_TOKEN"],
     "overseerr": ["TMDB_API_KEY"],
-    "homelab-mcp": MCP_SECRETS,
-    "media-agent": MEDIA_AGENT_SECRETS,
-    "homelab-agent": HOMELAB_AGENT_SECRETS,
     "homelab-qbt-events": QBT,
     "homelab-seerr-request-reconciler": [
         *QBT,

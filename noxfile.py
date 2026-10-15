@@ -5,8 +5,8 @@ from pathlib import Path
 import nox
 
 
-# One interpreter everywhere (homelab-agent and media-agent need 3.12); uv
-# provides it locally when missing, CI's setup-python provides it there.
+# One interpreter everywhere; uv provides it locally when missing, CI's
+# setup-python provides it there.
 PYTHON = "3.12"
 nox.options.default_venv_backend = "uv|virtualenv"
 
@@ -23,28 +23,6 @@ def workers(session: nox.Session) -> None:
     install(session, f"{WORKERS}[dev]")
     session.run("pytest", "-q", str(WORKERS / "src/homelab_workers/tests"))
     session.run("ruff", "check", str(WORKERS / "src"))
-
-
-@nox.session(python=PYTHON, tags=["no-docker"])
-def mcp(session: nox.Session) -> None:
-    install(session, f"{WORKERS}", f"{ROOT / 'apps/homelab-mcp'}[dev]", "pytest-asyncio", "respx")
-    session.chdir("apps/homelab-mcp")
-    session.run("pytest", "-q")
-
-
-@nox.session(python=PYTHON, tags=["no-docker"])
-def homelab_agent(session: nox.Session) -> None:
-    install(session, f"{ROOT / 'apps/homelab-agent'}[dev]")
-    session.chdir("apps/homelab-agent")
-    session.run("pytest", "-W", "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning", "-q")
-    session.run("ruff", "check", "app", "tests")
-
-
-@nox.session(python=PYTHON, tags=["no-docker"])
-def media_agent(session: nox.Session) -> None:
-    install(session, f"{ROOT / 'apps/media-agent'}[dev]")
-    session.run("pytest", "-W", "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning", "-q", "apps/media-agent/tests")
-    session.run("ruff", "check", "apps/media-agent/app", "apps/media-agent/tests")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
@@ -74,14 +52,6 @@ def compose_tests(session: nox.Session) -> None:
 @nox.session(python=PYTHON, tags=["no-docker"])
 def ops(session: nox.Session) -> None:
     session.run("bash", "tests/ops/run_tests.sh", external=True)
-
-
-@nox.session(python=PYTHON, tags=["no-docker"])
-def qwen_static(session: nox.Session) -> None:
-    install(session, "pytest")
-    session.run("pytest", "-q", "apps/qwen-code-telegram/tests/test_response_contract.py")
-    for test in ("test_entrypoint.sh", "test_role_render.sh", "test_system_policy.sh"):
-        session.run("bash", f"apps/qwen-code-telegram/tests/{test}", external=True)
 
 
 @nox.session(python=PYTHON, tags=["docker"])  # runs `docker compose config`

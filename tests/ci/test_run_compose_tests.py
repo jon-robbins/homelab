@@ -19,14 +19,12 @@ ALL_TESTS = [
     "test_caddy_entrypoint.sh",
     "test_network_definitions.sh",
     "test_app_data_dir_paths.sh",
-    "test_llm_net_ownership.sh",
     "test_host_mode_whitelist.sh",
     "test_host_ports_available.sh",
     "test_arr_missing_search_service.sh",
     "test_autobrr_compose.sh",
     "test_seerr_entrypoint.sh",
     "test_worker_anchor_equivalence.sh",
-    "test_homelab_agent_service.sh",
 ]
 LOCAL_TESTS = [
     test

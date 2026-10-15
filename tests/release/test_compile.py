@@ -25,8 +25,8 @@ def paths(tmp_path):
 def test_fixture_compiles_deterministically(tmp_path):
     inputs = paths(tmp_path)
     image_refs = {
-        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
-        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+        "alpha": "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "b" * 64,
     }
     first = compile_bundle(*inputs, image_refs)
     first_bytes = inputs[-1].read_bytes()
@@ -44,8 +44,8 @@ def test_fixture_compiles_deterministically(tmp_path):
     "image",
     [
         "docker.io/foo:latest",
-        "ghcr.io/jon-robbins/homelab/homelab-agent:latest",
-        "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64,
+        "ghcr.io/jon-robbins/homelab/caddy:latest",
+        "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "c" * 64,
     ],
 )
 def test_compiler_rejects_image_on_unmanaged_service(tmp_path, image):
@@ -62,8 +62,8 @@ def test_compiler_rejects_image_on_unmanaged_service(tmp_path, image):
 
 def _image_refs():
     return {
-        "alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64,
-        "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64,
+        "alpha": "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "a" * 64,
+        "beta": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "b" * 64,
     }
 
 
@@ -81,17 +81,17 @@ def test_compiler_rejects_invalid_image_refs(tmp_path, kind, expected):
     compose = json.loads((ROOT / "compose.json").read_text())
     manifest = (ROOT / "manifest.yaml").read_text()
     if kind == "tagged":
-        image = "ghcr.io/jon-robbins/homelab/homelab-agent:latest"
+        image = "ghcr.io/jon-robbins/homelab/caddy:latest"
         compose["services"]["alpha"]["image"] = image
-        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/caddy", image)
     elif kind == "digested":
-        image = "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64
+        image = "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "c" * 64
         compose["services"]["alpha"]["image"] = image
-        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/caddy", image)
     elif kind == "unapproved":
         image = "ghcr.io/jon-robbins/homelab/not-approved"
         compose["services"]["alpha"]["image"] = image
-        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-agent", image)
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/caddy", image)
 
     compose_path = tmp_path / "compose.json"
     compose_path.write_text(json.dumps(compose))
@@ -101,7 +101,7 @@ def test_compiler_rejects_invalid_image_refs(tmp_path, kind, expected):
     if kind == "missing":
         del image_refs["beta"]
     elif kind == "extra":
-        image_refs["gamma"] = "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "c" * 64
+        image_refs["gamma"] = "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "c" * 64
 
     args = (compose_path, manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
     with pytest.raises(ValueError, match=expected):
@@ -115,7 +115,7 @@ def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     if kind == "missing":
         del compose["services"]["beta"]
     elif kind == "image":
-        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-mcp", "ghcr.io/jon-robbins/homelab/homelab-agent")
+        manifest = manifest.replace("ghcr.io/jon-robbins/homelab/homelab-workers", "ghcr.io/jon-robbins/homelab/caddy")
     else:
         compose["services"]["gamma"] = {"image": "registry.invalid/gamma@sha256:" + "c" * 64}
     compose_path = tmp_path / "compose.json"
@@ -125,12 +125,12 @@ def test_compiler_rejects_manifest_compose_mismatch(tmp_path, kind):
     args = (compose_path, manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
     expected = "missing from Compose: beta" if kind == "missing" else None
     with pytest.raises(ValueError, match=expected):
-        compile_bundle(*args, {"alpha": "ghcr.io/jon-robbins/homelab/homelab-agent@sha256:" + "a" * 64, "beta": "ghcr.io/jon-robbins/homelab/homelab-mcp@sha256:" + "b" * 64})
+        compile_bundle(*args, {"alpha": "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "a" * 64, "beta": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "b" * 64})
 
 
 def test_compiler_reports_malformed_manifest_as_validation_error(tmp_path):
     manifest_path = tmp_path / "manifest.yaml"
-    manifest_path.write_text("schema: 1\nsite_id: s\napplications:\n  - image: ghcr.io/jon-robbins/homelab/homelab-agent\n", encoding="utf-8")
+    manifest_path.write_text("schema: 1\nsite_id: s\napplications:\n  - image: ghcr.io/jon-robbins/homelab/caddy\n", encoding="utf-8")
     args = (ROOT / "compose.json", manifest_path, ROOT / "probes.json", ROOT / "policy.yaml", ROOT / "files", tmp_path / "bundle.tar")
     with pytest.raises(ValidationError, match="malformed application manifest"):
         compile_bundle(*args, {})

@@ -17,10 +17,6 @@ apps/homelab-workers/uv.lock
 .pytest_cache/
 **/.pytest_cache/
 
-# media-agent / apps build outputs
-media-agent/build/
-apps/media-agent/build/
-
 # Persistent runtime data (templates live under config/)
 data/
 
@@ -89,6 +85,3 @@ data/nginx/logs/
 # Gas City
 .beads/*
 !.beads/identity.toml
-
-# The qwen-code-telegram image ships this script; keep it despite the bin/ rule above.
-!apps/qwen-code-telegram/files/usr/local/bin/

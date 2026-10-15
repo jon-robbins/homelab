@@ -35,23 +35,6 @@ def test_seerr_reconciler_service_disabled_by_default():
     ]
 
 
-def test_mcp_mounts_seerr_reconciler_state_read_only():
-    llm = yaml.safe_load((ROOT / "compose/llm.yml").read_text())
-    service = llm["services"]["homelab-mcp"]
-
-    env = service["environment"]
-    assert "SEERR_RECONCILER_STATUS_PATH=/seerr-request-reconciler/status.json" in env
-    assert "SEERR_RECONCILER_STATE_PATH=/seerr-request-reconciler/state.json" in env
-    assert (
-        "SEERR_RECONCILER_STATUS_MAX_AGE_SECONDS=${SEERR_RECONCILER_STATUS_MAX_AGE_SECONDS:-900}"
-        in env
-    )
-    assert (
-        "${APP_DATA_DIR:-../data}/seerr-request-reconciler:/seerr-request-reconciler:ro"
-        in service["volumes"]
-    )
-
-
 def test_setup_prepares_seerr_reconciler_state_dir():
     setup = (ROOT / "scripts/ops/setup.sh").read_text()
 

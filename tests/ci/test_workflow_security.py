@@ -503,12 +503,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(
             {entry["dockerfile"] for entry in image_builds["strategy"]["matrix"]["include"]},
             {
-                "apps/homelab-agent/Dockerfile",
-                "apps/homelab-mcp/Dockerfile",
                 "apps/homelab-workers/Dockerfile",
-                "apps/media-agent/Dockerfile",
-                "apps/qwen-code-telegram/Dockerfile",
-                "apps/qwen-serve/Dockerfile",
                 "config/caddy/Dockerfile",
             },
         )

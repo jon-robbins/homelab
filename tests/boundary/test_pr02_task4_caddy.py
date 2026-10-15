@@ -32,7 +32,7 @@ class CaddyBoundaryTests(unittest.TestCase):
         public = PUBLIC.read_text(encoding="utf-8")
         for service in ("sonarr", "radarr", "prowlarr", "bazarr"):
             self.assertRegex(public, rf"handle /{service}\*\s*\{{\s*reverse_proxy")
-        for service in ("overseerr", "qbittorrent", "autobrr", "dashboard"):
+        for service in ("overseerr", "qbittorrent", "autobrr"):
             self.assertIn(f"handle_path /{service}*", public)
 
     def test_runtime_wiring_is_explicit(self):

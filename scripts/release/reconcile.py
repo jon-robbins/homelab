@@ -239,7 +239,7 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         image = name[4:]
         if not image or image in images:
             continue
-        # Large images (qwen-serve is ~4 GB) are streamed to disk, never held in memory.
+        # Large images are streamed to disk, never held in memory.
         with tempfile.TemporaryDirectory(prefix="release-oci-") as directory:
             try:
                 archive = client.download_artifact_member(repository, artifact, "oci-layout.tar", Path(directory))

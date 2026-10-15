@@ -13,7 +13,6 @@ COMPOSE_FILES=(
   "compose/download.yml"
   "compose/workers.yml"
   "compose/autobrr.yml"
-  "compose/llm.yml"
 )
 
 HARDCODED_PATTERNS=(

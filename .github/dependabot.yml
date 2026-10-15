@@ -15,42 +15,7 @@ updates:
       docker:
         patterns: ["*"]
   - package-ecosystem: docker
-    directory: /apps/homelab-agent
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /apps/homelab-mcp
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
     directory: /apps/homelab-workers
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /apps/media-agent
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /apps/qwen-code-telegram
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /apps/qwen-serve
     schedule:
       interval: weekly
     groups:

@@ -139,12 +139,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {dockerfile: apps/homelab-agent/Dockerfile, context: apps/homelab-agent}
-          - {dockerfile: apps/homelab-mcp/Dockerfile, context: .}
           - {dockerfile: apps/homelab-workers/Dockerfile, context: apps/homelab-workers}
-          - {dockerfile: apps/media-agent/Dockerfile, context: apps/media-agent}
-          - {dockerfile: apps/qwen-code-telegram/Dockerfile, context: apps/qwen-code-telegram}
-          - {dockerfile: apps/qwen-serve/Dockerfile, context: apps/qwen-serve}
           - {dockerfile: config/caddy/Dockerfile, context: config/caddy}
     steps:
       - name: Checkout

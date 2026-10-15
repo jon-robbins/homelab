@@ -5,12 +5,12 @@ repos:
     rev: v0.11.13
     hooks:
       - id: ruff
-        files: ^apps/(homelab-workers|homelab-mcp|homelab-agent|media-agent)/.*\.py$
+        files: ^apps/homelab-workers/.*\.py$
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
-        exclude: ^(apps/qwen-code-telegram/(vendor/|tests/)|tests/)
+        exclude: ^tests/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

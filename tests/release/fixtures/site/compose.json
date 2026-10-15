@@ -1,10 +1,10 @@
 {
   "services": {
     "alpha": {
-      "image": "ghcr.io/jon-robbins/homelab/homelab-agent"
+      "image": "ghcr.io/jon-robbins/homelab/caddy"
     },
     "beta": {
-      "image": "ghcr.io/jon-robbins/homelab/homelab-mcp"
+      "image": "ghcr.io/jon-robbins/homelab/homelab-workers"
     }
   }
 }
