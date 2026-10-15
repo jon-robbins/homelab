@@ -59,6 +59,14 @@ def test_disabled_healthcheck_requires_probe(tmp_path, healthcheck):
         validate_module(path, ENV)
 
 
+def test_numeric_probe_satisfies_health_rule(tmp_path):
+    path = write_module(tmp_path, health=False)
+    document = yaml.safe_load(path.read_text())
+    document["services"]["whoami"]["labels"]["homelab.probe"] = "http://:8080/health"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    validate_module(path, ENV)
+
+
 def test_config_files_are_not_host_binds(tmp_path):
     path = write_module(tmp_path)
     document = yaml.safe_load(path.read_text())
@@ -101,6 +109,17 @@ def test_schemas_are_applied(tmp_path):
     site.mkdir()
     (site / "site.yaml").write_text("contract: 1\nsite_id: test\n", encoding="utf-8")
     with pytest.raises(ValidationError, match="missing required field"):
+        validate_site(site)
+
+
+@pytest.mark.parametrize("source", [{"path": 42}, {"repository": 42}])
+def test_site_plugin_source_types_use_schema(tmp_path, source):
+    site = tmp_path / "site"
+    site.mkdir()
+    document = {"contract": 1, "site_id": "test", "plugins": {"bad": source},
+                "services": {}, "managed": []}
+    (site / "site.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ValidationError, match="expected string"):
         validate_site(site)
 
 

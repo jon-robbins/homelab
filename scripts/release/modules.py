@@ -15,7 +15,7 @@ from .contracts import ValidationError, ValidationErrors
 
 _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z" "0-9_]*)\}")
-_PROBE = re.compile(r"^http://:<[0-9]+>.*$")
+_PROBE = re.compile(r"^http://:[0-9]+.*$")
 _SCHEMAS = Path(__file__).parents[2] / "schemas"
 
 
@@ -48,7 +48,6 @@ def _schema_check(value: Any, schema: Mapping[str, Any], path: str = "$", root: 
             matches += 1
         if matches != 1:
             raise _error(path, "must match exactly one schema alternative")
-        return
     expected = schema.get("type")
     type_ok = {
         "object": isinstance(value, dict),
@@ -69,6 +68,11 @@ def _schema_check(value: Any, schema: Mapping[str, Any], path: str = "$", root: 
             for key in value:
                 if key not in properties:
                     raise _error(f"{path}.{key}", "unknown field")
+        elif isinstance(schema.get("additionalProperties"), Mapping):
+            child = schema["additionalProperties"]
+            for key in value:
+                if key not in properties:
+                    _schema_check(value[key], child, f"{path}.{key}", root)
         for key, child in properties.items():
             if key in value:
                 _schema_check(value[key], child, f"{path}.{key}", root)
