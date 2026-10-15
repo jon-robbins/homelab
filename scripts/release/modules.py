@@ -13,7 +13,7 @@ from .contracts import ValidationError, ValidationErrors
 
 
 _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
-_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z" "0-9_]*)\}")
 _PROBE = re.compile(r"^http://:<[0-9]+>.*$")
 
 
