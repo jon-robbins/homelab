@@ -1,3 +1,4 @@
+import fcntl
 import io
 import json
 import subprocess
@@ -113,3 +114,25 @@ def test_interrupted_state_write_preserves_old_value(tmp_path, monkeypatch):
         state.write("highwater", "8\n")
 
     assert state.read("highwater") == "7\n"
+
+
+def test_state_operations_reuse_existing_lock(tmp_path, monkeypatch):
+    state = State(tmp_path / "state")
+    state.write("applying", "3\n")
+    flock = fcntl.flock
+    acquisitions = 0
+
+    def count_acquisitions(fd, operation):
+        nonlocal acquisitions
+        if operation == fcntl.LOCK_EX:
+            acquisitions += 1
+            assert acquisitions == 1, "state operation acquired a second lock"
+        return flock(fd, operation)
+
+    monkeypatch.setattr("scripts.controller.state.fcntl.flock", count_acquisitions)
+    with state.lock():
+        state.set_highwater(8)
+        state.remove("applying")
+
+    assert state.highwater() == 8
+    assert state.read("applying") is None

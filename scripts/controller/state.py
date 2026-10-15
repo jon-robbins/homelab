@@ -7,6 +7,7 @@ import fcntl
 import os
 from pathlib import Path
 import tempfile
+from threading import RLock
 from typing import Iterator
 
 
@@ -15,15 +16,23 @@ class State:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.lock_path = self.directory / "lock"
+        self._mutex = RLock()
+        self._locked = False
 
     @contextmanager
     def lock(self) -> Iterator["State"]:
-        with self.lock_path.open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
+        with self._mutex:
+            if self._locked:
                 yield self
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                return
+            with self.lock_path.open("a+") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                self._locked = True
+                try:
+                    yield self
+                finally:
+                    self._locked = False
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def read(self, name: str, default: str | None = None) -> str | None:
         path = self.directory / name
