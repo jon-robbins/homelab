@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 from typing import Any, Mapping
@@ -15,6 +16,7 @@ from .contracts import ValidationError, ValidationErrors
 _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z" "0-9_]*)\}")
 _PROBE = re.compile(r"^http://:<[0-9]+>.*$")
+_SCHEMAS = Path(__file__).parents[2] / "schemas"
 
 
 def _load(path: Path) -> Any:
@@ -26,6 +28,63 @@ def _load(path: Path) -> Any:
 
 def _error(path: str, message: str) -> ValidationError:
     return ValidationError(path, message)
+
+
+def _schema_check(value: Any, schema: Mapping[str, Any], path: str = "$", root: Mapping[str, Any] | None = None) -> None:
+    root = root or schema
+    if "$ref" in schema:
+        target: Any = root
+        for part in schema["$ref"].removeprefix("#/").split("/"):
+            target = target[part]
+        _schema_check(value, target, path, root)
+        return
+    if "oneOf" in schema:
+        matches = 0
+        for option in schema["oneOf"]:
+            try:
+                _schema_check(value, option, path, root)
+            except ValidationError:
+                continue
+            matches += 1
+        if matches != 1:
+            raise _error(path, "must match exactly one schema alternative")
+        return
+    expected = schema.get("type")
+    type_ok = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+    }
+    if expected in type_ok and not type_ok[expected]:
+        raise _error(path, f"expected {expected}")
+    if "const" in schema and value != schema["const"]:
+        raise _error(path, f"must equal {schema['const']!r}")
+    if isinstance(value, dict):
+        for key in schema.get("required", []):
+            if key not in value:
+                raise _error(f"{path}.{key}", "missing required field")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in properties:
+                    raise _error(f"{path}.{key}", "unknown field")
+        for key, child in properties.items():
+            if key in value:
+                _schema_check(value[key], child, f"{path}.{key}", root)
+    if isinstance(value, list) and "items" in schema:
+        for index, item in enumerate(value):
+            _schema_check(item, schema["items"], f"{path}[{index}]")
+    if "pattern" in schema and (not isinstance(value, str) or re.search(schema["pattern"], value) is None):
+        raise _error(path, "does not match required pattern")
+
+
+def _validate_schema(value: Any, name: str) -> None:
+    try:
+        schema = json.loads((_SCHEMAS / f"{name}.schema.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationError("$", f"cannot read {name} schema: {exc}") from exc
+    _schema_check(value, schema)
 
 
 def _roots(site_env: Mapping[str, str]) -> tuple[Path, ...]:
@@ -73,7 +132,11 @@ def validate_module(path: str | Path, site_env: Mapping[str, str]) -> dict[str, 
     state = labels.get("homelab.state")
     if state not in {"stateful", "stateless"}:
         errors.append(_error(f"$.services.{service_name}.labels", "homelab.state must be stateful or stateless"))
-    if "healthcheck" not in service:
+    healthcheck = service.get("healthcheck")
+    effective_healthcheck = isinstance(healthcheck, dict) and not healthcheck.get("disable")
+    if isinstance(healthcheck, dict) and healthcheck.get("test") == ["NONE"]:
+        effective_healthcheck = False
+    if not effective_healthcheck:
         probe = labels.get("homelab.probe")
         if not isinstance(probe, str) or _PROBE.fullmatch(probe) is None:
             errors.append(_error(f"$.services.{service_name}", "service needs a healthcheck or homelab.probe"))
@@ -108,8 +171,7 @@ def _module_names(root: Path) -> set[str]:
 def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modules: set[str] | None = None) -> dict[str, Any]:
     plugin = Path(path)
     metadata = _load(plugin / "homelab-plugin.yaml")
-    if not isinstance(metadata, dict) or metadata.get("contract") != 1 or not isinstance(metadata.get("name"), str):
-        raise ValidationError("$", "plugin metadata requires contract 1 and name")
+    _validate_schema(metadata, "plugin")
     modules = sorted(plugin.glob("modules/*/*.yml"))
     if not modules:
         raise ValidationError("$.modules", "plugin must ship a module")
@@ -121,7 +183,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
         validate_module(module, site_env)
         if module.stem in names:
             errors.append(_error("$.modules", f"plugin service collides with platform module: {module.stem}"))
-        if module.stem not in text:
+        if re.search(rf"(?<![\w-]){re.escape(module.stem)}(?![\w-])", text) is None:
             errors.append(_error("$.README.md", f"README does not mention service {module.stem}"))
     if errors:
         raise ValidationErrors(errors)
@@ -131,8 +193,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
 def validate_site(path: str | Path) -> dict[str, Any]:
     site = Path(path)
     document = _load(site / "site.yaml")
-    if not isinstance(document, dict) or document.get("contract") != 1 or not isinstance(document.get("site_id"), str):
-        raise ValidationError("$", "site requires contract 1 and site_id")
+    _validate_schema(document, "site")
     env: dict[str, str] = {}
     env_path = site / "site.env"
     if env_path.exists():
