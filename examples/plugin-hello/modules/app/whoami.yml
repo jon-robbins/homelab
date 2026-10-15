@@ -1,0 +1,11 @@
+services:
+  whoami:
+    image: traefik/whoami@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/whoami
+        target: /data
+    healthcheck:
+      test: [CMD, /whoami]
+    labels:
+      homelab.state: stateless

@@ -1,0 +1,7 @@
+contract: 1
+site_id: example
+plugins:
+  plugin-hello: {path: ../plugin-hello}
+services:
+  whoami: {}
+managed: [whoami]

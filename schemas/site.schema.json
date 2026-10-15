@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://homelab.example/schemas/site.schema.json",
+  "title": "HomelabSite",
+  "type": "object", "additionalProperties": false,
+  "properties": {
+    "contract": {"type": "integer", "const": 1},
+    "site_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+    "plugins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/plugin"}},
+    "services": {"type": "object", "additionalProperties": {"type": "object"}},
+    "managed": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["contract", "site_id", "plugins", "services", "managed"],
+  "$defs": {"plugin": {"type": "object", "oneOf": [{"required": ["path"]}, {"required": ["repository"]}], "properties": {"path": {"type": "string"}, "repository": {"type": "string"}}, "additionalProperties": false}}
+}
