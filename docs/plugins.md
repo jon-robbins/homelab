@@ -3,7 +3,7 @@
 A plugin packages services specific to one homelab. Its directory contains:
 
 ```text
-homelab-plugin.yaml  # contract: 1, name and description
+homelab-plugin.yaml  # contract: 1, name and description; image_namespace for code repos
 README.md            # services, site.env keys and how to run them
 modules/app/*.yml    # or modules/edge/*.yml
 ```

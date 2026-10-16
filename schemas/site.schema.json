@@ -4,19 +4,17 @@
   "title": "HomelabSite",
   "type": "object", "additionalProperties": false,
   "properties": {
-    "contract": {"type": "integer", "const": 1},
+    "contract": {"type": "integer", "enum": [1]},
     "site_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
-    "plugins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/plugin"}},
+    "plugins": {"type": "object", "additionalProperties": {"type": "object", "properties": {"path": {"type": "string"}, "repository": {"type": "string"}}, "additionalProperties": false}},
+    "bind_roots": {"type": "array", "items": {"type": "string", "enum": ["APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH"]}},
     "services": {"type": "object", "additionalProperties": {"type": "object"}},
-    "managed": {"type": "array", "items": {"type": "string"}}
-  },
-  "required": ["contract", "site_id", "plugins", "services", "managed"],
-  "$defs": {
-    "plugin": {"type": "object", "oneOf": [{"required": ["path"]}, {"required": ["repository"]}], "properties": {"path": {"type": "string"}, "repository": {"type": "string"}}, "additionalProperties": false},
-    "siteEnv": {"type": "object", "properties": {
+    "managed": {"type": "array", "items": {"type": "string"}},
+    "site_env": {"type": "object", "properties": {
       "APP_DATA_DIR": {"type": "string"}, "MEDIA_HDD_PATH": {"type": "string"}, "MEDIA_NVME_PATH": {"type": "string"},
       "PUID": {"type": "string"}, "PGID": {"type": "string"}, "TZ": {"type": "string"},
       "HOMELAB_SECRET_DIR": {"type": "string"}, "BASE_DOMAIN": {"type": "string"}, "TAILSCALE_IP": {"type": "string"}
     }, "additionalProperties": false}
-  }
+  },
+  "required": ["contract", "site_id", "plugins", "services", "managed", "bind_roots"]
 }

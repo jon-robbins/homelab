@@ -15,7 +15,7 @@ from .contracts import ValidationError, ValidationErrors
 
 _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _VARIABLE = re.compile(r"\$\{([A-Za-z_]\w*)\}", re.ASCII)
-_PROBE = re.compile(r"^http://:[0-9]+.*$")
+_PROBE = re.compile(r"^http://:[0-9]+/.*$")
 _SCHEMAS = Path(__file__).parents[2] / "schemas"
 
 
@@ -32,22 +32,6 @@ def _error(path: str, message: str) -> ValidationError:
 
 def _schema_check(value: Any, schema: Mapping[str, Any], path: str = "$", root: Mapping[str, Any] | None = None) -> None:
     root = root or schema
-    if "$ref" in schema:
-        target: Any = root
-        for part in schema["$ref"].removeprefix("#/").split("/"):
-            target = target[part]
-        _schema_check(value, target, path, root)
-        return
-    if "oneOf" in schema:
-        matches = 0
-        for option in schema["oneOf"]:
-            try:
-                _schema_check(value, option, path, root)
-            except ValidationError:
-                continue
-            matches += 1
-        if matches != 1:
-            raise _error(path, "must match exactly one schema alternative")
     expected = schema.get("type")
     type_ok = {
         "object": isinstance(value, dict),
@@ -57,8 +41,8 @@ def _schema_check(value: Any, schema: Mapping[str, Any], path: str = "$", root: 
     }
     if expected in type_ok and not type_ok[expected]:
         raise _error(path, f"expected {expected}")
-    if "const" in schema and value != schema["const"]:
-        raise _error(path, f"must equal {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise _error(path, f"must be one of {schema['enum']!r}")
     if isinstance(value, dict):
         for key in schema.get("required", []):
             if key not in value:
@@ -93,11 +77,14 @@ def _validate_schema(value: Any, name: str) -> None:
 
 def _site_env_keys() -> set[str]:
     schema = json.loads((_SCHEMAS / "site.schema.json").read_text(encoding="utf-8"))
-    return set(schema["$defs"]["siteEnv"]["properties"])
+    return set(schema["properties"]["site_env"]["properties"])
 
 
-def _roots(site_env: Mapping[str, str]) -> tuple[Path, ...]:
-    values = [site_env[key] for key in ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH") if key in site_env]
+def _roots(site_env: Mapping[str, str], bind_root_keys: list[str] | None = None) -> tuple[Path, ...]:
+    keys = bind_root_keys if bind_root_keys is not None else [
+        key for key in ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH") if key in site_env
+    ]
+    values = [site_env[key] for key in keys if key in site_env]
     return tuple(Path(value).expanduser().resolve(strict=False) for value in values if value)
 
 
@@ -108,10 +95,13 @@ def _expand(value: str, site_env: Mapping[str, str], path: str) -> str:
             raise _error(path, f"unknown site.env key {name}")
         return site_env[name]
 
-    return _VARIABLE.sub(replace, value)
+    expanded = _VARIABLE.sub(replace, value)
+    if "$" in expanded:
+        raise _error(path, "variables must use ${NAME} syntax")
+    return expanded
 
 
-def validate_module(path: str | Path, site_env: Mapping[str, str]) -> dict[str, Any]:
+def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_keys: list[str] | None = None) -> dict[str, Any]:
     """Validate one ``modules/<tier>/<service>.yml`` and return its Compose document."""
     module_path = Path(path)
     errors: list[ValidationError] = []
@@ -137,6 +127,8 @@ def validate_module(path: str | Path, site_env: Mapping[str, str]) -> dict[str, 
             for match in _VARIABLE.finditer(value):
                 if match.group(1) not in allowed_keys:
                     errors.append(_error(field, f"undeclared site.env key {match.group(1)}"))
+            if "$" in _VARIABLE.sub("", value):
+                errors.append(_error(field, "variables must use ${NAME} syntax"))
         elif isinstance(value, dict):
             for key, child in value.items():
                 check_variables(child, f"{field}.{key}")
@@ -164,17 +156,19 @@ def validate_module(path: str | Path, site_env: Mapping[str, str]) -> dict[str, 
         probe = labels.get("homelab.probe")
         if not isinstance(probe, str) or _PROBE.fullmatch(probe) is None:
             errors.append(_error(f"$.services.{service_name}", "service needs a healthcheck or homelab.probe"))
-    roots = _roots(site_env)
+    roots = _roots(site_env, bind_root_keys)
     volumes = service.get("volumes", [])
     for index, volume in enumerate(volumes if isinstance(volumes, list) else []):
         if isinstance(volume, str):
             parts = volume.split(":")
             source = parts[0] if len(parts) >= 2 else None
+            is_bind = isinstance(source, str) and source.startswith(("/", ".", "~", "${"))
         elif isinstance(volume, dict) and volume.get("type") == "bind":
             source = volume.get("source", volume.get("src"))
+            is_bind = True
         else:
             continue
-        if not isinstance(source, str):
+        if not is_bind or not isinstance(source, str):
             continue
         try:
             resolved = Path(_expand(source, site_env, f"$.services.{service_name}.volumes[{index}]")).resolve(strict=False)
@@ -192,7 +186,8 @@ def _module_names(root: Path) -> set[str]:
     return {path.stem for path in root.glob("modules/*/*.yml")}
 
 
-def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modules: set[str] | None = None) -> dict[str, Any]:
+def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modules: set[str] | None = None,
+                    bind_root_keys: list[str] | None = None) -> dict[str, Any]:
     plugin = Path(path)
     metadata = _load(plugin / "homelab-plugin.yaml")
     _validate_schema(metadata, "plugin")
@@ -204,11 +199,11 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     readme = plugin / "README.md"
     text = readme.read_text(encoding="utf-8") if readme.exists() else ""
     for module in modules:
-        compose = validate_module(module, site_env)
+        compose = validate_module(module, site_env, bind_root_keys)
         namespace = metadata.get("image_namespace")
         if namespace:
             image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
-            if image != namespace and not image.startswith((f"{namespace}/", f"{namespace}:")):
+            if image != namespace and not image.startswith(f"{namespace}/"):
                 errors.append(_error("$.image_namespace", f"image for {module.stem} is outside {namespace}"))
         if module.stem in names:
             errors.append(_error("$.modules", f"plugin service collides with platform module: {module.stem}"))
@@ -219,7 +214,8 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     return metadata
 
 
-def validate_site(path: str | Path, platform_modules: set[str] | None = None) -> dict[str, Any]:
+def validate_site(path: str | Path, platform_dir: str | Path | set[str] | None = None,
+                  plugin_dirs: list[str | Path] | Mapping[str, str | Path] | None = None) -> dict[str, Any]:
     site = Path(path)
     document = _load(site / "site.yaml")
     _validate_schema(document, "site")
@@ -230,10 +226,22 @@ def validate_site(path: str | Path, platform_modules: set[str] | None = None) ->
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 env[key] = value
-    platform = _module_names(_SCHEMAS.parent) if platform_modules is None else platform_modules
+    if isinstance(platform_dir, set):  # Backward-compatible shorthand for callers with a catalog.
+        platform = platform_dir
+    elif platform_dir is None:
+        platform = set()
+    else:
+        platform = _module_names(Path(platform_dir))
+    root_keys = document.get("bind_roots") or None
+    if isinstance(plugin_dirs, Mapping):
+        paths = {name: Path(value) for name, value in plugin_dirs.items()}
+    elif plugin_dirs:
+        paths = {Path(value).name: Path(value) for value in plugin_dirs}
+    else:
+        paths = {}
     for name, source in (document.get("plugins") or {}).items():
         if isinstance(source, dict) and "path" in source:
-            validate_plugin(site / source["path"], env, platform)
+            validate_plugin(paths.get(name, site / source["path"]), env, platform, root_keys)
     return document
 
 
@@ -243,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.path.name == "site.yaml":
-            validate_site(args.path.parent)
+            validate_site(args.path.parent, args.path.parent.parent)
         elif (args.path / "homelab-plugin.yaml").exists():
             validate_plugin(args.path, {})
         else:

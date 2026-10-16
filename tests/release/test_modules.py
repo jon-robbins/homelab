@@ -91,6 +91,35 @@ def test_undeclared_variable_in_environment_is_rejected(tmp_path):
         validate_module(path, {**ENV, "UNKNOWN": "value"})
 
 
+@pytest.mark.parametrize("value", ["$APP_DATA_DIR/whoami", "${APP_DATA_DIR:-/tmp}"])
+def test_noncanonical_interpolation_is_rejected(tmp_path, value):
+    path = write_module(tmp_path, volume=value)
+    with pytest.raises(ValidationError, match="variables must use"):
+        validate_module(path, ENV)
+
+
+def test_named_volume_is_not_treated_as_a_host_bind(tmp_path):
+    path = write_module(tmp_path, volume="whoami-data")
+    validate_module(path, ENV)
+
+
+def test_site_bind_roots_select_exact_env_keys(tmp_path):
+    site = tmp_path / "site"
+    site.mkdir()
+    write_plugin(site)
+    plugin = site / "plugin"
+    (site / "site.env").write_text("APP_DATA_DIR=/srv/data\nMEDIA_HDD_PATH=/etc\n", encoding="utf-8")
+    document = {"contract": 1, "site_id": "site", "bind_roots": ["APP_DATA_DIR"],
+                "plugins": {"plugin": {"path": "plugin"}}, "services": {}, "managed": []}
+    (site / "site.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    module = plugin / "modules/app/whoami.yml"
+    compose = yaml.safe_load(module.read_text())
+    compose["services"]["whoami"]["volumes"] = ["${MEDIA_HDD_PATH}/file:/data"]
+    module.write_text(yaml.safe_dump(compose), encoding="utf-8")
+    with pytest.raises(ValidationError, match="outside site.env data/media roots"):
+        validate_site(site, tmp_path)
+
+
 def write_plugin(root, readme="whoami", service="whoami"):
     plugin = root / "plugin"
     plugin.mkdir()
@@ -135,7 +164,7 @@ def test_separate_site_uses_supplied_platform_catalog(tmp_path):
     (site / "site.env").write_text("APP_DATA_DIR=/srv/homelab/data\n", encoding="utf-8")
     (site / "site.yaml").write_text(
         "contract: 1\nsite_id: separate\nplugins:\n  plugin: {path: plugin}\n"
-        "services:\n  whoami: {}\nmanaged: [whoami]\n", encoding="utf-8"
+        "services:\n  whoami: {}\nmanaged: [whoami]\nbind_roots: [APP_DATA_DIR]\n", encoding="utf-8"
     )
     with pytest.raises(ValidationError, match="collides with platform module"):
         validate_site(site, {"whoami"})
@@ -161,7 +190,7 @@ def test_site_plugin_source_types_use_schema(tmp_path, source):
     site = tmp_path / "site"
     site.mkdir()
     document = {"contract": 1, "site_id": "test", "plugins": {"bad": source},
-                "services": {}, "managed": []}
+                "services": {}, "managed": [], "bind_roots": []}
     (site / "site.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValidationError, match="expected string"):
         validate_site(site)

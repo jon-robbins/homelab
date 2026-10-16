@@ -9,11 +9,13 @@ The five rules are:
 
 1. A file contains exactly one service and is in the `app` or `edge` tier.
 2. Its image is written as `repository@sha256:<64 hex digits>`.
-3. Every host bind is below `APP_DATA_DIR` or a media root from `site.env`.
+3. Every host bind is below one of the roots named by the site's `bind_roots`
+   list (for example `APP_DATA_DIR` or a media-root key) and whose values come
+   from `site.env`.
    A repository file, site `files/` or `edge/` file is a Compose `config` with
    a `file:` source; the renderer inlines it for the release.
 4. The service has an enabled Compose `healthcheck`, or a `homelab.probe`
-   label such as `http://:<port><path>`. A disabled or null healthcheck does
+   label such as `http://:8080/health`. A disabled or null healthcheck does
    not count without the probe.
 5. `homelab.state` is exactly `stateful` or `stateless`. Stateful binds are
    snapshotted before changes and are never restored automatically.

@@ -1,5 +1,6 @@
 contract: 1
 site_id: example
+bind_roots: [APP_DATA_DIR]
 plugins:
   plugin-hello: {path: ../plugin-hello}
 services:
