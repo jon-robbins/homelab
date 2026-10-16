@@ -85,10 +85,10 @@ def test_media_note_is_not_a_bind_root(tmp_path):
 def test_undeclared_variable_in_environment_is_rejected(tmp_path):
     path = write_module(tmp_path)
     document = yaml.safe_load(path.read_text())
-    document["services"]["whoami"]["environment"] = {"VALUE": "${UNKNOWN}"}
+    document["services"]["whoami"]["environment"] = {"VALUE": "${TZ}"}
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
-    with pytest.raises(ValidationError, match="undeclared site.env key UNKNOWN"):
-        validate_module(path, {**ENV, "UNKNOWN": "value"})
+    with pytest.raises(ValidationError, match="undeclared site.env key TZ"):
+        validate_module(path, ENV)
 
 
 @pytest.mark.parametrize("value", ["$APP_DATA_DIR/whoami", "${APP_DATA_DIR:-/tmp}"])
@@ -153,8 +153,32 @@ def test_code_plugin_accepts_image_in_declared_namespace(tmp_path):
     plugin = write_plugin(tmp_path)
     metadata = plugin / "homelab-plugin.yaml"
     metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
-    write_module(plugin, image="ghcr.io/owner/plugin@sha256:" + "a" * 64)
+    write_module(plugin, image="ghcr.io/owner/plugin/worker@sha256:" + "a" * 64)
     validate_plugin(plugin, ENV)
+
+
+def test_code_plugin_rejects_image_equal_to_declared_namespace(tmp_path):
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
+    write_module(plugin, image="ghcr.io/owner/plugin@sha256:" + "a" * 64)
+    with pytest.raises(ValidationError, match="outside ghcr.io/owner/plugin"):
+        validate_plugin(plugin, ENV)
+
+
+def test_site_validates_supplied_repository_plugin_directory(tmp_path):
+    site = tmp_path / "site"
+    site.mkdir()
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
+    (site / "site.env").write_text("APP_DATA_DIR=/srv/homelab/data\n", encoding="utf-8")
+    (site / "site.yaml").write_text(
+        "contract: 1\nsite_id: site\nplugins:\n  plugin: {repository: owner/plugin}\n"
+        "services: {}\nmanaged: []\nbind_roots: [APP_DATA_DIR]\n", encoding="utf-8"
+    )
+    with pytest.raises(ValidationError, match="outside ghcr.io/owner/plugin"):
+        validate_site(site, tmp_path, {"plugin": plugin})
 
 
 def test_separate_site_uses_supplied_platform_catalog(tmp_path):

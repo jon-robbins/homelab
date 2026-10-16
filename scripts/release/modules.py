@@ -120,7 +120,7 @@ def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_key
     if not isinstance(service, dict):
         errors.append(_error(f"$.services.{service_name}", "expected service object"))
         raise ValidationErrors(errors)
-    allowed_keys = _site_env_keys()
+    allowed_keys = set(site_env)
 
     def check_variables(value: Any, field: str) -> None:
         if isinstance(value, str):
@@ -203,7 +203,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
         namespace = metadata.get("image_namespace")
         if namespace:
             image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
-            if image != namespace and not image.startswith(f"{namespace}/"):
+            if not image.startswith(f"{namespace}/"):
                 errors.append(_error("$.image_namespace", f"image for {module.stem} is outside {namespace}"))
         if module.stem in names:
             errors.append(_error("$.modules", f"plugin service collides with platform module: {module.stem}"))
@@ -240,8 +240,16 @@ def validate_site(path: str | Path, platform_dir: str | Path | set[str] | None =
     else:
         paths = {}
     for name, source in (document.get("plugins") or {}).items():
-        if isinstance(source, dict) and "path" in source:
-            validate_plugin(paths.get(name, site / source["path"]), env, platform, root_keys)
+        if not isinstance(source, dict):
+            continue
+        if "path" in source:
+            plugin_path = paths.get(name, site / source["path"])
+        elif "repository" in source:
+            plugin_path = paths.get(name)
+        else:
+            continue
+        if plugin_path is not None:
+            validate_plugin(plugin_path, env, platform, root_keys)
     return document
 
 
