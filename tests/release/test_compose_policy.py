@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.release.compose_policy import validate_compose_model
+from scripts.release.compose_policy import main, validate_compose_model
 from scripts.release.contracts import ValidationError
 
 
@@ -44,7 +44,7 @@ def test_fixture_rejected(name, message, tmp_path):
 
 
 def test_realistic_fixture_accepted(tmp_path):
-    assert validate_compose_model(load("accepted"), root=tmp_path)["services"]["web"]["image"]
+    assert validate_compose_model(load("accepted"), root=tmp_path, bind_roots={"DATA_DIR": str(tmp_path / "data")})["services"]["web"]["image"]
 
 
 def test_variable_expansion_and_symlink_into_homelab_rejected(tmp_path):
@@ -108,3 +108,36 @@ def test_declared_roots_are_required_and_protected(tmp_path):
 def test_unused_declared_protected_root_is_rejected():
     with pytest.raises(ValidationError, match="declared root overlaps protected path /srv/vpn"):
         validate_compose_model({"services": {}}, bind_roots={"MEDIA_HDD_PATH": "/srv/vpn"})
+
+
+@pytest.mark.parametrize("module_path, tier", [
+    ("custom/edge/cloudflared.yml", None),
+    ("modules/app/cloudflared.yml", "edge"),
+    ("modules/edge/../app/cloudflared.yml", "edge"),
+])
+def test_host_network_requires_module_under_edge(module_path, tier):
+    model, _ = _service("cloudflared", network_mode="host")
+    with pytest.raises(ValidationError, match="host networking"):
+        validate_compose_model(model, module_path=module_path, tier=tier)
+
+
+def test_host_network_accepts_absolute_edge_module_path():
+    model, path = _service("cloudflared", tier="edge", network_mode="host")
+    validate_compose_model(model, module_path=Path(__file__).parents[2] / path)
+
+
+def test_bind_without_declared_roots_is_rejected_by_api_and_cli(tmp_path, capsys):
+    model = load("accepted")
+    with pytest.raises(ValidationError, match="outside declared site roots"):
+        validate_compose_model(model, root=tmp_path)
+    source = tmp_path / "compose.json"
+    source.write_text(json.dumps(model))
+    assert main([str(source), "--root", str(tmp_path)]) == 1
+    assert "outside declared site roots" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("gpu_request", ["all", [{"count": 1, "capabilities": ["gpu"]}]])
+def test_gpus_field_is_rejected(gpu_request):
+    model, path = _service("jellyfin", gpus=gpu_request)
+    with pytest.raises(ValidationError, match="gpus is not on the GPU allowlist"):
+        validate_compose_model(model, module_path=path)

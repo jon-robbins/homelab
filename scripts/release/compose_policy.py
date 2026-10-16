@@ -119,7 +119,7 @@ def _forbidden_declared_root(path: Path) -> str | None:
     return None
 
 
-def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], enforce_roots: bool, errors: list[ValidationError]) -> None:
+def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], errors: list[ValidationError]) -> None:
     if isinstance(value, str):
         errors.append(ValidationError(path, "short-syntax binds are not permitted"))
         return
@@ -144,7 +144,7 @@ def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, st
     if forbidden is not None:
         errors.append(ValidationError(_path(path, "source"), f"bind host path resolves into forbidden path {forbidden}"))
         return
-    if enforce_roots and not any(resolved == allowed or _is_within(resolved, allowed) for allowed in roots):
+    if not any(resolved == allowed or _is_within(resolved, allowed) for allowed in roots):
         errors.append(ValidationError(_path(path, "source"), "bind is outside declared site roots"))
         return
 
@@ -167,7 +167,7 @@ def _device_path(value: Any) -> str | None:
     return None
 
 
-def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], enforce_roots: bool, tier: str | None, caps: set[str], gpu: Mapping[str, Any], errors: list[ValidationError]) -> None:
+def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], tier: str | None, caps: set[str], gpu: Mapping[str, Any], errors: list[ValidationError]) -> None:
     if isinstance(value, str):
         try:
             expanded = _expand(value, variables, path)
@@ -179,7 +179,7 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], ro
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
-            _walk(item, _array_path(path, index), root=root, variables=variables, roots=roots, enforce_roots=enforce_roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
+            _walk(item, _array_path(path, index), root=root, variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
         return
     if not isinstance(value, dict):
         return
@@ -201,11 +201,13 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], ro
             errors.append(ValidationError(item_path, "remote includes are not permitted"))
         if key == "volumes" and isinstance(item, list):
             for index, volume in enumerate(item):
-                _check_bind(volume, _array_path(item_path, index), root=root, variables=variables, roots=roots, enforce_roots=enforce_roots, errors=errors)
+                _check_bind(volume, _array_path(item_path, index), root=root, variables=variables, roots=roots, errors=errors)
         if key == "cap_add" and isinstance(item, list):
             for index, capability in enumerate(item):
                 if capability not in caps:
                     errors.append(ValidationError(_array_path(item_path, index), "capability is not on the allowlist"))
+        if key == "gpus":
+            errors.append(ValidationError(item_path, "gpus is not on the GPU allowlist"))
         if key == "devices" and isinstance(item, list) and ".reservations.devices" not in item_path:
             allowed = set(gpu.get("devices", ()))
             for index, device in enumerate(item):
@@ -221,7 +223,7 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], ro
                 values = request.get("capabilities", []) if isinstance(request, dict) else []
                 if not isinstance(values, list) or not set(values).issubset(allowed):
                     errors.append(ValidationError(f"{item_path}.resources.reservations.devices[{index}]", "GPU request is not on the allowlist"))
-        _walk(item, item_path, root=root, variables=variables, roots=roots, enforce_roots=enforce_roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
+        _walk(item, item_path, root=root, variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
 
 
 def validate_compose_model(
@@ -243,23 +245,27 @@ def validate_compose_model(
         raise ValidationError("$", "expected rendered Compose object")
     errors: list[ValidationError] = []
     variables = variables or {}
-    if tier is None and module_path is not None:
-        tier = Path(module_path).parent.name
-    enforce_roots = bind_roots is not None
+    module = Path(module_path) if module_path is not None else None
+    if module is not None and module.is_absolute():
+        try:
+            module = module.relative_to(Path(__file__).parents[2])
+        except ValueError:
+            module = None
+    module_parts = module.parts if module is not None else ()
+    tier = "edge" if module_parts[:2] == ("modules", "edge") and len(module_parts) > 2 and ".." not in module_parts else None
     if isinstance(bind_roots, Mapping):
         roots = tuple(Path(value).expanduser().resolve(strict=False) for value in bind_roots.values())
     elif bind_roots is not None:
         roots = tuple(Path(variables[key]).expanduser().resolve(strict=False) for key in bind_roots if key in variables)
     else:
-        roots = (Path(root).resolve(strict=False),)
-    if enforce_roots:
-        for index, declared_root in enumerate(roots):
-            forbidden = _forbidden_declared_root(declared_root)
-            if forbidden is not None:
-                errors.append(ValidationError(f"$.bind_roots[{index}]", f"declared root overlaps protected path {forbidden}"))
+        roots = ()
+    for index, declared_root in enumerate(roots):
+        forbidden = _forbidden_declared_root(declared_root)
+        if forbidden is not None:
+            errors.append(ValidationError(f"$.bind_roots[{index}]", f"declared root overlaps protected path {forbidden}"))
     caps = set(_load_allowlist("cap-allowlist.json").get("capabilities", ()))
     gpu = _load_allowlist("gpu-allowlist.json")
-    _walk(model, "$", root=Path(root).resolve(strict=False), variables=variables, roots=roots, enforce_roots=enforce_roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
+    _walk(model, "$", root=Path(root).resolve(strict=False), variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
     if errors:
         raise ValidationErrors(errors)
     return model
