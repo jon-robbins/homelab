@@ -103,3 +103,8 @@ def test_declared_roots_are_required_and_protected(tmp_path):
         validate_compose_model(model, root=tmp_path, variables={"MEDIA_HDD_PATH": str(tmp_path / "media"), "APP_DATA_DIR": str(tmp_path / "data")}, bind_roots=["APP_DATA_DIR"], module_path=path)
     with pytest.raises(ValidationError, match="/srv/homelab"):
         validate_compose_model(model, root=tmp_path, variables={"MEDIA_HDD_PATH": "/srv/homelab"}, bind_roots=["MEDIA_HDD_PATH"], module_path=path)
+
+
+def test_unused_declared_protected_root_is_rejected():
+    with pytest.raises(ValidationError, match="declared root overlaps protected path /srv/vpn"):
+        validate_compose_model({"services": {}}, bind_roots={"MEDIA_HDD_PATH": "/srv/vpn"})
