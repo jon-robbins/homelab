@@ -120,6 +120,18 @@ def test_site_bind_roots_select_exact_env_keys(tmp_path):
         validate_site(site, tmp_path)
 
 
+def test_site_with_empty_bind_roots_rejects_bind(tmp_path):
+    site = tmp_path / "site"
+    site.mkdir()
+    write_plugin(site)
+    (site / "site.env").write_text("APP_DATA_DIR=/srv/homelab/data\n", encoding="utf-8")
+    document = {"contract": 1, "site_id": "site", "bind_roots": [],
+                "plugins": {"plugin": {"path": "plugin"}}, "services": {}, "managed": []}
+    (site / "site.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ValidationError, match="outside site.env data/media roots"):
+        validate_site(site, tmp_path)
+
+
 def write_plugin(root, readme="whoami", service="whoami"):
     plugin = root / "plugin"
     plugin.mkdir()
@@ -146,6 +158,14 @@ def test_code_plugin_rejects_image_outside_declared_namespace(tmp_path):
     metadata = plugin / "homelab-plugin.yaml"
     metadata.write_text(metadata.read_text() + "image_namespace: ghcr.io/owner/plugin\n", encoding="utf-8")
     with pytest.raises(ValidationError, match="outside ghcr.io/owner/plugin"):
+        validate_plugin(plugin, ENV)
+
+
+def test_code_plugin_rejects_empty_namespace(tmp_path):
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + 'image_namespace: ""\n', encoding="utf-8")
+    with pytest.raises(ValidationError, match="image for whoami is outside"):
         validate_plugin(plugin, ENV)
 
 
@@ -184,6 +204,8 @@ def test_site_validates_supplied_repository_plugin_directory(tmp_path):
 def test_separate_site_uses_supplied_platform_catalog(tmp_path):
     site = tmp_path / "separate-site"
     site.mkdir()
+    platform = tmp_path / "platform"
+    write_module(platform)
     write_plugin(site)
     (site / "site.env").write_text("APP_DATA_DIR=/srv/homelab/data\n", encoding="utf-8")
     (site / "site.yaml").write_text(
@@ -191,7 +213,7 @@ def test_separate_site_uses_supplied_platform_catalog(tmp_path):
         "services:\n  whoami: {}\nmanaged: [whoami]\nbind_roots: [APP_DATA_DIR]\n", encoding="utf-8"
     )
     with pytest.raises(ValidationError, match="collides with platform module"):
-        validate_site(site, {"whoami"})
+        validate_site(site, platform)
 
 
 def test_schemas_are_applied(tmp_path):
@@ -206,7 +228,7 @@ def test_schemas_are_applied(tmp_path):
     site.mkdir()
     (site / "site.yaml").write_text("contract: 1\nsite_id: test\n", encoding="utf-8")
     with pytest.raises(ValidationError, match="missing required field"):
-        validate_site(site)
+        validate_site(site, tmp_path)
 
 
 @pytest.mark.parametrize("source", [{"path": 42}, {"repository": 42}])
@@ -217,8 +239,8 @@ def test_site_plugin_source_types_use_schema(tmp_path, source):
                 "services": {}, "managed": [], "bind_roots": []}
     (site / "site.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValidationError, match="expected string"):
-        validate_site(site)
+        validate_site(site, tmp_path)
 
 
 def test_examples_are_valid():
-    assert validate_site(ROOT / "examples/site")["site_id"] == "example"
+    assert validate_site(ROOT / "examples/site", ROOT)["site_id"] == "example"

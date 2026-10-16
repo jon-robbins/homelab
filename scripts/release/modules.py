@@ -201,7 +201,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     for module in modules:
         compose = validate_module(module, site_env, bind_root_keys)
         namespace = metadata.get("image_namespace")
-        if namespace:
+        if "image_namespace" in metadata:
             image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
             if not image.startswith(f"{namespace}/"):
                 errors.append(_error("$.image_namespace", f"image for {module.stem} is outside {namespace}"))
@@ -214,7 +214,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     return metadata
 
 
-def validate_site(path: str | Path, platform_dir: str | Path | set[str] | None = None,
+def validate_site(path: str | Path, platform_dir: str | Path,
                   plugin_dirs: list[str | Path] | Mapping[str, str | Path] | None = None) -> dict[str, Any]:
     site = Path(path)
     document = _load(site / "site.yaml")
@@ -226,13 +226,8 @@ def validate_site(path: str | Path, platform_dir: str | Path | set[str] | None =
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 env[key] = value
-    if isinstance(platform_dir, set):  # Backward-compatible shorthand for callers with a catalog.
-        platform = platform_dir
-    elif platform_dir is None:
-        platform = set()
-    else:
-        platform = _module_names(Path(platform_dir))
-    root_keys = document.get("bind_roots") or None
+    platform = _module_names(Path(platform_dir))
+    root_keys = document["bind_roots"]
     if isinstance(plugin_dirs, Mapping):
         paths = {name: Path(value) for name, value in plugin_dirs.items()}
     elif plugin_dirs:
