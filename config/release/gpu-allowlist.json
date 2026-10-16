@@ -1,0 +1,5 @@
+{
+  "devices": ["/dev/dri"],
+  "capabilities": ["gpu"],
+  "runtimes": ["nvidia"]
+}

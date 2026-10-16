@@ -15,13 +15,12 @@ from .contracts import ValidationError, ValidationErrors
 _VARIABLE = re.compile(r"\$\{([^{}]+)\}")
 _FORBIDDEN_KEYS = {
     "build": "build is not permitted",
-    "devices": "devices are not permitted",
-    "cap_add": "cap_add is not permitted",
     "env_file": "env_file is not permitted",
     "post_start": "lifecycle hooks are not permitted",
     "pre_stop": "lifecycle hooks are not permitted",
 }
 _HOME_PREFIXES = (Path("/home"), Path("/root"), Path("/Users"))
+_RELEASE_CONFIG = Path(__file__).parents[2] / "config/release"
 
 
 def _path(path: str, key: str) -> str:
@@ -70,12 +69,12 @@ def _is_within(path: Path, parent: Path) -> bool:
     return True
 
 
-def _forbidden_host_path(source: str, root: Path) -> str | None:
+def _forbidden_host_path(source: str, root: Path, *, declared: bool = False) -> str | None:
     candidate = Path(source)
     if not candidate.is_absolute():
         candidate = root / candidate
     resolved = candidate.resolve(strict=False)
-    forbidden = [Path("/"), Path("/srv/homelab"), Path("/srv/vpn"), Path("/srv"), *(_HOME_PREFIXES)]
+    forbidden = [Path("/"), Path("/srv/vpn"), *(_HOME_PREFIXES)]
     # Path('/') is deliberately first: every absolute path is below it, so it
     # is only a forbidden exact path, whereas the other entries include their
     # descendants.
@@ -84,13 +83,22 @@ def _forbidden_host_path(source: str, root: Path) -> str | None:
     for parent in forbidden[1:]:
         if resolved == parent or _is_within(resolved, parent):
             return str(parent)
+    # D14 permits only the data subtree of /srv/homelab.  Other /srv paths
+    # are allowed only when explicitly declared by the site.
+    if resolved == Path("/srv/homelab") or (
+        _is_within(resolved, Path("/srv/homelab"))
+        and not _is_within(resolved, Path("/srv/homelab/data"))
+    ):
+        return "/srv/homelab"
+    if resolved == Path("/srv") or (_is_within(resolved, Path("/srv")) and not declared):
+        return "/srv"
     home = Path.home().resolve(strict=False)
     if resolved == home or _is_within(resolved, home):
         return str(home)
     return None
 
 
-def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, str], errors: list[ValidationError]) -> None:
+def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], errors: list[ValidationError]) -> None:
     if isinstance(value, str):
         errors.append(ValidationError(path, "short-syntax binds are not permitted"))
         return
@@ -107,12 +115,38 @@ def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, st
     except ValidationError as error:
         errors.append(error)
         return
-    forbidden = _forbidden_host_path(expanded, root)
+    candidate = Path(expanded)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve(strict=False)
+    forbidden = _forbidden_host_path(expanded, root, declared=bool(roots))
     if forbidden is not None:
         errors.append(ValidationError(_path(path, "source"), f"bind host path resolves into forbidden path {forbidden}"))
+        return
+    if roots and not any(resolved == allowed or _is_within(resolved, allowed) for allowed in roots):
+        errors.append(ValidationError(_path(path, "source"), "bind is outside declared site roots"))
+        return
 
 
-def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], errors: list[ValidationError]) -> None:
+def _load_allowlist(name: str) -> dict[str, Any]:
+    try:
+        value = json.loads((_RELEASE_CONFIG / name).read_bytes())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValidationError("$", f"invalid {name}") from error
+    if not isinstance(value, dict):
+        raise ValidationError("$", f"invalid {name}")
+    return value
+
+
+def _device_path(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.split(":", 1)[0]
+    if isinstance(value, dict):
+        return value.get("source", value.get("path")) if isinstance(value.get("source", value.get("path")), str) else None
+    return None
+
+
+def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], roots: tuple[Path, ...], tier: str | None, caps: set[str], gpu: Mapping[str, Any], errors: list[ValidationError]) -> None:
     if isinstance(value, str):
         try:
             expanded = _expand(value, variables, path)
@@ -124,7 +158,7 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], er
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
-            _walk(item, _array_path(path, index), root=root, variables=variables, errors=errors)
+            _walk(item, _array_path(path, index), root=root, variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
         return
     if not isinstance(value, dict):
         return
@@ -136,7 +170,9 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], er
             expanded_item = item
         if key in _FORBIDDEN_KEYS:
             errors.append(ValidationError(item_path, _FORBIDDEN_KEYS[key]))
-        if key in {"network_mode", "pid", "ipc"} and expanded_item == "host":
+        if key == "network_mode" and expanded_item == "host" and tier != "edge":
+            errors.append(ValidationError(item_path, "host networking is only permitted for edge modules"))
+        if key in {"pid", "ipc"} and expanded_item == "host":
             errors.append(ValidationError(item_path, f"{key}: host is not permitted"))
         if key == "privileged" and item is True:
             errors.append(ValidationError(item_path, "privileged is not permitted"))
@@ -144,8 +180,27 @@ def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], er
             errors.append(ValidationError(item_path, "remote includes are not permitted"))
         if key == "volumes" and isinstance(item, list):
             for index, volume in enumerate(item):
-                _check_bind(volume, _array_path(item_path, index), root=root, variables=variables, errors=errors)
-        _walk(item, item_path, root=root, variables=variables, errors=errors)
+                _check_bind(volume, _array_path(item_path, index), root=root, variables=variables, roots=roots, errors=errors)
+        if key == "cap_add" and isinstance(item, list):
+            for index, capability in enumerate(item):
+                if capability not in caps:
+                    errors.append(ValidationError(_array_path(item_path, index), "capability is not on the allowlist"))
+        if key == "devices" and isinstance(item, list) and ".reservations.devices" not in item_path:
+            allowed = set(gpu.get("devices", ()))
+            for index, device in enumerate(item):
+                source = _device_path(device)
+                if source not in allowed:
+                    errors.append(ValidationError(_array_path(item_path, index), "device is not on the GPU allowlist"))
+        if key == "runtime" and expanded_item == "nvidia" and "nvidia" not in set(gpu.get("runtimes", ())):
+            errors.append(ValidationError(item_path, "runtime is not on the GPU allowlist"))
+        if key == "deploy" and isinstance(item, dict):
+            requests = item.get("resources", {}).get("reservations", {}).get("devices", []) if isinstance(item.get("resources", {}).get("reservations", {}), dict) else []
+            allowed = set(gpu.get("capabilities", ()))
+            for index, request in enumerate(requests if isinstance(requests, list) else []):
+                values = request.get("capabilities", []) if isinstance(request, dict) else []
+                if not isinstance(values, list) or not set(values).issubset(allowed):
+                    errors.append(ValidationError(f"{item_path}.resources.reservations.devices[{index}]", "GPU request is not on the allowlist"))
+        _walk(item, item_path, root=root, variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
 
 
 def validate_compose_model(
@@ -153,6 +208,9 @@ def validate_compose_model(
     *,
     root: str | os.PathLike[str] = ".",
     variables: Mapping[str, str] | None = None,
+    bind_roots: Mapping[str, str] | list[str] | tuple[str, ...] | None = None,
+    module_path: str | os.PathLike[str] | None = None,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """Validate and return a rendered Docker Compose model.
 
@@ -163,7 +221,18 @@ def validate_compose_model(
     if not isinstance(model, dict):
         raise ValidationError("$", "expected rendered Compose object")
     errors: list[ValidationError] = []
-    _walk(model, "$", root=Path(root).resolve(strict=False), variables=variables or {}, errors=errors)
+    variables = variables or {}
+    if tier is None and module_path is not None:
+        tier = Path(module_path).parent.name
+    if isinstance(bind_roots, Mapping):
+        roots = tuple(Path(value).expanduser().resolve(strict=False) for value in bind_roots.values())
+    elif bind_roots is not None:
+        roots = tuple(Path(variables[key]).expanduser().resolve(strict=False) for key in bind_roots if key in variables)
+    else:
+        roots = (Path(root).resolve(strict=False),)
+    caps = set(_load_allowlist("cap-allowlist.json").get("capabilities", ()))
+    gpu = _load_allowlist("gpu-allowlist.json")
+    _walk(model, "$", root=Path(root).resolve(strict=False), variables=variables, roots=roots, tier=tier, caps=caps, gpu=gpu, errors=errors)
     if errors:
         raise ValidationErrors(errors)
     return model
