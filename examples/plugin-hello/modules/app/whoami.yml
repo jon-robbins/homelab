@@ -1,0 +1,12 @@
+services:
+  whoami:
+    # traefik/whoami: a tiny HTTP server that echoes the request back; the example plugin's only service.
+    image: traefik/whoami:v1.10.4@sha256:1699d99cb4b9acc17f74ca670b3d8d0b7ba27c948b3445f0593b58ebece92f04
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/whoami
+        target: /data
+    labels:
+      homelab.state: stateless
+      # The image has no shell, so it can't run a Docker healthcheck; the probe label documents the check.
+      homelab.probe: http://:80/health
