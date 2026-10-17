@@ -193,7 +193,7 @@ def test_change_applies_and_next_plan_is_empty(harness: Harness):
     h.release(2, state_command="cp /data/one.sqlite /data/state.sqlite; sleep 3601")
     assert h.reconcile() == "ok"
     assert h.state_dir.joinpath("highwater").read_text().strip() == "2"
-    next_plan = plan(h.releases / "2", SubprocessOps(),
+    next_plan = plan(h.releases / "current", SubprocessOps(),
                      h.state_dir.joinpath("compose-version").read_text().strip())
     assert next_plan.recreate == ()
     assert next_plan.create_stopped == ()
