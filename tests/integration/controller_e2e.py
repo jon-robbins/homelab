@@ -250,6 +250,6 @@ def test_owner_stopped_container_stays_stopped_after_now_reconcile(harness: Harn
     h = harness
     install_first(h)
     run("docker", "stop", "homelab-whoami-1", env=h.env)
-    h.release(2, version="two")
+    h.release(2, state_command="cp /data/one.sqlite /data/state.sqlite; sleep 3601")
     assert h.reconcile(now=True) == "ok"
     assert inspect("whoami", "{{.State.Status}}") == "exited"
