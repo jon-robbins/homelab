@@ -6,6 +6,10 @@ repos:
     hooks:
       - id: ruff
         files: ^apps/homelab-workers/.*\.py$
+      - id: ruff
+        name: ruff complexity (scripts/controller, C901 <= 10)
+        files: ^scripts/controller/.*\.py$
+        args: [--select, C901, --config, "lint.mccabe.max-complexity = 10"]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:
