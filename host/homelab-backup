@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+set -o errtrace
 DATA_ROOTS="${DATA_ROOTS:-/srv/homelab/data}"; VPN_ROOT="${VPN_ROOT:-/srv/vpn}"; SERVICE_ROOT="${SERVICE_ROOT:-/srv/homelab/data}"
 REPO="${REPO:-/mnt/media-hdd/backups/restic}"; STAGE="${STAGE:-/var/lib/homelab-backup/sqlite}"; EXCLUDES="${EXCLUDES:-/etc/homelab-backup/excludes.txt}"; OFFSITE_REPO="${OFFSITE_REPO:-}"
 export RESTIC_REPOSITORY="$REPO" RESTIC_PASSWORD_FILE=/root/.config/restic/password
