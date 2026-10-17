@@ -144,12 +144,6 @@ def compile_bundle(
     policy = _load_document(site_policy)
     if not isinstance(policy, Mapping):
         raise ValidationError("$.site_policy", "expected object")
-    site_env = policy.get("site_env", {})
-    bind_roots = policy.get("bind_roots", ())
-    if not isinstance(site_env, Mapping):
-        raise ValidationError("$.site_policy.site_env", "expected object")
-    if not isinstance(bind_roots, (Mapping, list, tuple)):
-        raise ValidationError("$.site_policy.bind_roots", "expected root key array or mapping")
     probes = _installed_ids(installed_probes)
     gpu_profiles = policy.get("gpu_profiles", policy.get("installed_gpu_profiles", ()))
     if not isinstance(gpu_profiles, (list, tuple, set, frozenset)):
@@ -163,14 +157,7 @@ def compile_bundle(
     except (KeyError, TypeError, AttributeError) as error:
         # Pinning runs before schema validation, so a malformed manifest lands here.
         raise ValidationError("$.applications", f"malformed application manifest: {error!r}") from error
-    validate_compose_model(
-        model,
-        root=compose.parent,
-        variables=site_env,
-        bind_roots=bind_roots,
-        tier=policy.get("tier"),
-        module_path=policy.get("module_path"),
-    )
+    validate_compose_model(model, root=compose.parent)
     document = load_application_manifest(
         json.dumps(document).encode(),
         installed_probes=probes,

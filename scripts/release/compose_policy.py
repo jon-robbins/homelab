@@ -32,6 +32,12 @@ def _policy_overlap(first: str, second: str) -> bool:
     return first == second or first.startswith(second.rstrip("/") + "/") or second.startswith(first.rstrip("/") + "/")
 
 
+def _policy_literal_under(path: str, parent: str) -> bool:
+    path = os.path.normpath(path)
+    parent = os.path.normpath(parent)
+    return path == parent or path.startswith(parent.rstrip("/") + "/")
+
+
 def _policy_under(path: str, parent: str) -> bool:
     path = os.path.realpath(path)
     parent = os.path.realpath(parent)
@@ -51,10 +57,10 @@ def _policy_gpu_request(value: Any, path: str, drivers: set[str], capabilities: 
         errors.append(ValidationError(path, "GPU request must be an object"))
         return
     driver = value.get("driver")
-    if driver not in (None, "") and driver not in drivers:
+    if driver not in (None, "") and (not isinstance(driver, str) or driver not in drivers):
         errors.append(ValidationError(f"{path}.driver", "GPU driver is not on the allowlist"))
     requested = value.get("capabilities", [])
-    if not isinstance(requested, list) or not set(requested).issubset(capabilities):
+    if not isinstance(requested, list) or not all(isinstance(item, str) for item in requested) or not set(requested).issubset(capabilities):
         errors.append(ValidationError(f"{path}.capabilities", "GPU capability is not on the allowlist"))
 
 
@@ -104,7 +110,7 @@ def check_policy(
         if not os.path.isabs(root):
             errors.append(ValidationError(f"$.site_env.{key}", "bind root must be absolute"))
         else:
-            allowed_exception = _policy_under(root, "/srv/homelab/data")
+            allowed_exception = _policy_literal_under(root, "/srv/homelab/data") or _policy_under(root, "/srv/homelab/data")
             if not allowed_exception:
                 for protected in _POLICY_PROTECTED:
                     if _policy_overlap(root, protected) or _policy_overlap(os.path.realpath(root), os.path.realpath(protected)):
@@ -136,22 +142,23 @@ def check_policy(
                     source_path = f"{service_path}.volumes[{index}].source"
                     if not isinstance(source, str) or not os.path.isabs(source):
                         errors.append(ValidationError(source_path, "bind source must be absolute"))
-                    elif not any(_policy_under(source, root) for root in roots if os.path.isabs(root)):
+                    elif not any(_policy_under(source, root) for root in roots):
                         errors.append(ValidationError(source_path, "bind is outside declared site roots"))
 
             cap_add = service.get("cap_add", [])
             if isinstance(cap_add, list):
                 for index, capability in enumerate(cap_add):
-                    if isinstance(capability, str) and capability.removeprefix("CAP_") not in capabilities:
+                    if not isinstance(capability, str) or capability.removeprefix("CAP_") not in capabilities:
                         errors.append(ValidationError(f"{service_path}.cap_add[{index}]", "capability is not on the allowlist"))
 
-            if "runtime" in service and service["runtime"] not in gpu_runtimes:
+            if "runtime" in service and (not isinstance(service["runtime"], str) or service["runtime"] not in gpu_runtimes):
                 errors.append(ValidationError(f"{service_path}.runtime", "runtime is not on the GPU allowlist"))
             devices = service.get("devices", [])
             if isinstance(devices, list):
                 for index, device in enumerate(devices):
                     source = _policy_device_source(device)
-                    if source is None or not (source == "/dev/dri" or source.startswith("/dev/dri/")):
+                    normalized = os.path.normpath(source) if source is not None else None
+                    if normalized not in {"/dev/dri"} and not (isinstance(normalized, str) and normalized.startswith("/dev/dri/")):
                         errors.append(ValidationError(f"{service_path}.devices[{index}]", "device is not on the GPU allowlist"))
             if "gpus" in service:
                 gpus = service["gpus"]
