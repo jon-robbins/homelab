@@ -15,11 +15,8 @@ class Docker:
         self.calls = []
         self.fail = fail
 
-    def ids(self, project, service):
-        return [] if project == "homelab" and self.inspect_data["run"] is None else [project]
-
-    def inspect(self, identifier):
-        return self.inspect_data["run" if identifier == "homelab" else "candidate"]
+    def inspect(self, service, project):
+        return self.inspect_data["run" if project == "homelab" else "candidate"]
 
     def run(self, args):
         self.calls.append(args)
@@ -79,10 +76,10 @@ def test_works_with_a_read_only_release_dir(tmp_path):
         tmp_path.chmod(0o755)
 
 
-def test_docker_ids_include_created_containers(monkeypatch):
-    import scripts.migration.shadow as module
+def test_container_lookup_includes_created_containers(monkeypatch):
+    import scripts.controller.reconcile as controller
 
     seen = []
-    monkeypatch.setattr(module.subprocess, "check_output", lambda args, **kw: seen.append(args) or "abc\n")
-    assert module.Docker().ids("homelab-shadow", "svc") == ["abc"]
-    assert "-a" in seen[0] or "-aq" in seen[0]
+    monkeypatch.setattr(controller.subprocess, "check_output", lambda args, **kw: seen.append(args) or "abc\n")
+    assert controller.SubprocessOps()._container_id("homelab-shadow", "svc") == "abc"
+    assert "-a" in seen[0]

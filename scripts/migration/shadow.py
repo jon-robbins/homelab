@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import tempfile
 from typing import Any
+
+from scripts.controller.reconcile import SubprocessOps
 
 
 DROP = {
@@ -78,37 +79,14 @@ def _diff(left: Any, right: Any, path: str = "") -> list[str]:
     return []
 
 
-class Docker:
-    def run(self, args: list[str]) -> None:
-        subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def ids(self, project: str, service: str) -> list[str]:
-        return subprocess.check_output(
-            [
-                "docker",
-                "ps",
-                "-aq",
-                "--filter",
-                f"label=com.docker.compose.project={project}",
-                "--filter",
-                f"label=com.docker.compose.service={service}",
-            ],
-            text=True,
-        ).split()
-
-    def inspect(self, identifier: str) -> dict[str, Any]:
-        return json.loads(subprocess.check_output(["docker", "inspect", identifier], text=True))[0]
-
-
 def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapter: Any = None) -> int:
-    adapter = adapter or Docker()
+    adapter = adapter or SubprocessOps()
     models = {name: json.loads((release / f"{name}.json").read_bytes()) for name in ("app", "edge")}
     names = services or sorted(set().union(*(model.get("services", {}) for model in models.values())))
     result = 0
     for service in names:
         model = next(model for model in models.values() if service in model.get("services", {}))
-        running_ids = adapter.ids("homelab", service)
-        running = adapter.inspect(running_ids[0]) if running_ids else None
+        running = adapter.inspect(service, "homelab")
         definition = json.loads(json.dumps(model))
         definition["services"][service].pop("container_name", None)
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:  # releases are read-only
@@ -130,7 +108,7 @@ def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapt
                         service,
                     ]
                 )
-                candidate = adapter.inspect(adapter.ids("homelab-shadow", service)[0])
+                candidate = adapter.inspect(service, "homelab-shadow")
             finally:
                 adapter.run(["docker", "compose", "-p", "homelab-shadow", "-f", handle.name, "rm", "-f", service])
         if running is None:

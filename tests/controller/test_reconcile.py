@@ -335,13 +335,13 @@ def test_subprocess_ops_waits_for_docker_health(monkeypatch):
         ]
     )
     ops = controller.SubprocessOps()
-    monkeypatch.setattr(ops, "_inspect", lambda service, project="homelab": {"State": next(states)})
+    monkeypatch.setattr(ops, "inspect", lambda service, project="homelab": {"State": next(states)})
     monkeypatch.setattr(controller.time, "sleep", lambda seconds: None)
 
     assert ops.healthy("svc", 180)
     monkeypatch.setattr(
         ops,
-        "_inspect",
+        "inspect",
         lambda service, project="homelab": {"State": {"Status": "running", "Health": {"Status": "unhealthy"}}},
     )
     ticks = iter([0, 1])

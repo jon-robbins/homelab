@@ -192,13 +192,13 @@ class SubprocessOps:
         ids = _out("docker", "ps", "-a", "--filter", labels[0], "--filter", labels[1], "--format", "{{.ID}}")
         return next(iter(ids.splitlines()), None)
 
-    def _inspect(self, service, project="homelab"):
+    def inspect(self, service, project="homelab"):  # also used by scripts/migration/shadow
         identifier = self._container_id(project, service)
         return json.loads(_out("docker", "inspect", identifier))[0] if identifier else None
 
     def container(self, project, service):
         try:
-            inspected = self._inspect(service, project)
+            inspected = self.inspect(service, project)
         except (OSError, subprocess.CalledProcessError, ValueError, IndexError):
             return None
         if inspected is None:
@@ -228,7 +228,7 @@ class SubprocessOps:
     def healthy(self, service, timeout_s):
         deadline = time.monotonic() + timeout_s
         while True:
-            state = (self._inspect(service) or {}).get("State", {})
+            state = (self.inspect(service) or {}).get("State", {})
             health = state.get("Health", {}).get("Status", "none")
             if state.get("Status") == "running" and health in ("healthy", "none"):
                 return True
