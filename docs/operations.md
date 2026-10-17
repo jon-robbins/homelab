@@ -1,22 +1,41 @@
 # Operations
 
-**Status: Current and planned.** Current CI validates source, renders Compose
-with synthetic inputs, runs tests, scans the public boundary, and builds OCI
-images off-host. It does not deploy or start containers.
-
-The supported local gate is:
+Run these commands on the controller host. The controller runs `homelabctl reconcile` every 5 minutes from
+its systemd timer; state lives in `/srv/homelab/state`, releases in `/srv/homelab/releases`.
 
 ```bash
-scripts/dev/gate   # pre-commit + nox -t no-docker; in Linux on macOS
+homelabctl status                     # DEGRADED or ok, release pointers, what the next apply would change
+homelabctl ack --reason "<reason>"    # clear DEGRADED after you have checked
+homelabctl rollback <svc>             # stateful: restore its pre-deploy snapshot; then up from the previous release
+homelabctl reconcile --now            # apply now, even in observe-only mode
 ```
 
-The signed release feed from N6 is current. A host controller for N7–N11 is
-still **Planned**. Private site operations and runtime backups belong outside
-this public repository.
+Edge (caddy, cloudflared) is never applied by the timer. Apply it yourself from the current release; remove a
+same-named legacy container first if one exists:
 
-CI installs pinned versions of pre-commit and nox. Pinact v5.0.0 is the
-repository's pinned action-pinning tool. Install it reproducibly with
-`go install github.com/suzuki-shunsuke/pinact/v5/cmd/pinact@v5.0.0`. When
-adding a GitHub Action, write its release tag first and run `pinact run`;
-pinact writes the commit SHA and trailing version comment that Dependabot
-maintains.
+```bash
+docker rm -f caddy cloudflared        # only when taking over from the legacy stack
+docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps caddy cloudflared
+```
+
+For a break-glass restart of one service:
+
+```bash
+docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps <svc>
+```
+
+For secret rotation, force recreation from the current release:
+
+```bash
+docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps --force-recreate <svc>
+```
+
+After a Docker Compose upgrade, run `homelabctl status` before the next apply: a Compose upgrade can change every
+service's config hash, so the next tick would recreate every managed service. If `status` lists services you didn't
+change, wait for a quiet moment and run `homelabctl reconcile --now`.
+
+Before adopting a service (migration only, removed in M7), compare the running container with the release:
+
+```bash
+python3 -m scripts.migration.shadow --release /srv/homelab/releases/<seq> --legacy-data <legacy data dir> [svc...]
+```

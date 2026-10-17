@@ -1,0 +1,15 @@
+{
+  "Id": "container-id",
+  "Created": "volatile",
+  "Name": "/named",
+  "Image": "volatile-image",
+  "Config": {
+    "Image": "example/svc",
+    "Hostname": "volatile-host",
+    "Env": ["TOKEN=secret-value", "MODE=test"],
+    "Labels": {"com.docker.compose.project": "homelab", "owner": "test"}
+  },
+  "HostConfig": {"DeviceRequests": [{"Count": 1}], "CapAdd": ["NET_ADMIN"]},
+  "Mounts": [{"Type": "bind", "Source": "/legacy/x", "Destination": "/data", "Name": "volatile"}],
+  "NetworkSettings": {"Networks": {"default": {"Aliases": ["container-id", "named", "svc"]}}}
+}
