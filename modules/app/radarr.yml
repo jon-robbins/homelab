@@ -1,0 +1,37 @@
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.1.1.10360-ls300@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/radarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MOVIES_DIR}
+        target: /movies
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7878 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
