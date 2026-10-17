@@ -1,5 +1,6 @@
 """Test sessions used by local development and hosted CI."""
 
+import os
 from pathlib import Path
 
 import nox
@@ -42,6 +43,15 @@ def controller(session: nox.Session) -> None:
     install(session, "pytest", "PyYAML")
     session.env["PYTHONPATH"] = str(ROOT)
     session.run("pytest", "-q", "tests/controller")
+
+
+@nox.session(python=PYTHON, tags=["docker"])
+def controller_e2e(session: nox.Session) -> None:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        session.skip("controller_e2e runs in hosted CI only")
+    install(session, "pytest", "PyYAML")
+    session.env["PYTHONPATH"] = str(ROOT)
+    session.run("pytest", "-q", "tests/integration/controller_e2e.py")
 
 
 @nox.session(python=PYTHON, tags=["docker"])

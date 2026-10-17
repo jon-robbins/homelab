@@ -48,9 +48,12 @@ def _run(monkeypatch, tmp_path, argv, ops):
 def test_rollback_stateful_order_and_stateless_up_only(monkeypatch, tmp_path):
     ops = RecordingOps()
     _releases(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "DEGRADED").write_text("service: svc\nsnapshot: /backups/seq-8.tar\n")
     assert _run(monkeypatch, tmp_path, ["rollback", "svc"], ops) == 0
     assert [call[0] for call in ops.calls] == ["stop", "restore", "run"]
-    assert ops.calls[1] == ("restore", "svc", "seq-7")
+    assert ops.calls[1] == ("restore", "svc", "seq-8")
 
     ops = RecordingOps()
     _releases(tmp_path / "stateless", state="stateless")

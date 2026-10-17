@@ -149,6 +149,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
         except Exception as error: return _preapply(state, str(error), pinger, causes)
         service = next(iter(p.recreate), next(iter(p.create_stopped), "unknown"))
         try:
+            _link(releases / "previous", current if current.exists() else None)
             state.write("applying", f"{candidate.sequence}\n")
             for argv in compose_commands(p, release):
                 ops.run(argv)
@@ -213,6 +214,7 @@ class SubprocessOps:
             inspected = self._inspect(service) if project == "homelab" else self._inspect(service, project)
             state = inspected.get("State", {}) if inspected else {}
             if state.get("Status") == "running" and state.get("Health", {}).get("Status", "none") in ("healthy", "none"): return True
+            if state.get("Status") == "exited" or state.get("Health", {}).get("Status") == "unhealthy": return False
             remaining = deadline - time.monotonic()
             if remaining <= 0: return False
             time.sleep(min(1, remaining))

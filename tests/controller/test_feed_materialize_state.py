@@ -128,6 +128,21 @@ def test_materialize_publishes_read_only_release(tmp_path, feed_repo):
     assert (destination / "applications.json").stat().st_mode & 0o777 == 0o444
 
 
+def test_materialize_exposes_controller_models_at_release_root(tmp_path):
+    source = tmp_path / "source"
+    (source / "files").mkdir(parents=True)
+    for filename in ("applications.json", "compose.yaml", "probe-targets.json"):
+        (source / filename).write_text("{}")
+    for filename in ("app.json", "edge.json", "site.yaml"):
+        (source / "files" / filename).write_text(filename)
+    candidate = type("Candidate", (), {"sequence": 1, "bundle_bytes": build(source)})()
+
+    destination = materialize(candidate, tmp_path / "releases")
+
+    for filename in ("app.json", "edge.json", "site.yaml"):
+        assert (destination / filename).read_text() == filename
+
+
 def test_interrupted_state_write_preserves_old_value(tmp_path, monkeypatch):
     state = State(tmp_path / "state")
     state.write("highwater", "7\n")
