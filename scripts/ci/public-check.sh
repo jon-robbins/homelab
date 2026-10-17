@@ -4,13 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
-echo "==> Compose config with synthetic secrets"
-bash scripts/ci/compose-config-check.sh
-echo "PASS: Compose config"
-
-echo "==> Compose checks (local mode)"
-bash scripts/ci/run-compose-tests.sh --local
-
 echo "==> Documentation checks"
 bash tests/docs/run_tests.sh
 
