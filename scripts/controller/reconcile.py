@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from scripts.controller.admission import verify_record
 from scripts.controller.feed import fetch_newest
 from scripts.controller.materialize import materialize
-from scripts.controller.planner import DockerAdapter, compose_commands, plan
+from scripts.controller.planner import ContainerView, DockerAdapter, compose_commands, plan
 from scripts.controller.state import State
 
 
@@ -48,8 +48,11 @@ def _managed(release: Path) -> dict[str, dict[str, Any]]:
     return app.get("services", {})
 
 
-def _degraded(state: State, service: str, snapshot: str | None, reason: str, pinger: Pinger) -> str:
+def _degraded(state: State, sequence: int | None, service: str, snapshot: str | None,
+              reason: str, pinger: Pinger) -> str:
     text = f"service: {service}\nsnapshot: {snapshot or 'none'}\nreason: {reason}\nnext: homelabctl rollback {service}"
+    if sequence is not None:
+        state.set_highwater(sequence)
     state.write("DEGRADED", text + "\n")
     state.remove("applying")
     pinger.fail(f"service: {service}\nnext: homelabctl rollback {service}")
@@ -74,6 +77,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
         applying = state.read("applying")
         if applying is not None:
             reason = f"interrupted apply of seq {applying.strip()}"
+            state.set_highwater(int(applying.strip()))
             state.write("DEGRADED", reason + "\n")
             pinger.fail(reason)
             return reason
@@ -97,7 +101,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
         try:
             candidate = fetch_newest(state.highwater(), feed_policy)
         except Exception as error:
-            return _degraded(state, "unknown", None, str(error), pinger)
+            return _degraded(state, None, "unknown", None, str(error), pinger)
         if candidate is None:
             (pinger.fail if causes else pinger.ok)("; ".join(causes)) if causes else pinger.ok()
             return "ok"
@@ -119,7 +123,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
                 service = next(iter(_managed(releases / str(candidate.sequence))))
             except Exception:
                 pass
-            return _degraded(state, service, None, str(error), pinger)
+            return _degraded(state, candidate.sequence, service, None, str(error), pinger)
         p = plan(release, ops, state.read("compose-version"))
         if state.read("observe-only") is not None and not now:
             (pinger.fail if causes else pinger.ok)("; ".join(causes)) if causes else pinger.ok()
@@ -163,7 +167,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
         except Exception as error:
             service = next(iter(p.recreate), next(iter(p.create_stopped), "unknown"))
             snapshot = snapshots.get(service)
-            return _degraded(state, service, snapshot, str(error), pinger)
+            return _degraded(state, candidate.sequence, service, snapshot, str(error), pinger)
         _link(releases / "previous", releases / "current" if current.exists() else None)
         _link(releases / "current", releases / str(candidate.sequence))
         state.set_highwater(candidate.sequence)
@@ -184,8 +188,21 @@ class SubprocessOps:
     def compose_version(self):
         return subprocess.check_output(["docker", "compose", "version", "--short"], text=True).strip()
     def path_exists(self, path): return Path(path).exists()
-    def config_hash(self, release_dir, project, service): return ""
-    def container(self, project, service): return None
+    def config_hash(self, release_dir, project, service): return subprocess.check_output(["docker", "compose", "-p", project, "-f", str(Path(release_dir) / "app.json"), "config", "--hash", service], text=True).strip()
+    def container(self, project, service):
+        try:
+            identifiers = subprocess.check_output(["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project={project}", "--filter", f"label=com.docker.compose.service={service}", "--format", "{{.ID}}"], text=True, stderr=subprocess.DEVNULL).splitlines()
+            if not identifiers:
+                return None
+            inspected = json.loads(subprocess.check_output(["docker", "inspect", identifiers[0]], text=True, stderr=subprocess.DEVNULL))[0]
+        except (OSError, subprocess.CalledProcessError, ValueError, IndexError): return None
+        config, state = inspected.get("Config", {}), inspected.get("State", {})
+        labels, repo_digests = config.get("Labels", {}) or {}, inspected.get("RepoDigests", ())
+        if not repo_digests and inspected.get("Image"):
+            try: repo_digests = json.loads(subprocess.check_output(["docker", "image", "inspect", inspected["Image"]], text=True, stderr=subprocess.DEVNULL))[0].get("RepoDigests", ())
+            except (OSError, subprocess.CalledProcessError, ValueError, IndexError): pass
+        image_digest = next((value.split("@", 1)[1] for value in repo_digests if "@" in value), None)
+        return ContainerView(labels.get("com.docker.compose.config-hash"), state.get("Status", ""), state.get("Error", ""), image_digest or inspected.get("Image"), state.get("Health", {}).get("Status", "none"))
     def pull(self, release_dir, services):
         if services:
             subprocess.run(["docker", "compose", "-f", str(Path(release_dir) / "app.json"),

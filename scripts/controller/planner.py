@@ -15,6 +15,8 @@ class ContainerView:
     config_hash: str | None
     status: str
     error: str
+    image_digest: str | None = None
+    health: str = "none"
 
 
 class DockerAdapter(Protocol):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import urllib.request
 
@@ -60,7 +61,13 @@ def main() -> int:
     print(f"current={args.releases / 'current'} previous={args.releases / 'previous'} highwater={state.highwater()}")
     current = args.releases / "current"
     if current.exists():
-        p = plan(current, SubprocessOps(), state.read("compose-version"))
+        ops = SubprocessOps()
+        for service, definition in json.loads((current / "app.json").read_bytes()).get("services", {}).items():
+            view = ops.container("homelab", service)
+            image = definition.get("image", "") if isinstance(definition, dict) else ""; release_digest = image.rsplit("@", 1)[1] if "@" in image else "none"
+            running_digest = view.image_digest if view is not None and view.image_digest else "none"; health = view.health if view is not None else "missing"
+            print(f"{service}: running_digest={running_digest} release_digest={release_digest} health={health}")
+        p = plan(current, ops, state.read("compose-version"))
         print(f"recreate={p.recreate} create_stopped={p.create_stopped} notices={p.notices} hold={p.hold}")
     return 0
 
