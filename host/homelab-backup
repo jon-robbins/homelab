@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+set -o errtrace
+DATA_ROOTS="${DATA_ROOTS:-/srv/homelab/data}"; VPN_ROOT="${VPN_ROOT:-/srv/vpn}"; SERVICE_ROOT="${SERVICE_ROOT:-/srv/homelab/data}"
+REPO="${REPO:-/mnt/media-hdd/backups/restic}"; STAGE="${STAGE:-/var/lib/homelab-backup/sqlite}"; EXCLUDES="${EXCLUDES:-/etc/homelab-backup/excludes.txt}"; OFFSITE_REPO="${OFFSITE_REPO:-}"
+export RESTIC_REPOSITORY="$REPO" RESTIC_PASSWORD_FILE=/root/.config/restic/password
+is_sqlite() { [[ "$(dd if="$1" bs=15 count=1 status=none 2>/dev/null || true)" == "SQLite format 3" ]]; }
+slim_staged() { local rel="$1" out="$2"; case "$rel" in
+  prowlarr/prowlarr.db) sqlite3 "$out" <<'SQL'
+DELETE FROM History WHERE Date < datetime('now','-7 days'); DELETE FROM Commands; VACUUM;
+SQL
+    ;;
+  sonarr/sonarr.db|radarr/radarr.db) sqlite3 "$out" <<'SQL'
+DELETE FROM Commands; VACUUM;
+SQL
+    ;;
+  bazarr/db/bazarr.db) sqlite3 "$out" <<'SQL'
+DELETE FROM table_history; DELETE FROM table_history_movie; VACUUM;
+SQL
+    ;;
+esac; }
+stage_one_sqlite() { local db="$1" rel="$2" out="$3"; mkdir -p "$(dirname "$out")"; if is_sqlite "$db"; then
+  if ! sqlite3 -readonly -cmd ".timeout 60000" "$db" ".backup '$out'" 2>/dev/null; then cp -a "$db" "$out"; echo "homelab-backup: WARN sqlite .backup failed for $rel; raw copy staged instead" >&2; else slim_staged "$rel" "$out"; fi
+else cp -a "$db" "$out"; fi; }
+skip_db() { case "$1" in */logs.db|*/com.plexapp.plugins.library.blobs.db|autobrr.backup.*/*) return 0;; esac; return 1; }
+data_roots() { local -a roots; read -ra roots <<< "$DATA_ROOTS"; printf '%s\n' "${roots[@]}"; }
+stage_data() { local root="$1" i="$2" db rel; find "$root" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do rel="${db#"$root"/}"; skip_db "$rel" && continue; stage_one_sqlite "$db" "$rel" "$STAGE/$i/$rel"; done; }
+dry_run_dbs() { local root i=0 db rel; while read -r root; do find "$root" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do rel="${db#"$root"/}"; skip_db "$rel" && continue; printf '%s\n' "$STAGE/$i/$rel"; done; i=$((i + 1)); done < <(data_roots); if [[ -d "$VPN_ROOT" ]]; then find "$VPN_ROOT" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do printf '%s\n' "$STAGE/srv/vpn/${db#"$VPN_ROOT"/}"; done; fi; return 0; }
+nightly_args() { local root ext; nightly=(restic backup --one-file-system --tag app-data --exclude-file "$EXCLUDES"); while read -r root; do for ext in db db-wal db-shm sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-shm; do nightly+=(--exclude "$root/**/*.$ext"); done; nightly+=("$root"); done < <(data_roots); for ext in db db-wal db-shm sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-shm; do nightly+=(--exclude "$VPN_ROOT/**/*.$ext"); done; nightly+=("$STAGE"); if [[ -d "$VPN_ROOT" ]]; then nightly+=("$VPN_ROOT"); fi; }
+print_args() { printf '%s\n' "${nightly[@]}"; }
+# shellcheck disable=SC1091
+run_nightly() { local root i=0 BACKUP_PING_URL=; [[ -f /srv/homelab/trust/deadman.env ]] && source /srv/homelab/trust/deadman.env; if [[ -n "$BACKUP_PING_URL" ]]; then trap 'trap - ERR; curl -fsS -m 10 "$BACKUP_PING_URL/fail" || true' ERR; fi; rm -rf "$STAGE"; install -d -m 0700 "$STAGE"; while read -r root; do stage_data "$root" "$i"; i=$((i + 1)); done < <(data_roots); if [[ -d "$VPN_ROOT" ]]; then find "$VPN_ROOT" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do stage_one_sqlite "$db" "srv/vpn/${db#"$VPN_ROOT"/}" "$STAGE/srv/vpn/${db#"$VPN_ROOT"/}"; done; fi; nightly_args; "${nightly[@]}"; local staged snap; staged=$(find "$STAGE" -type f | wc -l); snap=$(restic ls --recursive latest --tag app-data "$STAGE" | grep -c -E '\.(db|sqlite3?)$' || true); [ "$staged" -eq "$snap" ]; restic forget --tag app-data --keep-within 30d --prune; if [[ -n "$OFFSITE_REPO" ]]; then restic -r "$OFFSITE_REPO" --password-file /root/.config/restic/offsite-password copy --from-repo "$REPO" --from-password-file /root/.config/restic/password --tag app-data; restic -r "$OFFSITE_REPO" --password-file /root/.config/restic/offsite-password forget --tag app-data --keep-within 30d --prune; date -u +%FT%TZ > /var/lib/homelab-backup/last-offsite; fi; restic check --read-data-subset=2%; date -u +%FT%TZ > /var/lib/homelab-backup/last-success; if [[ -n "$BACKUP_PING_URL" ]]; then curl -fsS -m 10 --retry 3 "$BACKUP_PING_URL"; fi; }
+run_service() { local service="$1" tag="$2" db rel ext output id; rm -rf "$STAGE"; install -d -m 0700 "$STAGE"; find "$SERVICE_ROOT/$service" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do rel="${db#"$SERVICE_ROOT/$service/"}"; skip_db "$rel" && continue; stage_one_sqlite "$db" "$rel" "$STAGE/svc/$service/$rel"; done; service_args=(restic backup --tag "$tag" --tag "service:$service"); for ext in db db-wal db-shm sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-shm; do service_args+=(--exclude "$SERVICE_ROOT/$service/**/*.$ext"); done; service_args+=("$SERVICE_ROOT/$service" "$STAGE"); output=$("${service_args[@]}"); printf '%s\n' "$output"; id=$(printf '%s\n' "$output" | sed -nE 's/.*snapshot[[:space:]]+([^[:space:]]+).*/\1/p' | tail -n 1); [[ -n "$id" ]] || id=$(printf '%s\n' "$output" | sed '/^$/d' | tail -n 1); printf '%s\n' "$id"; }
+restore_service() { local service="$1" tag="$2" id tmp db rel; id=$(restic snapshots --latest 1 --tag "$tag" --tag "service:$service" --json | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1); [[ -n "$id" ]] || { echo "homelab-backup: no matching snapshot" >&2; return 1; }; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN; restic restore "$id" --target "$tmp"; mv "$SERVICE_ROOT/$service" "$SERVICE_ROOT/$service.pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$SERVICE_ROOT"; cp -a "$tmp$SERVICE_ROOT/$service" "$SERVICE_ROOT/"; if [[ -d "$tmp$STAGE/svc/$service" ]]; then find "$tmp$STAGE/svc/$service" -type f -print0 | while IFS= read -r -d '' db; do rel="${db#"$tmp$STAGE/svc/$service/"}"; mkdir -p "$(dirname "$SERVICE_ROOT/$service/$rel")"; cp -a "$db" "$SERVICE_ROOT/$service/$rel"; done; fi; }
+case "${1:-}" in
+  --dry-run) nightly_args; print_args; dry_run_dbs ;;
+  --service|--restore) [[ "${3:-}" == --tag && -n "${2:-}" && -n "${4:-}" ]] || exit 2; if [[ "$1" == --service ]]; then run_service "$2" "$4"; else restore_service "$2" "$4"; fi ;;
+  "") run_nightly ;;
+  *) exit 2 ;;
+esac
