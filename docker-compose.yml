@@ -1,3 +1,0 @@
-# Root orchestration: run `docker compose up -d` from the repo root.
-include:
-  - path: compose/base.yml
