@@ -177,6 +177,36 @@ class GitHubClient:
         suffix = f"/{quote(path, safe='/')}" if path else ""
         return self.request("GET", f"/repos/{self._repo(repository)}/contents{suffix}?ref={quote(ref, safe='')}")
 
+    def fetch(self, repository: str, sha: str, directory: str | Path) -> Path:
+        """Materialize a repository tree at its verified commit."""
+        root = Path(directory)
+
+        def copy(path: str = "") -> None:
+            entries = self.contents(repository, sha, path)
+            if not isinstance(entries, list):
+                raise GitHubError(f"repository path is not a directory: {path}")
+            for entry in entries:
+                name, kind = entry.get("name"), entry.get("type")
+                if not isinstance(name, str):
+                    raise GitHubError("invalid repository entry")
+                child = f"{path}/{name}" if path else name
+                target = root / child
+                if kind == "dir":
+                    target.mkdir(parents=True, exist_ok=True)
+                    copy(child)
+                elif kind == "file":
+                    data = self.read(repository, sha, child)
+                    if data is None:
+                        raise GitHubError(f"repository file is missing: {child}")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                else:
+                    raise GitHubError(f"unsupported repository entry: {child}")
+
+        root.mkdir(parents=True, exist_ok=True)
+        copy()
+        return root
+
     read_file = read
 
     def last_record(self, repository: str, branch: str) -> Mapping[str, Any] | None:

@@ -98,5 +98,5 @@ def test_check_read_reports_ruleset(capsys):
 def test_check_read_fails_when_token_cannot_see_bypass_actors(capsys):
     detail = _ruleset()
     del detail["bypass_actors"]
-    assert reconcile.check_read(CheckReadClient(detail)) == [True, True, False, True]
+    assert reconcile.check_read(CheckReadClient(detail)) == [True, False, True]
     assert "FAIL read homelab main ruleset" in capsys.readouterr().out
