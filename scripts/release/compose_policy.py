@@ -1,198 +1,188 @@
-"""Validation of the safe operational subset of a rendered Compose model."""
+"""Policy v2 (D14) and the module rules, checked on the rendered Compose model.
+
+The model is `docker compose config --format json` output: overrides merged, variables resolved and every
+short form (volumes, labels, healthchecks, configs) normalized. So each rule below is a small function of one
+service that yields what's wrong with it; check_policy runs them all and reports every violation at once.
+"""
 
 from __future__ import annotations
 
-import argparse
+from dataclasses import dataclass
+from functools import cache
 import json
 import os
 from pathlib import Path
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from .contracts import ValidationError, ValidationErrors
 
-
-_VARIABLE = re.compile(r"\$\{([^{}]+)\}")
-_FORBIDDEN_KEYS = {
-    "build": "build is not permitted",
-    "devices": "devices are not permitted",
-    "cap_add": "cap_add is not permitted",
-    "env_file": "env_file is not permitted",
-    "post_start": "lifecycle hooks are not permitted",
-    "pre_stop": "lifecycle hooks are not permitted",
-}
-_HOME_PREFIXES = (Path("/home"), Path("/root"), Path("/Users"))
+FIRST_PARTY = "ghcr.io/jon-robbins/homelab/"
+PROTECTED = ("/srv/homelab", "/srv/vpn", "/run/docker.sock", "/var/run/docker.sock")
+_CONFIG = Path(__file__).parents[2] / "config/release"
+_PINNED = re.compile(r"[^\s@]+@sha256:[0-9a-f]{64}")
+_PROBE = re.compile(r"http://:[0-9]+/.*")
+_BANNED_KEYS = {"build", "env_file", "post_start", "pre_stop", "include"}
 
 
-def _path(path: str, key: str) -> str:
-    return f"{path}.{key}" if path != "$" else f"$.{key}"
+@dataclass(frozen=True)
+class Context:
+    tiers: Mapping[str, str]  # service -> "app" | "edge"
+    namespaces: Mapping[str, str | None]  # service -> its code plugin's image namespace, if any
+    env: Mapping[str, str]  # site.env
+    roots: tuple[str, ...]  # values of the site's declared bind roots
 
 
-def _array_path(path: str, index: int) -> str:
-    return f"{path}[{index}]"
+@cache
+def _allowlist(name: str) -> dict[str, Any]:
+    return json.loads((_CONFIG / name).read_bytes())
 
 
-def _expand(value: str, variables: Mapping[str, str], path: str) -> str:
-    """Expand the useful Compose ${VAR} forms without consulting ambient env."""
-
-    def replace(match: re.Match[str]) -> str:
-        expression = match.group(1)
-        name_match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", expression)
-        if name_match is None:
-            return match.group(0)
-        name = name_match.group(0)
-        operator = expression[len(name) :]
-        present = name in variables
-        value = variables.get(name, "")
-        if operator in ("",):
-            return value if present else match.group(0)
-        if operator.startswith(":-") or operator.startswith("-"):
-            use_default = not present or (operator.startswith(":-") and value == "")
-            return operator[2 if operator.startswith(":-") else 1 :] if use_default else value
-        if operator.startswith(":+") or operator.startswith("+"):
-            use_alternate = present and (not operator.startswith(":+") or value != "")
-            return operator[2 if operator.startswith(":+") else 1 :] if use_alternate else ""
-        # ${VAR?message} and ${VAR:?message} are intentionally left unresolved;
-        # the rendered model must not contain Compose interpolation syntax.
-        return match.group(0)
-
-    expanded = _VARIABLE.sub(replace, value)
-    if _VARIABLE.search(expanded):
-        raise ValidationError(path, "unresolved variable expression")
-    return expanded
+def under(path: str, parent: str) -> bool:
+    path, parent = os.path.normpath(path), os.path.normpath(parent)
+    return path == parent or path.startswith(parent.rstrip("/") + "/")
 
 
-def _is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
+def _overlaps(a: str, b: str) -> bool:
+    return under(a, b) or under(b, a)
 
 
-def _forbidden_host_path(source: str, root: Path) -> str | None:
-    candidate = Path(source)
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve(strict=False)
-    forbidden = [Path("/"), Path("/srv/homelab"), Path("/srv/vpn"), Path("/srv"), *(_HOME_PREFIXES)]
-    # Path('/') is deliberately first: every absolute path is below it, so it
-    # is only a forbidden exact path, whereas the other entries include their
-    # descendants.
-    if resolved == Path("/"):
-        return "/"
-    for parent in forbidden[1:]:
-        if resolved == parent or _is_within(resolved, parent):
-            return str(parent)
-    home = Path.home().resolve(strict=False)
-    if resolved == home or _is_within(resolved, home):
-        return str(home)
-    return None
+# --- rules on one service ---------------------------------------------------------------------------------
+
+Rule = Callable[[str, Mapping[str, Any], Context], Iterator[str]]
 
 
-def _check_bind(value: Any, path: str, *, root: Path, variables: Mapping[str, str], errors: list[ValidationError]) -> None:
-    if isinstance(value, str):
-        errors.append(ValidationError(path, "short-syntax binds are not permitted"))
+def _tier(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    if ctx.tiers.get(name) not in ("app", "edge"):
+        yield "missing or invalid tier"
+
+
+def _image(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    image = service.get("image", "")
+    if not _PINNED.fullmatch(image):
+        yield "image must be pinned by digest (repo[:tag]@sha256:...)"
         return
-    if not isinstance(value, dict) or value.get("type") != "bind":
-        return
-    bind = value.get("bind")
-    if not isinstance(bind, dict) or bind.get("create_host_path") is not False:
-        errors.append(ValidationError(_path(path, "bind.create_host_path"), "binds must set create_host_path to false"))
-    source = value.get("source", value.get("src"))
-    if not isinstance(source, str):
-        return
-    try:
-        expanded = _expand(source, variables, _path(path, "source"))
-    except ValidationError as error:
-        errors.append(error)
-        return
-    forbidden = _forbidden_host_path(expanded, root)
-    if forbidden is not None:
-        errors.append(ValidationError(_path(path, "source"), f"bind host path resolves into forbidden path {forbidden}"))
+    repository = image.split("@")[0]
+    namespace = ctx.namespaces.get(name)
+    if namespace:
+        allowed = repository.startswith(namespace.rstrip("/") + "/")
+    else:
+        allowed = repository.startswith((FIRST_PARTY, *_allowlist("image-policy.json")["namespaces"]))
+    if not allowed:
+        yield f"image namespace is not permitted: {repository}"
 
 
-def _walk(value: Any, path: str, *, root: Path, variables: Mapping[str, str], errors: list[ValidationError]) -> None:
-    if isinstance(value, str):
-        try:
-            expanded = _expand(value, variables, path)
-        except ValidationError as error:
-            errors.append(error)
-            expanded = value
-        if "docker.sock" in expanded:
-            errors.append(ValidationError(path, "docker.sock is not permitted"))
-        return
-    if isinstance(value, list):
+def _health(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    check = service.get("healthcheck") or {}
+    active = check.get("test") not in (None, [], ["NONE"]) and not check.get("disable")
+    probe = (service.get("labels") or {}).get("homelab.probe", "")
+    if not active and not _PROBE.fullmatch(probe):
+        yield "needs a healthcheck or a homelab.probe label (http://:<port>/<path>)"
+
+
+def _state(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    if (service.get("labels") or {}).get("homelab.state") not in ("stateful", "stateless"):
+        yield "label homelab.state must be stateful or stateless"
+
+
+def _namespaces(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    if service.get("network_mode") == "host" and ctx.tiers.get(name) != "edge":
+        yield "host networking is only for the edge tier"
+    yield from (f"{key}: host is not permitted" for key in ("pid", "ipc") if service.get(key) == "host")
+
+
+def _binds(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    for volume in service.get("volumes") or []:
+        source = volume.get("source", "") if volume.get("type") == "bind" else None
+        if source is not None and not any(
+            under(os.path.realpath(source), os.path.realpath(root)) for root in ctx.roots
+        ):
+            yield f"bind {source} is outside the declared site roots"
+
+
+def _caps(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    allowed = set(_allowlist("cap-allowlist.json")["capabilities"])
+    yield from (
+        f"capability {cap} is not on the allowlist"
+        for cap in service.get("cap_add") or []
+        if cap.removeprefix("CAP_") not in allowed
+    )
+
+
+def _gpu_request(request: Mapping[str, Any]) -> bool:
+    gpu = _allowlist("gpu-allowlist.json")
+    return request.get("driver") in (None, "", *gpu["drivers"]) and set(request.get("capabilities") or []) <= set(
+        gpu["capabilities"]
+    )
+
+
+def _gpu(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    gpu = _allowlist("gpu-allowlist.json")
+    if "runtime" in service and service["runtime"] not in gpu["runtimes"]:
+        yield f"runtime {service['runtime']} is not on the GPU allowlist"
+    for device in service.get("devices") or []:
+        source = device.get("source", "") if isinstance(device, Mapping) else device.split(":", 1)[0]
+        if not any(under(source, allowed) for allowed in gpu["devices"]):
+            yield f"device {source} is not on the GPU allowlist"
+    gpus = service.get("gpus")
+    if gpus is not None and gpus != "all" and not (isinstance(gpus, list) and all(map(_gpu_request, gpus))):
+        yield "gpus must be 'all' or allowlisted GPU requests"
+    requests = (((service.get("deploy") or {}).get("resources") or {}).get("reservations") or {}).get("devices") or []
+    if not all(map(_gpu_request, requests)):
+        yield "deploy GPU request is not on the allowlist"
+
+
+RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _caps, _gpu)
+
+
+# --- rules on the site and the whole model ----------------------------------------------------------------
+
+
+def _root_errors(ctx: Context) -> Iterator[ValidationError]:
+    for root in ctx.roots:
+        if not os.path.isabs(root):
+            yield ValidationError("site.env", f"bind root {root} must be absolute")
+            continue
+        for protected in PROTECTED:
+            exempt = protected == "/srv/homelab" and under(root, "/srv/homelab/data")
+            if not exempt and (
+                _overlaps(root, protected) or _overlaps(os.path.realpath(root), os.path.realpath(protected))
+            ):
+                yield ValidationError("site.env", f"bind root {root} overlaps protected path {protected}")
+
+
+def _secret_errors(model: Mapping[str, Any], ctx: Context) -> Iterator[ValidationError]:
+    directory = ctx.env.get("HOMELAB_SECRET_DIR")
+    for name, secret in (model.get("secrets") or {}).items():
+        # Compose adds `name` (<project>_<NAME>); anything else (environment, content) is a non-file source.
+        if (
+            directory is None
+            or not set(secret) <= {"file", "name"}
+            or secret.get("file") != os.path.join(directory, name)
+        ):
+            yield ValidationError(f"$.secrets.{name}", "secret must be {file: ${HOMELAB_SECRET_DIR}/NAME}")
+
+
+def _banned(value: Any, path: str) -> Iterator[ValidationError]:
+    """privileged, build, env_file, lifecycle hooks, include and the Docker socket are banned anywhere."""
+    if isinstance(value, str) and "docker.sock" in value:
+        yield ValidationError(path, "docker.sock is not permitted")
+    elif isinstance(value, list):
         for index, item in enumerate(value):
-            _walk(item, _array_path(path, index), root=root, variables=variables, errors=errors)
-        return
-    if not isinstance(value, dict):
-        return
-    for key, item in value.items():
-        item_path = _path(path, str(key))
-        try:
-            expanded_item = _expand(item, variables, item_path) if isinstance(item, str) else item
-        except ValidationError:
-            expanded_item = item
-        if key in _FORBIDDEN_KEYS:
-            errors.append(ValidationError(item_path, _FORBIDDEN_KEYS[key]))
-        if key in {"network_mode", "pid", "ipc"} and expanded_item == "host":
-            errors.append(ValidationError(item_path, f"{key}: host is not permitted"))
-        if key == "privileged" and item is True:
-            errors.append(ValidationError(item_path, "privileged is not permitted"))
-        if key == "include":
-            errors.append(ValidationError(item_path, "remote includes are not permitted"))
-        if key == "volumes" and isinstance(item, list):
-            for index, volume in enumerate(item):
-                _check_bind(volume, _array_path(item_path, index), root=root, variables=variables, errors=errors)
-        _walk(item, item_path, root=root, variables=variables, errors=errors)
+            yield from _banned(item, f"{path}[{index}]")
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            if key in _BANNED_KEYS or (key == "privileged" and item is True):
+                yield ValidationError(f"{path}.{key}", f"{key} is not permitted")
+            yield from _banned(item, f"{path}.{key}")
 
 
-def validate_compose_model(
-    model: Any,
-    *,
-    root: str | os.PathLike[str] = ".",
-    variables: Mapping[str, str] | None = None,
-) -> dict[str, Any]:
-    """Validate and return a rendered Docker Compose model.
-
-    ``variables`` is explicit by design: validation never imports values from
-    the process environment, so an ambient ``.env`` cannot silently affect it.
-    """
-
-    if not isinstance(model, dict):
-        raise ValidationError("$", "expected rendered Compose object")
-    errors: list[ValidationError] = []
-    _walk(model, "$", root=Path(root).resolve(strict=False), variables=variables or {}, errors=errors)
+def check_policy(model: Mapping[str, Any], ctx: Context) -> None:
+    """Raise ValidationErrors listing every violation in the rendered model."""
+    errors = [*_root_errors(ctx), *_secret_errors(model, ctx), *_banned(model, "$")]
+    for name, service in (model.get("services") or {}).items():
+        errors += [
+            ValidationError(f"$.services.{name}", message) for rule in RULES for message in rule(name, service, ctx)
+        ]
     if errors:
         raise ValidationErrors(errors)
-    return model
-
-
-validate = validate_compose_model
-
-
-def load_compose_model(source: str | bytes, **kwargs: Any) -> dict[str, Any]:
-    try:
-        model = json.loads(source)
-    except json.JSONDecodeError as exc:
-        raise ValidationError("$", f"invalid JSON: {exc.msg}") from exc
-    return validate_compose_model(model, **kwargs)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model", type=Path, help="rendered Compose JSON file")
-    parser.add_argument("--root", type=Path, default=Path("."), help="base directory for relative bind sources")
-    args = parser.parse_args(argv)
-    try:
-        load_compose_model(args.model.read_bytes(), root=args.root)
-    except (OSError, ValidationError) as exc:
-        print(f"invalid Compose policy: {exc}")
-        return 1
-    print("Compose operational-subset policy: OK")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

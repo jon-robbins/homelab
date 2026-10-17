@@ -13,8 +13,7 @@ from typing import Any, Mapping
 import yaml
 
 from .bundle import build, bundle_sha256, verify
-from .compose_policy import validate_compose_model
-from .contracts import DIGEST_PATTERN, ValidationError, load_application_manifest
+from .contracts import DIGEST_PATTERN, ValidationError, ValidationErrors, load_application_manifest
 
 
 _APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
@@ -124,6 +123,112 @@ def _check_application_alignment(manifest: Mapping[str, Any], model: Mapping[str
             )
 
 
+# The release path's Compose checks, kept here until compile moves onto the rendered v2 model.
+_VARIABLE = re.compile(r"\$\{([^{}]+)\}")
+_FORBIDDEN_KEYS = {
+    "build": "build is not permitted",
+    "devices": "devices are not permitted",
+    "cap_add": "cap_add is not permitted",
+    "env_file": "env_file is not permitted",
+    "post_start": "lifecycle hooks are not permitted",
+    "pre_stop": "lifecycle hooks are not permitted",
+}
+_FORBIDDEN_TREES = (Path("/srv/homelab"), Path("/srv/vpn"), Path("/srv"), Path("/home"), Path("/root"), Path("/Users"))
+
+
+def _expand(value: str, path: str) -> str:
+    """Resolve ${VAR:-default} and ${VAR:+alternate} with no variables set; anything else must not remain."""
+
+    def replace(match: re.Match[str]) -> str:
+        name = re.match(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1))
+        operator = match.group(1)[name.end() :] if name else ""
+        if operator.startswith(("-", ":-")):
+            return operator.split("-", 1)[1]
+        if operator.startswith(("+", ":+")):
+            return ""
+        return match.group(0)
+
+    expanded = _VARIABLE.sub(replace, value)
+    if _VARIABLE.search(expanded):
+        raise ValidationError(path, "unresolved variable expression")
+    return expanded
+
+
+def _forbidden_host_path(source: str, root: Path) -> str | None:
+    resolved = (root / source).resolve(strict=False)
+    if resolved == Path("/"):
+        return "/"
+    for parent in (*_FORBIDDEN_TREES, Path.home().resolve(strict=False)):
+        if resolved.is_relative_to(parent):
+            return str(parent)
+    return None
+
+
+def _check_bind(value: Any, path: str, root: Path, errors: list[ValidationError]) -> None:
+    if isinstance(value, str):
+        errors.append(ValidationError(path, "short-syntax binds are not permitted"))
+        return
+    if not isinstance(value, dict) or value.get("type") != "bind":
+        return
+    bind = value.get("bind")
+    if not isinstance(bind, dict) or bind.get("create_host_path") is not False:
+        errors.append(ValidationError(f"{path}.bind.create_host_path", "binds must set create_host_path to false"))
+    source = value.get("source", value.get("src"))
+    if not isinstance(source, str):
+        return
+    try:
+        forbidden = _forbidden_host_path(_expand(source, f"{path}.source"), root)
+    except ValidationError as error:
+        errors.append(error)
+        return
+    if forbidden is not None:
+        errors.append(ValidationError(f"{path}.source", f"bind host path resolves into forbidden path {forbidden}"))
+
+
+def _check_key(key: Any, item: Any, path: str, root: Path, errors: list[ValidationError]) -> None:
+    try:
+        expanded = _expand(item, path) if isinstance(item, str) else item
+    except ValidationError:
+        expanded = item
+    if key in _FORBIDDEN_KEYS:
+        errors.append(ValidationError(path, _FORBIDDEN_KEYS[key]))
+    if key in {"network_mode", "pid", "ipc"} and expanded == "host":
+        errors.append(ValidationError(path, f"{key}: host is not permitted"))
+    if key == "privileged" and item is True:
+        errors.append(ValidationError(path, "privileged is not permitted"))
+    if key == "include":
+        errors.append(ValidationError(path, "remote includes are not permitted"))
+    if key == "volumes" and isinstance(item, list):
+        for index, volume in enumerate(item):
+            _check_bind(volume, f"{path}[{index}]", root, errors)
+
+
+def _walk(value: Any, path: str, root: Path, errors: list[ValidationError]) -> None:
+    if isinstance(value, str):
+        try:
+            value = _expand(value, path)
+        except ValidationError as error:
+            errors.append(error)
+        if "docker.sock" in value:
+            errors.append(ValidationError(path, "docker.sock is not permitted"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _walk(item, f"{path}[{index}]", root, errors)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _check_key(key, item, f"{path}.{key}", root, errors)
+            _walk(item, f"{path}.{key}", root, errors)
+
+
+def _check_compose_policy(model: Any, root: Path) -> None:
+    if not isinstance(model, dict):
+        raise ValidationError("$", "expected rendered Compose object")
+    errors: list[ValidationError] = []
+    _walk(model, "$", root.resolve(strict=False), errors)
+    if errors:
+        raise ValidationErrors(errors)
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
@@ -157,7 +262,7 @@ def compile_bundle(
     except (KeyError, TypeError, AttributeError) as error:
         # Pinning runs before schema validation, so a malformed manifest lands here.
         raise ValidationError("$.applications", f"malformed application manifest: {error!r}") from error
-    validate_compose_model(model, root=compose.parent)
+    _check_compose_policy(model, compose.parent)
     document = load_application_manifest(
         json.dumps(document).encode(),
         installed_probes=probes,
