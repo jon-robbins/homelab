@@ -39,7 +39,7 @@ def release(session: nox.Session) -> None:
 
 @nox.session(python=PYTHON, tags=["no-docker"])
 def controller(session: nox.Session) -> None:
-    install(session, "pytest")
+    install(session, "pytest", "PyYAML")
     session.env["PYTHONPATH"] = str(ROOT)
     session.run("pytest", "-q", "tests/controller")
 
