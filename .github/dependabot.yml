@@ -7,13 +7,15 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /compose
+  - package-ecosystem: docker-compose
+    directory: /modules
     schedule:
       interval: weekly
     groups:
-      docker:
-        patterns: ["*"]
+      stateless:
+        patterns:
+          - "cloudflare/cloudflared"
+          - "ghcr.io/flaresolverr/flaresolverr"
   - package-ecosystem: docker
     directory: /apps/homelab-workers
     schedule:

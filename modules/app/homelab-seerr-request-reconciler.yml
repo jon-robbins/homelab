@@ -1,0 +1,32 @@
+services:
+  homelab-seerr-request-reconciler:
+    image: ghcr.io/jon-robbins/homelab/homelab-workers@sha256:6b5fa615d3fdfcf2f49404ac5683b8d683cabdb442787fc63c2d800bfeefa823
+    entrypoint: ["homelab-seerr-request-reconciler"]
+    user: "${PUID}:${PGID}"
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    secrets: [QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD, SONARR_API_KEY, RADARR_API_KEY, PROWLARR_API_KEY, OVERSEERR_API_KEY]
+    environment: ["TZ=${TZ}", "SEERR_RECONCILER_ENABLED=0", "SEERR_RECONCILER_FALLBACK_ENABLED=0", "SEERR_RECONCILER_LOOKBACK_HOURS=24", "SEERR_RECONCILER_INTERVAL_SECONDS=300", "SEERR_RECONCILER_GRACE_SECONDS=900", "SEERR_RECONCILER_SEARCH_COOLDOWN_SECONDS=3600", "SEERR_RECONCILER_STATUS_PATH=/state/status.json", "SEERR_RECONCILER_STATE_PATH=/state/state.json", "SEERR_RECONCILER_STATUS_MAX_AGE_SECONDS=900", "OVERSEERR_INTERNAL_URL=http://overseerr:5055", "SONARR_INTERNAL_URL=http://sonarr:8989/sonarr", "RADARR_INTERNAL_URL=http://radarr:7878/radarr", "PROWLARR_INTERNAL_URL=http://prowlarr:9696/prowlarr", "QBITTORRENT_INTERNAL_URL=http://qbittorrent:8080"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/seerr-request-reconciler
+        target: /state
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD", "homelab-seerr-request-reconciler", "--healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+secrets:
+  QBITTORRENT_USERNAME: {file: "${HOMELAB_SECRET_DIR}/QBITTORRENT_USERNAME"}
+  QBITTORRENT_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/QBITTORRENT_PASSWORD"}
+  SONARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/SONARR_API_KEY"}
+  RADARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/RADARR_API_KEY"}
+  PROWLARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/PROWLARR_API_KEY"}
+  OVERSEERR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/OVERSEERR_API_KEY"}
+networks:
+  homelab_net: {external: true}

@@ -1,0 +1,39 @@
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin@sha256:ae1ac3d89b8598f31f5e1dc5aff898e13eab617303db58f84956e26f7b78c198
+    networks: [homelab_net]
+    ports: ["8096:8096/tcp"]
+    security_opt: ["no-new-privileges:true"]
+    environment: ["PUID=${PUID}", "PGID=${PGID}", "TZ=${TZ}", "JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN}"]
+    gpus: all
+    devices: ["/dev/dri:/dev/dri"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/jellyfin
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/Movies
+        target: /movies
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/TV
+        target: /tv
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_NVME_PATH}/Incoming
+        target: /downloads
+        read_only: true
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+networks:
+  homelab_net: {external: true}

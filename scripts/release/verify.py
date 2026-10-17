@@ -83,15 +83,13 @@ def verify_release(
     """Verify source heads and already-attested OCI build specifications."""
     repositories = repositories or {name: name for name in heads}
     bootstrap_shas = bootstrap_shas or {}
-    source_names = ("homelab", "homelab-site", "tracker-integrations")
+    for required in ("homelab", "homelab-site"):
+        if required not in heads:
+            raise VerificationError(f"missing source head: {required}")
+    source_names = tuple(sorted(heads))
     sources = []
     verified_repository_heads: dict[str, str] = {}
     for name in source_names:
-        if name not in heads:
-            # Legacy ReleaseRecord callers omitted the optional tracker source.
-            if name == "tracker-integrations" and "homelab-site" in heads:
-                continue
-            raise VerificationError(f"missing source head: {name}")
         sha = _repository(heads, name)
         repo = repositories.get(name, name)
         verified_repository_heads[repo] = sha

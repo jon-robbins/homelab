@@ -1,0 +1,46 @@
+services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/sonarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/TV
+        target: /tv
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_NVME_PATH}/Incoming
+        target: /downloads
+        bind: {create_host_path: false}
+      # Inventory includes RatioFarm; the older compose source omitted this bind.
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/.seed/RatioFarm
+        target: /ratiofarm
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/.seed/Seeding
+        target: /seeding
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8989 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
