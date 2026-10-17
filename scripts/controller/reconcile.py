@@ -104,9 +104,6 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
             (pinger.fail if causes else pinger.ok)("; ".join(causes)) if causes else pinger.ok()
             return "ok"
         try:
-            release = materialize(candidate, releases)
-        except Exception as error: return _preapply(state, str(error), pinger, causes)
-        try:
             policy = getattr(feed_policy, "host_policy", None)
             if policy is None and hasattr(feed_policy, "trusted_root"):
                 policy = feed_policy
@@ -117,13 +114,10 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
                     (root / "record.sigstore.json").write_bytes(candidate.signature_bytes)
                     (root / "bundle.tar").write_bytes(candidate.bundle_bytes)
                     verify_record(root, policy)
-        except Exception as error:
-            service = "unknown"
-            try:
-                service = next(iter(_managed(releases / str(candidate.sequence))))
-            except Exception:
-                pass
-            return _degraded(state, candidate.sequence, service, None, str(error), pinger)
+        except Exception as error: return _preapply(state, str(error), pinger, causes)
+        try:
+            release = materialize(candidate, releases)
+        except Exception as error: return _preapply(state, str(error), pinger, causes)
         p = plan(release, ops, _recorded_compose_version(state))
         if state.read("observe-only") is not None and not now:
             (pinger.fail if causes else pinger.ok)("; ".join(causes)) if causes else pinger.ok()

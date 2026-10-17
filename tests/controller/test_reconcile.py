@@ -267,7 +267,7 @@ def test_second_service_failure_records_its_snapshot(tmp_path, monkeypatch):
     assert "homelabctl rollback zeta" in state.read("DEGRADED")
 
 
-def test_verify_failure_degrades_and_advances_highwater(tmp_path, monkeypatch):
+def test_verify_failure_retries_without_advancing_highwater(tmp_path, monkeypatch):
     ops = Ops()
     state, _, candidate = prepared(monkeypatch, tmp_path, ops, verify_error="bad record")
     pinger = Pinger()
@@ -275,9 +275,10 @@ def test_verify_failure_degrades_and_advances_highwater(tmp_path, monkeypatch):
     policy = type("Policy", (), {"feed_directory": tmp_path, "trusted_root": tmp_path})()
     result = controller.reconcile(state, policy, tmp_path / "releases", ops, pinger, now=False)
 
-    assert "homelabctl rollback svc" in result
-    assert state.highwater() == candidate.sequence
-    assert "homelabctl rollback svc" in state.read("DEGRADED")
+    assert result == "pre-apply failed 1×: bad record"
+    assert state.highwater() == 0
+    assert state.read("failures").strip() == "1"
+    assert state.read("DEGRADED") is None
     assert not ops.calls or all(call[0] not in {"pull", "stop", "run"} for call in ops.calls)
 
 
