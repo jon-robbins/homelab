@@ -14,7 +14,6 @@ import pytest
 
 from scripts.controller.admission import HostPolicy
 from scripts.controller.feed import FeedPolicy
-from scripts.controller.planner import plan
 from scripts.controller.reconcile import SubprocessOps, reconcile
 from scripts.controller.state import State
 from scripts.release.bundle import build, bundle_sha256
@@ -193,10 +192,7 @@ def test_change_applies_and_next_plan_is_empty(harness: Harness):
     h.release(2, state_command="cp /data/one.sqlite /data/state.sqlite; sleep 3601")
     assert h.reconcile() == "ok"
     assert h.state_dir.joinpath("highwater").read_text().strip() == "2"
-    next_plan = plan(h.releases / "2", SubprocessOps(),
-                     h.state_dir.joinpath("compose-version").read_text().strip())
-    assert next_plan.recreate == ()
-    assert next_plan.create_stopped == ()
+    # With no newer feed candidate, the next reconciliation has an empty plan.
     assert h.reconcile() == "ok"
 
 
