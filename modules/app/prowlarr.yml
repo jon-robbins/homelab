@@ -1,0 +1,29 @@
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls143@sha256:c5de2a8758a05594319263e7691c1dce56899442ed1720d6eca216c0958f4caf
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/prowlarr
+        target: /config
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9696 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
