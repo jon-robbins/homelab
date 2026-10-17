@@ -27,6 +27,8 @@ DOCS=(
   docs/ingress.md
   docs/caddy-guide.md
   docs/service-troubleshooting.md
+  docs/modules.md
+  docs/plugins.md
   docs/hardware.md
   docs/architecture.md
   docs/configuration.md

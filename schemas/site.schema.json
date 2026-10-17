@@ -7,8 +7,8 @@
     "contract": {"type": "integer", "enum": [1]},
     "site_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
     "plugins": {"type": "object", "additionalProperties": {"type": "object", "properties": {"path": {"type": "string"}, "repository": {"type": "string"}}, "additionalProperties": false}},
-    "bind_roots": {"type": "array", "items": {"type": "string", "enum": ["APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH"]}},
-    "marker_roots": {"type": "array", "items": {"type": "string", "enum": ["APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH"]}},
+    "bind_roots": {"type": "array", "items": {"type": "string", "enum": ["APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH", "MEDIA_PLEX_PATH"]}},
+    "marker_roots": {"type": "array", "items": {"type": "string", "enum": ["APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH", "MEDIA_PLEX_PATH"]}},
     "services": {"type": "object", "additionalProperties": {"type": "object"}},
     "managed": {"type": "array", "items": {"type": "string"}},
     "site_env": {"type": "object", "properties": {

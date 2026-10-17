@@ -4,10 +4,6 @@ scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain 
 scripts/release/compose_policy.py token-shaped # Compose variable parser regex is not a credential.
 scripts/controller/state.py token-shaped # Event redaction regex contains synthetic credential shapes.
 tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
-tests/ops/test_infisical_agent_config.py token-shaped # Test credential is deliberately synthetic.
-tests/ops/test_infisical_agent_pilot_contract.sh token-shaped # Test credential is deliberately synthetic.
-tests/ops/test_infisical_agent_reload.py token-shaped # Test credentials are deliberately synthetic.
-tests/ops/test_managed_secrets.py token-shaped # Test credentials are deliberately synthetic.
 tests/runtime/test_seerr_download_path_health.sh token-shaped # Test credential is deliberately synthetic.
 tests/ci/test_public_readiness.py private-network # Test inputs intentionally exercise private-network detection.
 tests/ci/test_public_readiness.py token-shaped # Test inputs intentionally exercise token-shaped detection.
@@ -19,14 +15,6 @@ config/seerr/entrypoint.sh token-shaped # Synthetic JavaScript replacement fixtu
 scripts/lib/managed-secrets.sh token-shaped # Synthetic shell variable-name parser fixture.
 scripts/ops/ensure-sonarr-scene-mappings.sh token-shaped # Synthetic title used by the local API check.
 tests/boundary/test_pr02_task5_compose.py token-shaped # Synthetic path fixture in a boundary assertion.
-tests/compose/test_arr_missing_search_service.sh token-shaped # Synthetic Compose service-name fixture.
-tests/compose/test_caddy_labels.sh token-shaped # Synthetic YAML key parser fixture.
-tests/compose/test_env_completeness.sh token-shaped # Synthetic environment-name parser fixtures.
-tests/compose/test_host_mode_whitelist.sh token-shaped # Synthetic YAML key parser fixture.
-tests/compose/test_infisical_agent_files.sh token-shaped # Synthetic secret-name fixture.
-tests/compose/test_infisical_secrets.sh token-shaped # Synthetic secret-name fixture.
-tests/compose/test_network_definitions.sh token-shaped # Synthetic YAML key parser fixture.
-tests/compose/test_seerr_entrypoint.sh token-shaped # Synthetic YAML key parser fixture.
 tests/integration/telegram_reports.py token-shaped # Synthetic Telegram token-shape regex.
 tests/integration/test_telegram_cases.py token-shaped # Synthetic Telegram token fixtures.
 tests/ci/test_action_pins.py token-shaped # Action reference regex fixture is not a credential.

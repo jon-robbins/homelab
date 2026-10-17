@@ -1,0 +1,36 @@
+services:
+  overseerr:
+    image: ghcr.io/seerr-team/seerr@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad
+    init: true
+    entrypoint: ["/custom-entrypoint.sh"]
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    secrets: [TMDB_API_KEY]
+    environment: ["LOG_LEVEL=info", "TZ=${TZ}", "PORT=5055"]
+    ports: ["127.0.0.1:5055:5055"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/overseerr
+        target: /app/config
+        bind: {create_host_path: false}
+    configs:
+      - source: overseerr-entrypoint
+        target: /custom-entrypoint.sh
+        mode: 0555
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5055/api/v1/settings/public >/dev/null || exit 1"]
+      start_period: 40s
+      timeout: 5s
+      interval: 20s
+      retries: 3
+    restart: unless-stopped
+configs:
+  overseerr-entrypoint:
+    file: config/seerr/entrypoint.sh
+secrets:
+  TMDB_API_KEY: {file: "${HOMELAB_SECRET_DIR}/TMDB_API_KEY"}
+networks:
+  homelab_net: {external: true}

@@ -1,20 +1,16 @@
-x-logging: &default-logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
-
 services:
   autobrr:
     image: ghcr.io/autobrr/autobrr@sha256:944b1c438302ed10bef810a49f2eb7f334b5abf578db473bcb8d997db3978227
-    networks:
-      - homelab_net
+    networks: [homelab_net]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    environment:
-      - TZ=${TZ}
+    environment: ["TZ=${TZ}"]
     volumes:
-      - ${APP_DATA_DIR:-../data}/autobrr:/config
+      - type: bind
+        source: ${APP_DATA_DIR}/autobrr
+        target: /config
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7474/api/healthz/liveness || exit 1"]
       interval: 30s
@@ -22,6 +18,5 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 512m
-    pids_limit: 200
+networks:
+  homelab_net: {external: true}
