@@ -69,6 +69,11 @@ def _preapply(state: State, cause: str, pinger: Pinger, causes: list[str]) -> st
     return message
 
 
+def _recorded_compose_version(state: State) -> str | None:
+    value = state.read("compose-version")
+    return value.strip() if value is not None else None
+
+
 def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
               pinger: Pinger, *, now: bool) -> str:
     releases = Path(releases)
@@ -91,7 +96,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
         if ops.free_pct("/mnt/media-hdd") < 10: causes.append("low free space on /mnt/media-hdd")
         current = releases / "current"
         if current.is_symlink() or current.is_dir():
-            causes.extend(plan(current, ops, state.read("compose-version")).failures)
+            causes.extend(plan(current, ops, _recorded_compose_version(state)).failures)
         try:
             candidate = fetch_newest(state.highwater(), feed_policy)
         except Exception as error: return _degraded(state, None, "unknown", None, str(error), pinger)
@@ -119,7 +124,7 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops,
             except Exception:
                 pass
             return _degraded(state, candidate.sequence, service, None, str(error), pinger)
-        p = plan(release, ops, state.read("compose-version"))
+        p = plan(release, ops, _recorded_compose_version(state))
         if state.read("observe-only") is not None and not now:
             (pinger.fail if causes else pinger.ok)("; ".join(causes)) if causes else pinger.ok()
             return "ok"
@@ -199,8 +204,12 @@ class SubprocessOps:
         if services:
             subprocess.run(["docker", "compose", "-f", str(Path(release_dir) / "app.json"),
                             "pull", *services], check=True)
-    def stop(self, service): subprocess.run(["docker", "stop", self._container_id("homelab", service)], check=True)
-    def start(self, service): subprocess.run(["docker", "start", self._container_id("homelab", service)], check=True)
+    def stop(self, service):
+        if (identifier := self._container_id("homelab", service)) is not None:
+            subprocess.run(["docker", "stop", identifier], check=True)
+    def start(self, service):
+        if (identifier := self._container_id("homelab", service)) is not None:
+            subprocess.run(["docker", "start", identifier], check=True)
     def run(self, argv): subprocess.run(argv, check=True)
     def healthy(self, service, timeout_s):
         deadline = time.monotonic() + timeout_s

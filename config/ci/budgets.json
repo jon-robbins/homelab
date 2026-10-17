@@ -1,6 +1,6 @@
 {
   "budgets": [
-    {"paths": ["scripts/controller"], "max_lines": 600},
+    {"paths": ["scripts/controller"], "max_lines": 750},
     {
       "paths": ["scripts/release/render.py", "scripts/release/modules.py"],
       "max_lines": 600

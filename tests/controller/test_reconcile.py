@@ -167,6 +167,15 @@ def test_observe_only_and_hold_do_not_mutate(tmp_path, monkeypatch):
     assert not {call[0] for call in ops.calls} & {"pull", "stop", "start", "run", "snapshot"}
 
 
+def test_compose_version_state_is_stripped_before_planning(tmp_path, monkeypatch):
+    ops = Ops(services={"svc"})
+    state, _, candidate = prepared(monkeypatch, tmp_path, ops)
+    state.write("compose-version", "new\n")
+
+    assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "ok"
+    assert state.highwater() == candidate.sequence
+
+
 def test_empty_plan_moves_pointers(tmp_path, monkeypatch):
     ops = Ops(services={"svc"})
     state, _, candidate = prepared(monkeypatch, tmp_path, ops)
@@ -318,6 +327,33 @@ def test_subprocess_ops_uses_compose_container_for_stop_and_start(monkeypatch):
     ops.start("svc")
 
     assert calls == [["docker", "stop", "generated-id"], ["docker", "start", "generated-id"]]
+
+
+def test_subprocess_ops_ignores_absent_container_for_stop_and_start(monkeypatch):
+    calls = []
+    monkeypatch.setattr(controller.subprocess, "check_output", lambda *args, **kwargs: "")
+    monkeypatch.setattr(controller.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+    ops = controller.SubprocessOps()
+
+    ops.stop("svc")
+    ops.start("svc")
+
+    assert calls == []
+
+
+def test_status_prints_pointer_sequences(monkeypatch, tmp_path, capsys):
+    releases = tmp_path / "releases"
+    for sequence in (6, 7):
+        release(releases.parent, sequence)
+    (releases / "current").symlink_to(releases / "7")
+    (releases / "previous").symlink_to(releases / "6")
+    monkeypatch.setattr(controller.SubprocessOps, "compose_version", lambda self: "new")
+    monkeypatch.setattr(sys, "argv", ["homelabctl", "--state", str(tmp_path / "state"),
+                                       "--releases", str(releases), "status"])
+    import scripts.controller.homelabctl as homelabctl
+
+    assert homelabctl.main() == 0
+    assert "current=7 previous=6 highwater=0" in capsys.readouterr().out
 
 
 def test_subprocess_ops_waits_for_docker_health(monkeypatch):

@@ -25,6 +25,10 @@ class HttpPinger:
         urllib.request.urlopen(request, timeout=10).close()
 
 
+def _pointer_sequence(path: Path) -> str:
+    return path.resolve().name if path.exists() else "none"
+
+
 def _args():
     parser = argparse.ArgumentParser(prog="homelabctl")
     parser.add_argument("--state", type=Path, default=Path("/var/lib/homelab-controller/state"))
@@ -58,7 +62,8 @@ def main() -> int:
         return 0
     degraded = state.read("DEGRADED")
     print(degraded.strip() if degraded else "ok")
-    print(f"current={args.releases / 'current'} previous={args.releases / 'previous'} highwater={state.highwater()}")
+    print(f"current={_pointer_sequence(args.releases / 'current')} "
+          f"previous={_pointer_sequence(args.releases / 'previous')} highwater={state.highwater()}")
     current = args.releases / "current"
     if current.exists():
         ops = SubprocessOps()
@@ -67,7 +72,8 @@ def main() -> int:
             image = definition.get("image", "") if isinstance(definition, dict) else ""; release_digest = image.rsplit("@", 1)[1] if "@" in image else "none"
             running_digest = view.image_digest if view is not None and view.image_digest else "none"; health = view.health if view is not None else "missing"
             print(f"{service}: running_digest={running_digest} release_digest={release_digest} health={health}")
-        p = plan(current, ops, state.read("compose-version"))
+        recorded_compose_version = state.read("compose-version")
+        p = plan(current, ops, recorded_compose_version.strip() if recorded_compose_version is not None else None)
         print(f"recreate={p.recreate} create_stopped={p.create_stopped} notices={p.notices} hold={p.hold}")
     return 0
 
