@@ -222,6 +222,9 @@ def validate_site(path: str | Path, platform_dir: str | Path,
     site = Path(path)
     document = _load(site / "site.yaml")
     _validate_schema(document, "site")
+    marker_roots = document.get("marker_roots", [])
+    if not set(marker_roots).issubset(document.get("bind_roots", [])):
+        raise ValidationError("$.marker_roots", "marker roots must be bind roots")
     env: dict[str, str] = {}
     env_path = site / "site.env"
     if env_path.exists():

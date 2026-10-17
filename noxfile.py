@@ -34,7 +34,7 @@ def workers(session: nox.Session) -> None:
 def release(session: nox.Session) -> None:
     session.install("--require-hashes", "-r", "config/release/requirements.txt")
     session.install("pytest")
-    session.run("pytest", "-q", "tests/release")
+    session.run("pytest", "-q", "tests/release", "--ignore=tests/release/test_render_docker.py")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
@@ -52,6 +52,13 @@ def compose_config(session: nox.Session) -> None:
 @nox.session(python=PYTHON, tags=["docker"])
 def compose_tests(session: nox.Session) -> None:
     session.run("bash", "scripts/ci/run-compose-tests.sh", external=True)
+
+
+@nox.session(python=PYTHON, tags=["docker"])
+def render_docker(session: nox.Session) -> None:
+    session.install("--require-hashes", "-r", "config/release/requirements.txt")
+    session.install("pytest")
+    session.run("pytest", "-q", "tests/release/test_render_docker.py")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])

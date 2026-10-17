@@ -1,8 +1,9 @@
 contract: 1
 site_id: example
 bind_roots: [APP_DATA_DIR]
+marker_roots: [APP_DATA_DIR]
 plugins:
   plugin-hello: {path: ../plugin-hello}
 services:
-  whoami: {}
+  whoami: {from: plugin-hello}
 managed: [whoami]
