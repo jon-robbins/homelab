@@ -20,6 +20,7 @@ from .compile import compile_bundle
 from .contracts import ValidationError, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient, GitHubError
+from .render import render
 from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
@@ -28,6 +29,30 @@ BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
 _DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$")
 _DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
+
+
+def render_release(client: Any, platform: Path, site_repository: str, site_sha: str,
+                   homelab_sha: str, output: Path) -> dict[str, str]:
+    """Fetch the declared plugin trees, render the site, and compile its bundle."""
+    from .compile import compile_bundle
+
+    with tempfile.TemporaryDirectory(prefix="release-sources-") as directory:
+        root = Path(directory)
+        site = client.fetch(site_repository, site_sha, root / "site")
+        site_document = yaml.safe_load((site / "site.yaml").read_bytes())
+        plugins: dict[str, Path] = {}
+        sources = {"homelab": homelab_sha, "homelab-site": site_sha}
+        for name, spec in (site_document.get("plugins") or {}).items():
+            if "path" in spec:
+                plugins[name] = site / spec["path"]
+            elif "repository" in spec:
+                repository = spec["repository"]
+                sha = client.ref(repository, "main")
+                plugins[name] = client.fetch(repository, sha, root / "plugins" / name)
+                sources[name] = sha
+        rendered = render(platform, site, plugins)
+        compile_bundle(rendered, site / "site.yaml", output)
+        return sources
 
 
 def load_approved_destinations(path: str | Path = _DEFAULT_APPROVED_DESTINATIONS) -> frozenset[str]:

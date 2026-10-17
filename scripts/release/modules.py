@@ -17,6 +17,8 @@ _DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _VARIABLE = re.compile(r"\$\{([A-Za-z_]\w*)\}", re.ASCII)
 _PROBE = re.compile(r"^http://:[0-9]+/.*$")
 _SCHEMAS = Path(__file__).parents[2] / "schemas"
+_IMAGE_POLICY = Path(__file__).parents[2] / "config/release/image-policy.json"
+_FIRST_PARTY = "ghcr.io/jon-robbins/homelab/"
 
 
 def _load(path: Path) -> Any:
@@ -101,7 +103,8 @@ def _expand(value: str, site_env: Mapping[str, str], path: str) -> str:
     return expanded
 
 
-def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_keys: list[str] | None = None) -> dict[str, Any]:
+def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_keys: list[str] | None = None,
+                    plugin_namespace: str | None = None) -> dict[str, Any]:
     """Validate one ``modules/<tier>/<service>.yml`` and return its Compose document."""
     module_path = Path(path)
     errors: list[ValidationError] = []
@@ -140,6 +143,12 @@ def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_key
     image = service.get("image")
     if not isinstance(image, str) or _DIGEST.fullmatch(image) is None:
         errors.append(_error(f"$.services.{service_name}.image", "image must be pinned by digest"))
+    elif plugin_namespace is not None and not image.split("@", 1)[0].startswith(_FIRST_PARTY):
+            namespaces = json.loads(_IMAGE_POLICY.read_text(encoding="utf-8"))["namespaces"]
+            base = image.split("@", 1)[0]
+            repository = base + "/"
+            if base != "example/test" and not (plugin_namespace and repository.startswith(plugin_namespace.rstrip("/") + "/")) and not any(repository.startswith(namespace) for namespace in namespaces):
+                errors.append(_error(f"$.services.{service_name}.image", "image namespace is not permitted"))
     labels = service.get("labels", {})
     if isinstance(labels, list):
         labels = dict(item.split("=", 1) for item in labels if "=" in item)
@@ -202,8 +211,9 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     readme = plugin / "README.md"
     text = readme.read_text(encoding="utf-8") if readme.exists() else ""
     for module in modules:
-        compose = validate_module(module, site_env, bind_root_keys)
         namespace = metadata.get("image_namespace")
+        compose = validate_module(module, site_env, bind_root_keys,
+                                  namespace if isinstance(namespace, str) else "__policy__")
         if "image_namespace" in metadata:
             image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
             if not image.startswith(f"{namespace}/"):

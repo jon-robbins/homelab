@@ -10,6 +10,7 @@ from typing import Iterable
 
 
 _REQUIRED_FILES = ("applications.json", "compose.yaml", "probe-targets.json")
+_V2_REQUIRED_FILES = ("app.json", "edge.json", "site.yaml")
 _OPTIONAL_FILES = "gpu-inputs.json"
 _FIXED_MTIME = 0
 _FIXED_UID = 0
@@ -30,7 +31,8 @@ def _archive_info(name: str, *, directory: bool, size: int = 0) -> tarfile.TarIn
 
 
 def _source_entries(root: Path) -> Iterable[tuple[str, Path, bool]]:
-    for name in _REQUIRED_FILES + (_OPTIONAL_FILES,):
+    required = _V2_REQUIRED_FILES if all((root / name).is_file() for name in _V2_REQUIRED_FILES) else _REQUIRED_FILES
+    for name in required + ((_OPTIONAL_FILES,) if required == _REQUIRED_FILES else ()):
         path = root / name
         if name == _OPTIONAL_FILES and not path.exists() and not path.is_symlink():
             continue
@@ -39,14 +41,15 @@ def _source_entries(root: Path) -> Iterable[tuple[str, Path, bool]]:
         yield name, path, False
 
     files = root / "files"
-    if not files.is_dir() or files.is_symlink():
-        raise ValueError("bundle requires a regular files directory")
-    yield "files/", files, True
-    for path in files.rglob("*"):
-        relative = path.relative_to(root).as_posix()
-        if path.is_symlink() or not (path.is_file() or path.is_dir()):
-            raise ValueError(f"bundle member must be a regular file or directory: {relative}")
-        yield relative + ("/" if path.is_dir() else ""), path, path.is_dir()
+    if required == _REQUIRED_FILES:
+        if not files.is_dir() or files.is_symlink():
+            raise ValueError("bundle requires a regular files directory")
+        yield "files/", files, True
+        for path in files.rglob("*"):
+            relative = path.relative_to(root).as_posix()
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                raise ValueError(f"bundle member must be a regular file or directory: {relative}")
+            yield relative + ("/" if path.is_dir() else ""), path, path.is_dir()
 
 
 def build(directory: str | Path) -> bytes:
@@ -117,7 +120,7 @@ def verify(data: bytes) -> None:
             directories.add(name)
 
         if name != "files/" and not (
-            name in _REQUIRED_FILES
+            name in _REQUIRED_FILES + _V2_REQUIRED_FILES
             or name == _OPTIONAL_FILES
             or name.startswith("files/")
         ):
@@ -127,10 +130,11 @@ def verify(data: bytes) -> None:
             if parent not in directories and parent != "files/":
                 raise ValueError(f"missing parent directory: {parent!r}")
 
-    if "files/" not in directories:
+    required = _V2_REQUIRED_FILES if all(name in names for name in _V2_REQUIRED_FILES) else _REQUIRED_FILES
+    if required == _REQUIRED_FILES and "files/" not in directories:
         raise ValueError("bundle requires files/")
-    for name in _REQUIRED_FILES:
+    for name in required:
         if name not in names:
             raise ValueError(f"missing required archive member: {name!r}")
-    if any(name in directories for name in _REQUIRED_FILES + (_OPTIONAL_FILES,)):
+    if any(name in directories for name in required + ((_OPTIONAL_FILES,) if required == _REQUIRED_FILES else ())):
         raise ValueError("top-level bundle files must be regular files")

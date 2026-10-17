@@ -193,7 +193,12 @@ def validate_release_record(value: Any) -> dict[str, Any]:
     validate_git_sha(record["tooling_git_sha"], "$.tooling_git_sha")
 
     sources_path = "$.sources"
-    sources = _object(record["sources"], sources_path, SOURCES_FIELDS)
+    sources = record["sources"]
+    if not isinstance(sources, dict):
+        raise ValidationError(sources_path, "expected object")
+    for required in ("homelab", "homelab-site"):
+        if required not in sources:
+            raise ValidationError(f"{sources_path}.{required}", "missing required source")
     for key in sources:
         validate_git_sha(sources[key], _path(sources_path, key))
 

@@ -13,6 +13,7 @@ from typing import Any, Mapping
 import yaml
 
 from .bundle import build, bundle_sha256, verify
+from .render import Rendered
 from .compose_policy import validate_compose_model
 from .contracts import DIGEST_PATTERN, ValidationError, load_application_manifest
 
@@ -128,7 +129,7 @@ def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
 
-def compile_bundle(
+def _compile_legacy(
     compose: Path,
     manifest: Path,
     installed_probes: Path,
@@ -179,6 +180,28 @@ def compile_bundle(
         data = build(root)
     verify(data)
     output.write_bytes(data)
+    return bundle_sha256(data)
+
+
+def compile_bundle(rendered: Rendered, site_yaml: Path, out: Path, *legacy: Any) -> str:
+    """Write the deterministic v2 bundle for a rendered site.
+
+    The legacy seven-input form remains accepted by local callers while the
+    release path uses the three v2 inputs.
+    """
+    if not isinstance(rendered, Rendered):
+        return _compile_legacy(rendered, site_yaml, out, *legacy)
+    if legacy:
+        raise TypeError("compile_bundle expects rendered, site_yaml, and out")
+    with tempfile.TemporaryDirectory(prefix="release-compile-") as directory:
+        root = Path(directory)
+        _write_json(root / "app.json", rendered.app)
+        _write_json(root / "edge.json", rendered.edge)
+        shutil.copyfile(site_yaml, root / "site.yaml")
+        data = build(root)
+    verify(data)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
     return bundle_sha256(data)
 
 
