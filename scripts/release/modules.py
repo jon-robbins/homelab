@@ -170,6 +170,9 @@ def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_key
             continue
         if not is_bind or not isinstance(source, str):
             continue
+        if source.startswith("~"):
+            errors.append(_error(f"$.services.{service_name}.volumes[{index}]", "use ${NAME} roots"))
+            continue
         try:
             resolved = Path(_expand(source, site_env, f"$.services.{service_name}.volumes[{index}]")).resolve(strict=False)
         except ValidationError as error:

@@ -67,6 +67,21 @@ def test_numeric_probe_satisfies_health_rule(tmp_path):
     validate_module(path, ENV)
 
 
+def test_non_numeric_probe_port_is_rejected(tmp_path):
+    path = write_module(tmp_path, health=False)
+    document = yaml.safe_load(path.read_text())
+    document["services"]["whoami"]["labels"]["homelab.probe"] = "http://:web/health"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ValidationError, match="healthcheck or homelab.probe"):
+        validate_module(path, ENV)
+
+
+def test_tilde_bind_source_is_rejected(tmp_path):
+    path = write_module(tmp_path, volume="~/whoami")
+    with pytest.raises(ValidationError, match=r"use \$\{NAME\} roots"):
+        validate_module(path, ENV)
+
+
 def test_config_files_are_not_host_binds(tmp_path):
     path = write_module(tmp_path)
     document = yaml.safe_load(path.read_text())
