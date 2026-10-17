@@ -32,7 +32,7 @@ def workers(session: nox.Session) -> None:
 def release(session: nox.Session) -> None:
     session.install("--require-hashes", "-r", "config/release/requirements.txt")
     session.install("pytest")
-    session.run("pytest", "-q", "tests/release", "--ignore=tests/release/test_render_docker.py")
+    session.run("pytest", "-q", "tests/release", "tests/modules", "--ignore=tests/release/test_render_docker.py")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])

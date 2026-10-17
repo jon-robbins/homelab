@@ -1,0 +1,50 @@
+services:
+  caddy:
+    # The catalog uses the published upstream image requested by M2.4a; inventory records the old local build.
+    image: ghcr.io/jon-robbins/homelab/caddy@sha256:5ec9de2201fe98cbf4bf97e32664a594e419b89aaa7169a5e9aa2efe165ab82f
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+    ports:
+      - "80:80"
+      - "8443:443"
+      - "${TAILSCALE_IP}:443:443"
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/caddy/data
+        target: /data
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${APP_DATA_DIR}/caddy/config
+        target: /config
+        bind: {create_host_path: false}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+        mode: 0444
+    secrets: [CLOUDFLARE_TOKEN]
+    networks: [homelab_net]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+configs:
+  caddyfile:
+    file: site:edge/Caddyfile
+
+secrets:
+  CLOUDFLARE_TOKEN:
+    file: ${HOMELAB_SECRET_DIR}/CLOUDFLARE_TOKEN
+
+networks:
+  homelab_net:
+    external: true
