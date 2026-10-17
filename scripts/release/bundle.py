@@ -29,6 +29,9 @@ def _archive_info(name: str, size: int) -> tarfile.TarInfo:
 
 
 def _source_entries(root: Path) -> Iterable[tuple[str, Path]]:
+    unexpected = sorted(path.name for path in root.iterdir() if path.name not in _REQUIRED_FILES)
+    if unexpected:
+        raise ValueError(f"unexpected bundle members: {', '.join(unexpected)}")
     for name in _REQUIRED_FILES:
         path = root / name
         if not path.is_file() or path.is_symlink():

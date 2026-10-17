@@ -5,9 +5,22 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 from .contracts import ValidationError, ValidationErrors
+
+
+_VARIABLE = re.compile(r"\$\{([^{}]+)\}")
+_FORBIDDEN_KEYS = {
+    "build": "build is not permitted",
+    "devices": "devices are not permitted",
+    "cap_add": "cap_add is not permitted",
+    "env_file": "env_file is not permitted",
+    "post_start": "lifecycle hooks are not permitted",
+    "pre_stop": "lifecycle hooks are not permitted",
+}
+_HOME_PREFIXES = (Path("/home"), Path("/root"), Path("/Users"))
 
 
 _POLICY_PROTECTED = ("/srv/homelab", "/srv/vpn", "/run/docker.sock", "/var/run/docker.sock")

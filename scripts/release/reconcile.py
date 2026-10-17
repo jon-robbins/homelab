@@ -43,6 +43,7 @@ def render_release(client: Any, platform: Path, site_repository: str, site_sha: 
         for name, spec in (site_document.get("plugins") or {}).items():
             if "path" in spec:
                 plugins[name] = site / spec["path"]
+                sources[name] = site_sha
             elif "repository" in spec:
                 repository = spec["repository"]
                 sha = (source_shas or {}).get(name) or client.ref(repository, "main")
@@ -347,9 +348,9 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     if not isinstance(site_document, Mapping) or not isinstance(site_document.get("site_id"), str):
         raise VerificationError("site.yaml has no site_id")
     plugin_repositories = {
-        name: spec["repository"]
+        name: spec.get("repository", site_repository)
         for name, spec in (site_document.get("plugins") or {}).items()
-        if isinstance(spec, Mapping) and isinstance(spec.get("repository"), str)
+        if isinstance(spec, Mapping) and (isinstance(spec.get("repository"), str) or isinstance(spec.get("path"), str))
     }
     input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     source_path = input_root / "bundle.tar"
