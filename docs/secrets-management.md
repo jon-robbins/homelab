@@ -21,7 +21,3 @@ files:
 - The site supplies file-backed secret paths through `HOMELAB_SECRET_DIR`.
 - Modules declare their secret names and the renderer preserves those file
   references without inlining values.
-
-**Rollout order.** Move one low-risk service to file-backed secrets first as a pilot gate and confirm it restarts
-cleanly from the rendered files before migrating the rest. Migrate Telegram bot tokens last: the Telegram bot is often
-the channel that reports problems while the migration is in progress.

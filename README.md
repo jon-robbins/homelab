@@ -48,8 +48,8 @@ cp .env.example .env.local
 bash scripts/ci/public-check.sh
 ```
 
-The check runs catalog, boundary, CI, release, documentation, and
-public-readiness checks. It does not deploy services or start containers.
+The check runs documentation, boundary, CI, release, and public-readiness
+checks. It does not deploy services or start containers.
 
 ```text
 161 passed, 7 skipped

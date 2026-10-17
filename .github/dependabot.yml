@@ -14,8 +14,8 @@ updates:
     groups:
       stateless:
         patterns:
+          - "cloudflare/cloudflared"
           - "ghcr.io/flaresolverr/flaresolverr"
-          - "ghcr.io/jon-robbins/homelab/homelab-workers"
   - package-ecosystem: docker
     directory: /apps/homelab-workers
     schedule:
