@@ -190,7 +190,7 @@ def test_adopt_stopped_service_without_recreating_dependency(harness: Harness):
 def test_change_applies_and_next_plan_is_empty(harness: Harness):
     h = harness
     install_first(h)
-    h.release(2, version="two")
+    h.release(2, state_command="cp /data/one.sqlite /data/state.sqlite; sleep 3601")
     assert h.reconcile() == "ok"
     assert h.state_dir.joinpath("highwater").read_text().strip() == "2"
     next_plan = plan(h.releases / "current", SubprocessOps(),
