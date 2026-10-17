@@ -143,12 +143,15 @@ def validate_module(path: str | Path, site_env: Mapping[str, str], bind_root_key
     image = service.get("image")
     if not isinstance(image, str) or _DIGEST.fullmatch(image) is None:
         errors.append(_error(f"$.services.{service_name}.image", "image must be pinned by digest"))
-    elif plugin_namespace is not None and not image.split("@", 1)[0].startswith(_FIRST_PARTY):
-            namespaces = json.loads(_IMAGE_POLICY.read_text(encoding="utf-8"))["namespaces"]
-            base = image.split("@", 1)[0]
-            repository = base + "/"
-            if base != "example/test" and not (plugin_namespace and repository.startswith(plugin_namespace.rstrip("/") + "/")) and not any(repository.startswith(namespace) for namespace in namespaces):
-                errors.append(_error(f"$.services.{service_name}.image", "image namespace is not permitted"))
+    elif not image.split("@", 1)[0].startswith(_FIRST_PARTY):
+        namespaces = json.loads(_IMAGE_POLICY.read_text(encoding="utf-8"))["namespaces"]
+        base = image.split("@", 1)[0]
+        repository = base + "/"
+        plugin_prefix = f"{plugin_namespace.rstrip('/')}/" if plugin_namespace else None
+        if not any(repository.startswith(namespace) for namespace in namespaces) and not (
+            plugin_prefix and repository.startswith(plugin_prefix)
+        ):
+            errors.append(_error(f"$.services.{service_name}.image", "image namespace is not permitted"))
     labels = service.get("labels", {})
     if isinstance(labels, list):
         labels = dict(item.split("=", 1) for item in labels if "=" in item)
@@ -213,7 +216,7 @@ def validate_plugin(path: str | Path, site_env: Mapping[str, str], platform_modu
     for module in modules:
         namespace = metadata.get("image_namespace")
         compose = validate_module(module, site_env, bind_root_keys,
-                                  namespace if isinstance(namespace, str) else "__policy__")
+                                  namespace if isinstance(namespace, str) else None)
         if "image_namespace" in metadata:
             image = next(iter(compose["services"].values()))["image"].split("@", 1)[0]
             if not image.startswith(f"{namespace}/"):

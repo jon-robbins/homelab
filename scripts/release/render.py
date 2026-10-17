@@ -150,7 +150,9 @@ def render(platform: Path, site: Path, plugins: dict[str, Path]) -> Rendered:
         module = matches[0]
         tier = module.parent.name
         tiers[name] = tier
-        validate_module(module, site_env, document["bind_roots"])
+        metadata = yaml.safe_load((owner / "homelab-plugin.yaml").read_bytes()) if source_name else {}
+        namespace = metadata.get("image_namespace") if isinstance(metadata, dict) else None
+        validate_module(module, site_env, document["bind_roots"], namespace if isinstance(namespace, str) else None)
         selected.append((name, module, owner))
 
     with tempfile.TemporaryDirectory(prefix="homelab-render-") as directory:

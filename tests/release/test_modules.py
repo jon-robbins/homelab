@@ -38,6 +38,20 @@ def test_module_rejects_broken_contract_rules(tmp_path, kwargs):
         validate_module(write_module(tmp_path, **kwargs), ENV)
 
 
+def test_platform_image_outside_policy_is_rejected(tmp_path):
+    path = write_module(tmp_path, image="docker.io/example/app@sha256:" + "a" * 64)
+    with pytest.raises(ValidationError, match="image namespace is not permitted"):
+        validate_module(path, ENV)
+
+
+def test_plugin_image_namespace_is_allowed(tmp_path):
+    plugin = write_plugin(tmp_path)
+    metadata = plugin / "homelab-plugin.yaml"
+    metadata.write_text(metadata.read_text() + "image_namespace: docker.io/example\n", encoding="utf-8")
+    write_module(plugin, image="docker.io/example/app@sha256:" + "a" * 64)
+    validate_plugin(plugin, ENV)
+
+
 def test_module_rejects_wrong_path(tmp_path):
     path = tmp_path / "wrong.yml"
     document = {"services": {"wrong": {

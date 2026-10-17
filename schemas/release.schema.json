@@ -30,8 +30,7 @@
       "additionalProperties": { "$ref": "#/$defs/gitSha" },
       "properties": {
         "homelab": { "$ref": "#/$defs/gitSha" },
-        "homelab-site": { "$ref": "#/$defs/gitSha" },
-        "tracker-integrations": { "$ref": "#/$defs/gitSha" }
+        "homelab-site": { "$ref": "#/$defs/gitSha" }
       },
       "required": ["homelab", "homelab-site"]
     }

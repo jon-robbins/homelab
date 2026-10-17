@@ -11,7 +11,7 @@ from scripts.release.contracts import ValidationError
 from scripts.release.render import render
 
 
-IMAGE = "example/test@sha256:" + "a" * 64
+IMAGE = "traefik/whoami@sha256:" + "a" * 64
 ROOT = Path(__file__).parents[2]
 
 
