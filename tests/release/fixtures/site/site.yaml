@@ -1,0 +1,9 @@
+# Test site for the policy and render tests: a production-shaped layout (data under /srv/homelab, two media disks,
+# Plex's symlink tree). Tests read their environment and bind roots from here instead of hardcoding them.
+contract: 1
+site_id: test-site
+bind_roots: [APP_DATA_DIR, MEDIA_HDD_PATH, MEDIA_NVME_PATH, MEDIA_PLEX_PATH]
+marker_roots: [MEDIA_HDD_PATH, MEDIA_NVME_PATH]
+plugins: {}
+services: {}
+managed: []
