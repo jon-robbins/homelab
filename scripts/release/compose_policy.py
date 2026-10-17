@@ -117,12 +117,12 @@ def check_policy(
         if not os.path.isabs(root):
             errors.append(ValidationError(f"$.site_env.{key}", "bind root must be absolute"))
         else:
-            allowed_exception = _policy_literal_under(root, "/srv/homelab/data")
-            if not allowed_exception:
-                for protected in _POLICY_PROTECTED:
-                    if _policy_overlap(root, protected) or _policy_overlap(os.path.realpath(root), os.path.realpath(protected)):
-                        errors.append(ValidationError(f"$.site_env.{key}", f"bind root overlaps protected path {protected}"))
-                        break
+            for protected in _POLICY_PROTECTED:
+                if protected == "/srv/homelab" and _policy_literal_under(root, "/srv/homelab/data"):
+                    continue
+                if _policy_overlap(root, protected) or _policy_overlap(os.path.realpath(root), os.path.realpath(protected)):
+                    errors.append(ValidationError(f"$.site_env.{key}", f"bind root overlaps protected path {protected}"))
+                    break
 
     services = model.get("services", {})
     if isinstance(services, Mapping):

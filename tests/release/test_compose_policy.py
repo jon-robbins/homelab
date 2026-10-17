@@ -139,6 +139,22 @@ def test_check_policy_checks_literal_root_before_symlink_resolution(monkeypatch)
         check_policy({"services": {}}, tiers={}, site_env={"APP_DATA_DIR": "/srv"}, bind_root_keys=["APP_DATA_DIR"])
 
 
+def test_check_policy_rejects_data_root_resolving_into_vpn(monkeypatch):
+    realpath = os.path.realpath
+    monkeypatch.setattr(
+        os.path,
+        "realpath",
+        lambda path: "/srv/vpn" if path == "/srv/homelab/data/vpn-link" else realpath(path),
+    )
+    with pytest.raises(ValidationErrors, match="/srv/vpn"):
+        check_policy(
+            {"services": {}},
+            tiers={},
+            site_env={"APP_DATA_DIR": "/srv/homelab/data/vpn-link"},
+            bind_root_keys=["APP_DATA_DIR"],
+        )
+
+
 def test_check_policy_reports_every_violation():
     model = {"services": {"app": {"privileged": True, "runtime": "kata"}}}
     with pytest.raises(ValidationErrors) as exc:
