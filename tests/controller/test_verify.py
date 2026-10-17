@@ -21,9 +21,9 @@ def setup_record(tmp_path):
     record_dir = feed / "records" / "1"
     record_dir.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "bundle-source"
-    (source / "files").mkdir(parents=True, exist_ok=True)
-    for name in ("applications.json", "compose.yaml", "probe-targets.json"):
-        (source / name).write_bytes(b"{}")
+    source.mkdir(parents=True, exist_ok=True)
+    for name in ("app.json", "edge.json", "site.yaml"):  # the v2 bundle layout
+        (source / name).write_text("{}")
     bundle = build(source)
     record = json.loads((FIXTURES / "record.json").read_text())
     record["bundle_sha256"] = bundle_sha256(bundle)

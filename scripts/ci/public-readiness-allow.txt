@@ -1,7 +1,6 @@
 # Reviewed false positives: one tracked path and one rule per line.
 scripts/ci/public-readiness.py private-network # Scanner documentation networks and private ranges are regex fixtures.
 scripts/ci/public-readiness.py token-shaped # Scanner regex definitions contain token-shaped examples by design.
-scripts/release/compile.py token-shaped # Compose variable parser regex is not a credential.
 tests/private_markers.py token-shaped # Marker test data is deliberately synthetic.
 tests/runtime/test_seerr_download_path_health.sh token-shaped # Test credential is deliberately synthetic.
 tests/ci/test_public_readiness.py private-network # Test inputs intentionally exercise private-network detection.

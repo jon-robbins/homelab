@@ -19,9 +19,9 @@ def _run(*command):
 
 def _bundle(tmp_path, name="source"):
     source = tmp_path / name
-    (source / "files").mkdir(parents=True)
-    for filename in ("applications.json", "compose.yaml", "probe-targets.json"):
-        (source / filename).write_bytes(b"{}")
+    source.mkdir(parents=True, exist_ok=True)
+    for name in ("app.json", "edge.json", "site.yaml"):  # the v2 bundle layout
+        (source / name).write_text("{}")
     return build(source)
 
 
@@ -87,7 +87,7 @@ def test_fetch_newest_rejects_v1_bundle(feed_repo):
     legacy = old_bundle.getvalue()
     _publish(worktree, bare, 4, legacy)
 
-    with pytest.raises(ValueError, match="unexpected archive member"):
+    with pytest.raises(ValueError, match="bundle members must be app.json, edge.json, site.yaml"):
         fetch_newest(3, policy)
 
 
@@ -123,16 +123,14 @@ def test_materialize_publishes_read_only_release(tmp_path, feed_repo):
 
     assert destination.is_dir()
     assert destination.stat().st_mode & 0o777 == 0o555
-    assert (destination / "applications.json").stat().st_mode & 0o777 == 0o444
+    assert (destination / "app.json").stat().st_mode & 0o777 == 0o444
 
 
-def test_materialize_exposes_controller_models_at_release_root(tmp_path):
+def test_materialize_keeps_the_models_at_the_release_root(tmp_path):
     source = tmp_path / "source"
-    (source / "files").mkdir(parents=True)
-    for filename in ("applications.json", "compose.yaml", "probe-targets.json"):
-        (source / filename).write_text("{}")
+    source.mkdir()
     for filename in ("app.json", "edge.json", "site.yaml"):
-        (source / "files" / filename).write_text(filename)
+        (source / filename).write_text(filename)
     candidate = type("Candidate", (), {"sequence": 1, "bundle_bytes": build(source)})()
 
     destination = materialize(candidate, tmp_path / "releases")
