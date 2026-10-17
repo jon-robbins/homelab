@@ -13,6 +13,7 @@ from scripts.controller.admission import load_host_policy
 from scripts.controller.feed import FeedPolicy
 from scripts.controller.planner import plan
 from scripts.controller.reconcile import SubprocessOps, reconcile
+from scripts.controller.shadow import shadow
 from scripts.controller.state import State
 
 
@@ -47,6 +48,10 @@ def _args():
     apply = sub.add_parser("apply")
     apply.add_argument("--edge", action="store_true")
     apply.add_argument("--takeover", action="store_true")
+    shadow_parser = sub.add_parser("shadow")
+    shadow_parser.add_argument("--release", type=Path, required=True)
+    shadow_parser.add_argument("--legacy-data", type=Path, required=True)
+    shadow_parser.add_argument("services", nargs="*")
     return parser.parse_args()
 
 
@@ -93,6 +98,8 @@ def main() -> int:
         return _rollback(args, SubprocessOps())
     if args.command == "apply":
         return _apply_edge(args, SubprocessOps()) if args.edge else 0
+    if args.command == "shadow":
+        return shadow(args.release, args.legacy_data, args.services)
     state = State(args.state)
     if args.command == "ack":
         state.remove("DEGRADED")
