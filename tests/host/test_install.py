@@ -73,6 +73,19 @@ def test_preserves_previous_tooling_tree(tmp_path: Path):
     assert os.readlink(tooling / "previous") == "old"
 
 
+def test_preserves_previous_target_after_upgrade(tmp_path: Path):
+    assert run(tmp_path).returncode == 0
+    tooling = tmp_path / "srv/homelab/tooling"
+    (tooling / "A").mkdir()
+    (tooling / "B").mkdir()
+    (tooling / "current").unlink()
+    (tooling / "current").symlink_to("B")
+    (tooling / "previous").symlink_to("A")
+    assert run(tmp_path).returncode == 0
+    assert (tooling / "A").is_dir() and (tooling / "B").is_dir()
+    assert os.readlink(tooling / "previous") == "B"
+
+
 def test_host_files_dropin_and_no_infisical_unit(tmp_path: Path):
     assert run(tmp_path).returncode == 0
     assert (tmp_path / "etc/systemd/system/docker.service.d/10-homelab.conf").read_text() == "[Unit]\nAfter=tailscaled.service\n"

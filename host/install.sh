@@ -72,8 +72,8 @@ done
 
 old=
 if [[ -L $h/tooling/current ]]; then old=$(readlink "$h/tooling/current"); fi
-previous=
-if [[ -L $h/tooling/previous ]]; then previous=$(readlink "$h/tooling/previous"); fi
+previous_target=
+if [[ -L $h/tooling/previous ]]; then previous_target=$(readlink "$h/tooling/previous"); fi
 new_state=0
 [[ -e $h/state ]] || new_state=1
 changed=0
@@ -92,7 +92,7 @@ if [[ ! -e $t ]]; then
 fi
 if [[ -n $old && $old != "$sha" ]]; then ln -sfn "$old" "$h/tooling/previous"; fi
 ln -sfn "$sha" "$h/tooling/current"
-find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$old" ! -name "$previous" -exec rm -rf -- {} +
+find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$old" ! -name "$previous_target" -exec rm -rf -- {} +
 if (( new_state )); then touch "$h/state/observe-only"; changed=1; fi
 
 for pair in "${files[@]}"; do
