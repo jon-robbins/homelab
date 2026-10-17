@@ -90,8 +90,8 @@ def plan(release_dir: Path | str, adapter: DockerAdapter,
             (create_stopped if state == "stopped" else recreate).append(service)
 
     for service in sorted(edge_services):
-        desired = adapter.config_hash(root, "homelab", service)
-        current = adapter.container("homelab", service)
+        desired = adapter.config_hash(root, "homelab-edge", service)
+        current = adapter.container("homelab-edge", service)
         if current is None or desired != current.config_hash:
             notices.append(f"edge change pending: {service}")
 

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.controller.planner import ContainerView, Plan, compose_commands, plan
 
 
@@ -12,10 +14,10 @@ class Adapter:
         self.version = version
 
     def config_hash(self, release_dir, project, service):
-        return self.hashes[service]
+        return self.hashes[(project, service)]
 
     def container(self, project, service):
-        return self.containers.get(service)
+        return self.containers.get((project, service))
 
     def compose_version(self):
         return self.version
@@ -30,26 +32,70 @@ def release(tmp_path: Path, app, edge, site):
     (tmp_path / "site.yaml").write_text(site)
 
 
-def test_plans_managed_changes_and_read_only_checks(tmp_path):
-    release(tmp_path, {
-        "new": {"volumes": [{"type": "bind", "source": "/media/.homelab-mounted"}]},
-        "stopped": {}, "same": {}, "owned": {}, "broken": {}, "unmanaged": {},
-    }, {"proxy": {}}, "managed: [new, stopped, same, owned, broken]\nservices:\n  stopped: {state: stopped}\n")
-    adapter = Adapter(
-        {"new": "new", "stopped": "stopped-new", "same": "same", "owned": "owned",
-         "broken": "broken-new", "proxy": "edge-new"},
-        {"stopped": ContainerView("old", "running", ""), "same": ContainerView("same", "running", ""),
-         "owned": ContainerView("owned", "exited", ""), "broken": ContainerView("old", "exited", "boom"),
-         "proxy": ContainerView("old", "running", "")},
-        exists=())
-    assert plan(tmp_path, adapter, None) == Plan(
-        ("new",), ("stopped",), ("stopped by owner: owned", "edge change pending: proxy"),
-        ("media disk missing: /media/.homelab-mounted", "broken failed to start: boom"), None)
+@pytest.mark.parametrize(
+    "app,edge,site,hashes,containers,exists,recorded,version,expected",
+    [
+        pytest.param(
+            {"changed": {}, "missing": {}}, {},
+            "managed: [changed, missing]\nservices:\n  missing: {state: stopped}\n",
+            {("homelab", "changed"): "new", ("homelab", "missing"): "new"},
+            {("homelab", "changed"): ContainerView("old", "running", "")},
+            (), None, "2", Plan(("changed",), ("missing",), (), (), None),
+            id="managed changed-or-missing recreates-or-creates-stopped",
+        ),
+        pytest.param(
+            {"same": {}}, {}, "managed: [same]\nservices: {}\n",
+            {("homelab", "same"): "same"},
+            {("homelab", "same"): ContainerView("same", "running", "")},
+            (), None, "2", Plan((), (), (), (), None),
+            id="matching-hash does-nothing",
+        ),
+        pytest.param(
+            {"unmanaged": {}}, {"proxy": {}}, "managed: []\nservices: {}\n",
+            {("homelab-edge", "proxy"): "new"},
+            {("homelab-edge", "proxy"): ContainerView("old", "running", "")},
+            (), None, "2", Plan((), (), ("edge change pending: proxy",), (), None),
+            id="unmanaged-and-edge-are-not-recreated",
+        ),
+        pytest.param(
+            {"owned": {}}, {}, "managed: [owned]\nservices: {}\n",
+            {("homelab", "owned"): "new"},
+            {("homelab", "owned"): ContainerView("old", "exited", "")},
+            (), None, "2", Plan((), (), ("stopped by owner: owned",), (), None),
+            id="owner-stopped-service-is-not-recreated",
+        ),
+        pytest.param(
+            {"broken": {}}, {}, "managed: [broken]\nservices: {}\n",
+            {("homelab", "broken"): "new"},
+            {("homelab", "broken"): ContainerView("old", "running", "boom")},
+            (), None, "2", Plan((), (), (), ("broken failed to start: boom",), None),
+            id="start-error-is-a-failure",
+        ),
+        pytest.param(
+            {"marked": {"volumes": [{"type": "bind", "source": "/media/.homelab-mounted"}]}},
+            {}, "managed: []\nservices: {}\n", {}, {}, (), None, "2",
+            Plan((), (), (), ("media disk missing: /media/.homelab-mounted",), None),
+            id="missing-marker-is-a-failure",
+        ),
+        pytest.param(
+            {"app": {}}, {}, "managed: [app]\nservices: {}\n",
+            {("homelab", "app"): "new"},
+            {("homelab", "app"): ContainerView("old", "running", "")},
+            (), "2", "3", Plan(("app",), (), (), (),
+                                  "Compose changed: check homelabctl status, then reconcile --now"),
+            id="compose-version-hold-keeps-plan",
+        ),
+    ],
+)
+def test_planning_rules(tmp_path, app, edge, site, hashes, containers, exists,
+                       recorded, version, expected):
+    release(tmp_path, app, edge, site)
+    assert plan(tmp_path, Adapter(hashes, containers, exists, version), recorded) == expected
 
 
 def test_compose_version_hold_does_not_suppress_plan(tmp_path):
     release(tmp_path, {"app": {}}, {}, "managed: [app]\nservices: {}\n")
-    result = plan(tmp_path, Adapter({"app": "new"}, {}, version="3"), "2")
+    result = plan(tmp_path, Adapter({("homelab", "app"): "new"}, {}, version="3"), "2")
     assert result.recreate == ("app",)
     assert result.hold == "Compose changed: check homelabctl status, then reconcile --now"
 
