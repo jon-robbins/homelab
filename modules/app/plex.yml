@@ -1,0 +1,33 @@
+services:
+  plex:
+    image: lscr.io/linuxserver/plex:1.43.3.10828-00f62d37d-ls316@sha256:507713a14f9586f827d00c81381ecdcd438009172342b322b62a0e2b65081fdf
+    networks: [homelab_net]
+    ports: ["32400:32400/tcp"]
+    security_opt: ["no-new-privileges:true"]
+    environment: ["PUID=${PUID}", "PGID=${PGID}", "TZ=${TZ}", "VERSION=docker"]
+    gpus: all
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/plex
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MOVIES_DIR}
+        target: /movies
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${TV_DIR}
+        target: /tv
+        read_only: true
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:32400/identity || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+networks:
+  homelab_net: {external: true}

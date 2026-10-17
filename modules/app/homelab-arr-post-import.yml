@@ -1,0 +1,29 @@
+services:
+  homelab-arr-post-import:
+    image: ghcr.io/jon-robbins/homelab/homelab-workers@sha256:6b5fa615d3fdfcf2f49404ac5683b8d683cabdb442787fc63c2d800bfeefa823
+    entrypoint: ["sh", "-c"]
+    command: ["while true; do qbt-arr-post-import; sleep 300; done"]
+    user: "${PUID}:${PGID}"
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    secrets: [QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD, SONARR_API_KEY, RADARR_API_KEY]
+    environment: ["TZ=${TZ}", "SONARR_INTERNAL_URL=http://sonarr:8989/sonarr", "RADARR_INTERNAL_URL=http://radarr:7878/radarr", "QBITTORRENT_INTERNAL_URL=http://qbittorrent:8080", "ARR_POST_IMPORT_STATE_PATH=/state/arr-post-import-state.json"]
+    volumes:
+      # The site's override adds its staging and library roots (binds at the same paths as qBittorrent's, plus
+      # MEDIA_NVME_PATH/MEDIA_HDD_PATH in the environment): that flow is specific to a two-disk layout.
+      # Legacy data/homelab-mcp/arr-post-import-state.json now lives at ${APP_DATA_DIR}/homelab-arr-post-import/arr-post-import-state.json.
+      - type: bind
+        source: ${APP_DATA_DIR}/homelab-arr-post-import
+        target: /state
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck: {test: ["CMD-SHELL", "pgrep -f qbt-arr-post-import >/dev/null"], interval: 60s, timeout: 10s, retries: 3}
+    restart: unless-stopped
+secrets:
+  QBITTORRENT_USERNAME: {file: "${HOMELAB_SECRET_DIR}/QBITTORRENT_USERNAME"}
+  QBITTORRENT_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/QBITTORRENT_PASSWORD"}
+  SONARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/SONARR_API_KEY"}
+  RADARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/RADARR_API_KEY"}
+networks:
+  homelab_net: {external: true}
