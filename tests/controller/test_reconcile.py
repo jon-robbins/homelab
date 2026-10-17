@@ -36,6 +36,8 @@ class Ops:
         self.calls = []
         self.snapshot_error = None
         self.pull_error = None
+        self.unhealthy = set()
+        self.probe_failed = set()
 
     def reachable(self):
         self.calls.append(("reachable",))
@@ -75,17 +77,17 @@ class Ops:
 
     def healthy(self, service, timeout_s):
         self.calls.append(("healthy", service))
-        return True
+        return service not in self.unhealthy
 
     def probe(self, service):
         self.calls.append(("probe", service))
-        return True
+        return service not in self.probe_failed
 
     def snapshot(self, service, tag):
         self.calls.append(("snapshot", service, tag))
         if self.snapshot_error:
             raise RuntimeError(self.snapshot_error)
-        return "snapshot-id"
+        return f"snapshot-{service}"
 
 
 def release(tmp_path: Path, sequence=7, *, service="svc", state=None):
@@ -94,7 +96,7 @@ def release(tmp_path: Path, sequence=7, *, service="svc", state=None):
     root.mkdir()
     definition = {"image": "example/svc@sha256:" + "a" * 64}
     if state:
-        definition["homelab.state"] = state
+        definition["labels"] = {"homelab.state": state}
     (root / "app.json").write_text(json.dumps({"services": {service: definition}}))
     (root / "edge.json").write_text(json.dumps({"services": {}}))
     (root / "site.yaml").write_text(f"managed: [{service}]\nservices: {{}}\n")
@@ -188,6 +190,21 @@ def test_preapply_failures_keep_highwater_and_fail_on_third(tmp_path, monkeypatc
     assert pinger.calls[-1][0] == "fail"
 
 
+def test_materialization_failure_retries_and_disk_cause_fails_ping(tmp_path, monkeypatch):
+    ops = Ops(free=5)
+    state, _, _ = prepared(monkeypatch, tmp_path, ops)
+    def fail_materialize(*args):
+        raise RuntimeError("bad bundle")
+    monkeypatch.setattr(controller, "materialize", fail_materialize)
+    pinger = Pinger()
+
+    assert "pre-apply failed 1×: bad bundle" == controller.reconcile(
+        state, object(), tmp_path / "releases", ops, pinger, now=False)
+    assert state.highwater() == 0
+    assert state.read("DEGRADED") is None
+    assert pinger.calls[-1] == ("fail", "low free space on /; low free space on /mnt/media-hdd")
+
+
 def test_snapshot_error_starts_service_again(tmp_path, monkeypatch):
     ops = Ops(services=set())
     ops.snapshot_error = "backup failed"
@@ -209,6 +226,36 @@ def test_pass_records_pointers_highwater_and_compose_version(tmp_path, monkeypat
     assert state.read("compose-version").strip() == "new"
     assert state.read("applying") is None
     assert ("run",) == tuple(call[:1] for call in ops.calls if call[0] == "run")[0]
+
+
+def test_probe_label_is_checked(tmp_path, monkeypatch):
+    ops = Ops()
+    state, root, _ = prepared(monkeypatch, tmp_path, ops)
+    app = json.loads((root / "app.json").read_text())
+    app["services"]["svc"]["labels"] = {"homelab.probe": "http://:8080/ready"}
+    (root / "app.json").write_text(json.dumps(app))
+    ops.probe_failed.add("svc")
+
+    controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert ("probe", "svc") in ops.calls
+    assert "svc failed probe" in state.read("DEGRADED")
+
+
+def test_second_service_failure_records_its_snapshot(tmp_path, monkeypatch):
+    ops = Ops()
+    state, root, candidate = prepared(monkeypatch, tmp_path, ops, release_state="stateful")
+    app = json.loads((root / "app.json").read_text())
+    app["services"]["zeta"] = dict(app["services"]["svc"])
+    (root / "app.json").write_text(json.dumps(app))
+    (root / "site.yaml").write_text("managed: [svc, zeta]\nservices: {}\n")
+    ops.unhealthy.add("zeta")
+
+    controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert state.highwater() == candidate.sequence
+    assert "service: zeta\nsnapshot: snapshot-zeta" in state.read("DEGRADED")
+    assert "homelabctl rollback zeta" in state.read("DEGRADED")
 
 
 def test_verify_failure_degrades_and_advances_highwater(tmp_path, monkeypatch):
@@ -259,3 +306,49 @@ def test_subprocess_ops_reads_docker_state(monkeypatch, tmp_path):
     assert ops.config_hash(tmp_path, "homelab", "svc") == "hash"
     view = ops.container("homelab", "svc")
     assert view == ContainerView("hash", "running", "", "sha256:" + "b" * 64, "healthy")
+
+
+def test_subprocess_ops_uses_compose_container_for_stop_and_start(monkeypatch):
+    calls = []
+    monkeypatch.setattr(controller.subprocess, "check_output", lambda *args, **kwargs: "generated-id\n")
+    monkeypatch.setattr(controller.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+    ops = controller.SubprocessOps()
+
+    ops.stop("svc")
+    ops.start("svc")
+
+    assert calls == [["docker", "stop", "generated-id"], ["docker", "start", "generated-id"]]
+
+
+def test_subprocess_ops_waits_for_docker_health(monkeypatch):
+    states = iter([{"Status": "running", "Health": {"Status": "starting"}},
+                   {"Status": "running", "Health": {"Status": "healthy"}}])
+    ops = controller.SubprocessOps()
+    monkeypatch.setattr(ops, "_inspect", lambda service: {"State": next(states)})
+    monkeypatch.setattr(controller.time, "sleep", lambda seconds: None)
+
+    assert ops.healthy("svc", 180)
+    monkeypatch.setattr(ops, "_inspect", lambda service: {"State": {"Status": "running", "Health": {"Status": "unhealthy"}}})
+    ticks = iter([0, 1])
+    monkeypatch.setattr(controller.time, "monotonic", lambda: next(ticks))
+    assert not ops.healthy("svc", 1)
+
+
+def test_subprocess_ops_probes_container_ip(monkeypatch):
+    ops = controller.SubprocessOps()
+    monkeypatch.setattr(ops, "_inspect", lambda service: {
+        "Config": {"Labels": {"homelab.probe": "http://:8080/ready"}},
+        "NetworkSettings": {"Networks": {"default": {"IPAddress": "192.0.2.4"}}},
+    })
+    requests = []
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+
+    monkeypatch.setattr(controller.urllib.request, "urlopen", lambda url, **kwargs: (requests.append(url), Response())[1])
+    assert ops.probe("svc")
+    assert requests == ["http://192.0.2.4:8080/ready"]
+    monkeypatch.setattr(controller.urllib.request, "urlopen", lambda url, **kwargs: (_ for _ in ()).throw(OSError("refused")))
+    assert not ops.probe("svc")
