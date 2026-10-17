@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.release.compose_policy import main, validate_compose_model
+from scripts.release.compose_policy import check_policy, main, validate_compose_model
 from scripts.release.contracts import ValidationError
 
 
@@ -141,3 +141,49 @@ def test_gpus_field_is_rejected(gpu_request):
     model, path = _service("jellyfin", gpus=gpu_request)
     with pytest.raises(ValidationError, match="gpus is not on the GPU allowlist"):
         validate_compose_model(model, module_path=path)
+
+
+V2_ENV = {
+    "APP_DATA_DIR": "/srv/homelab/data",
+    "MEDIA_HDD_PATH": "/mnt/media-hdd",
+    "MEDIA_PLEX_PATH": "/srv/plex",
+    "HOMELAB_SECRET_DIR": "/srv/homelab/data/.secrets",
+}
+V2_ROOTS = ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_PLEX_PATH")
+
+
+def test_check_policy_accepts_rendered_models():
+    model = {
+        "services": {
+            "sonarr": {"cap_drop": ["ALL"], "cap_add": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"], "volumes": [
+                {"type": "bind", "source": "/srv/homelab/data/sonarr", "target": "/config"},
+                {"type": "bind", "source": "/mnt/media-hdd/tv", "target": "/tv"},
+            ]},
+            "jellyfin": {"devices": ["/dev/dri:/dev/dri"], "gpus": "all"},
+            "plex": {"gpus": [{"count": -1, "capabilities": ["gpu"]}], "volumes": [
+                {"type": "bind", "source": "/srv/plex", "target": "/data"},
+            ]},
+            "cloudflared": {"network_mode": "host"},
+            "overseerr": {},
+        },
+        "secrets": {"TMDB_API_KEY": {"file": "/srv/homelab/data/.secrets/TMDB_API_KEY"}},
+    }
+    check_policy(model, tiers={name: "edge" if name == "cloudflared" else "app" for name in model["services"]}, site_env=V2_ENV, bind_root_keys=V2_ROOTS)
+
+
+@pytest.mark.parametrize("model, tiers, env, roots, message", [
+    ({"services": {"app": {"network_mode": "host"}, "cloudflared": {"network_mode": "host"}}}, {"app": "app", "cloudflared": "edge"}, V2_ENV, V2_ROOTS, "host networking"),
+    ({"services": {"app": {"cap_add": ["SYS_ADMIN"]}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "capability"),
+    ({"services": {"app": {"devices": ["/dev/sda"]}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "device"),
+    ({"services": {"app": {"runtime": "kata"}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "runtime"),
+    ({"services": {"app": {"gpus": [{"capabilities": ["compute"]}]}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "GPU capability"),
+    ({"services": {"app": {"gpus": "1"}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "GPU value"),
+    ({"services": {"app": {"volumes": [{"type": "bind", "source": "/etc/x"}]}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "outside declared"),
+    ({"services": {"app": {}}}, {"app": "app"}, {**V2_ENV, "MEDIA_HDD_PATH": "/srv/vpn"}, V2_ROOTS, "protected"),
+    ({"services": {"app": {}}}, {}, V2_ENV, V2_ROOTS, "tier"),
+    ({"services": {"app": {}}, "secrets": {"X": {"file": "/tmp/X"}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "secret"),
+    ({"services": {"app": {"privileged": True}}}, {"app": "app"}, V2_ENV, V2_ROOTS, "privileged"),
+])
+def test_check_policy_rejects_each_v2_violation(model, tiers, env, roots, message):
+    with pytest.raises(ValidationError, match=message):
+        check_policy(model, tiers=tiers, site_env=env, bind_root_keys=roots)

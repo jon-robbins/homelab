@@ -1,3 +1,3 @@
 {
-  "capabilities": ["CHOWN", "SETUID", "SETGID"]
+  "capabilities": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
 }

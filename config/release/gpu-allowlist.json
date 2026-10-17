@@ -1,5 +1,6 @@
 {
   "devices": ["/dev/dri"],
-  "capabilities": ["gpu"],
-  "runtimes": ["nvidia"]
+  "runtimes": ["nvidia"],
+  "drivers": ["nvidia"],
+  "capabilities": ["gpu"]
 }
