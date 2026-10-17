@@ -361,11 +361,11 @@ def test_subprocess_ops_waits_for_docker_health(monkeypatch):
     states = iter([{"Status": "running", "Health": {"Status": "starting"}},
                    {"Status": "running", "Health": {"Status": "healthy"}}])
     ops = controller.SubprocessOps()
-    monkeypatch.setattr(ops, "_inspect", lambda service: {"State": next(states)})
+    monkeypatch.setattr(ops, "_inspect", lambda service, project="homelab": {"State": next(states)})
     monkeypatch.setattr(controller.time, "sleep", lambda seconds: None)
 
     assert ops.healthy("svc", 180)
-    monkeypatch.setattr(ops, "_inspect", lambda service: {"State": {"Status": "running", "Health": {"Status": "unhealthy"}}})
+    monkeypatch.setattr(ops, "_inspect", lambda service, project="homelab": {"State": {"Status": "running", "Health": {"Status": "unhealthy"}}})
     ticks = iter([0, 1])
     monkeypatch.setattr(controller.time, "monotonic", lambda: next(ticks))
     assert not ops.healthy("svc", 1)
@@ -373,7 +373,7 @@ def test_subprocess_ops_waits_for_docker_health(monkeypatch):
 
 def test_subprocess_ops_probes_container_ip(monkeypatch):
     ops = controller.SubprocessOps()
-    monkeypatch.setattr(ops, "_inspect", lambda service: {
+    monkeypatch.setattr(ops, "_inspect", lambda service, project="homelab": {
         "Config": {"Labels": {"homelab.probe": "http://:8080/ready"}},
         "NetworkSettings": {"Networks": {"default": {"IPAddress": "192.0.2.4"}}},
     })
