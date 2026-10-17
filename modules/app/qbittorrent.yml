@@ -32,6 +32,10 @@ services:
         source: ${MEDIA_HDD_PATH}/.seed/Seeding
         target: /seeding
         bind: {create_host_path: false}
+    configs:
+      - source: qbittorrent-dispatcher
+        target: /scripts/dispatcher.sh
+        mode: 0555
     labels: {homelab.state: stateful}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
@@ -40,5 +44,8 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+configs:
+  qbittorrent-dispatcher:
+    file: config/qbittorrent/dispatcher.sh
 networks:
   homelab_net: {external: true}

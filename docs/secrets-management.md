@@ -12,12 +12,15 @@ secret path. Secret rotation policy and a signed release feed are **Planned**.
 See [configuration](configuration.md) and [threat model](architecture/threat-model.md).
 
 
-## Infisical Agent (current, optional)
+## v2 secret-file flow
 
-**Status: Current.** If you use Infisical, its agent renders each secret to its own file and Compose mounts those
-files:
+**Status: Current.** Populate a private directory with one file per managed
+secret, then set `HOMELAB_SECRET_DIR` to that directory when rendering the
+modules. Compose mounts the files directly into the services that declare
+them; values are never placed in `.env.example`, documentation, or Compose
+environment entries.
 
-- `config/infisical/agent-config.yaml.example`: template; copy it and set your project, identity and output paths.
-- The site supplies file-backed secret paths through `HOMELAB_SECRET_DIR`.
-- Modules declare their secret names and the renderer preserves those file
-  references without inlining values.
+The required filenames are the secret names declared by the modules, such as
+`TMDB_API_KEY`, `QBITTORRENT_PASSWORD`, and `SONARR_API_KEY`. A private secret
+manager may render or refresh those files; the public repository does not
+prescribe its credentials, agent configuration, or host integration.
