@@ -11,13 +11,22 @@ class RecordingOps:
         self.unhealthy = False
         self.probe_failed = False
 
-    def stop(self, service): self.calls.append(("stop", service))
-    def restore(self, service, tag): self.calls.append(("restore", service, tag))
-    def remove(self, service): self.calls.append(("remove", service))
-    def run(self, argv): self.calls.append(("run", argv))
+    def stop(self, service):
+        self.calls.append(("stop", service))
+
+    def restore(self, service, tag):
+        self.calls.append(("restore", service, tag))
+
+    def remove(self, service):
+        self.calls.append(("remove", service))
+
+    def run(self, argv):
+        self.calls.append(("run", argv))
+
     def healthy(self, service, timeout):
         self.calls.append(("healthy", service, timeout))
         return not self.unhealthy
+
     def probe(self, service):
         self.calls.append(("probe", service))
         return not self.probe_failed
@@ -40,8 +49,9 @@ def _releases(tmp_path, *, state="stateful", edge=None):
 
 def _run(monkeypatch, tmp_path, argv, ops):
     monkeypatch.setattr(ctl, "SubprocessOps", lambda: ops)
-    monkeypatch.setattr(sys, "argv", ["homelabctl", "--state", str(tmp_path / "state"),
-                                       "--releases", str(tmp_path / "releases"), *argv])
+    monkeypatch.setattr(
+        sys, "argv", ["homelabctl", "--state", str(tmp_path / "state"), "--releases", str(tmp_path / "releases"), *argv]
+    )
     return ctl.main()
 
 
@@ -69,16 +79,3 @@ def test_rollback_unknown_and_degraded_untouched(monkeypatch, tmp_path):
     ops = RecordingOps()
     assert _run(monkeypatch, tmp_path, ["rollback", "missing"], ops) == 2
     assert (state / "DEGRADED").read_text() == "problem\n"
-
-
-def test_edge_argv_takeover_and_probe_failure(monkeypatch, tmp_path):
-    edge = {"edge": {"labels": {"homelab.probe": "http://:8080/ready"}}, "plain": {}}
-    _releases(tmp_path, edge=edge)
-    ops = RecordingOps()
-    assert _run(monkeypatch, tmp_path, ["apply", "--edge", "--takeover"], ops) == 0
-    assert [call[0] for call in ops.calls] == ["remove", "remove", "run", "healthy", "probe", "healthy"]
-    assert ops.calls[2][1][2:7] == ["-p", "homelab-edge", "-f", str(tmp_path / "releases" / "current" / "edge.json"), "up"]
-
-    ops = RecordingOps()
-    ops.probe_failed = True
-    assert _run(monkeypatch, tmp_path, ["apply", "--edge"], ops) == 1

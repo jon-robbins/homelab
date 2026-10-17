@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.controller.shadow import shadow
+from scripts.migration.shadow import shadow
 
 
 FIXTURE = Path(__file__).parent / "fixtures/shadow/base.json"
@@ -33,13 +33,17 @@ def release(tmp_path):
         (tmp_path / f"{name}.json").write_text(json.dumps({"services": {"svc": service} if name == "app" else {}}))
 
 
-@pytest.mark.parametrize("change, text", [
-    (lambda x: x, "svc: clean"),
-    (lambda x: x["HostConfig"].pop("DeviceRequests"), "HostConfig.DeviceRequests"),
-    (lambda x: x["HostConfig"]["CapAdd"].pop(), "HostConfig.CapAdd"),
-    (lambda x: x["Config"]["Env"].__setitem__(0, "TOKEN=other"), "Config.Env.TOKEN"),
-    (lambda x: x["Mounts"].__setitem__(0, {**x["Mounts"][0], "Source": "/srv/homelab/data/x"}), "svc: clean"),
-], ids=["identical", "device-request", "capability", "environment", "legacy-bind"])
+@pytest.mark.parametrize(
+    "change, text",
+    [
+        (lambda x: x, "svc: clean"),
+        (lambda x: x["HostConfig"].pop("DeviceRequests"), "HostConfig.DeviceRequests"),
+        (lambda x: x["HostConfig"]["CapAdd"].pop(), "HostConfig.CapAdd"),
+        (lambda x: x["Config"]["Env"].__setitem__(0, "TOKEN=other"), "Config.Env.TOKEN"),
+        (lambda x: x["Mounts"].__setitem__(0, {**x["Mounts"][0], "Source": "/srv/homelab/data/x"}), "svc: clean"),
+    ],
+    ids=["identical", "device-request", "capability", "environment", "legacy-bind"],
+)
 def test_shadow_diffs_normalized_inspects(tmp_path, capsys, change, text):
     release(tmp_path)
     running = json.loads(FIXTURE.read_text())
@@ -76,7 +80,8 @@ def test_works_with_a_read_only_release_dir(tmp_path):
 
 
 def test_docker_ids_include_created_containers(monkeypatch):
-    import scripts.controller.shadow as module
+    import scripts.migration.shadow as module
+
     seen = []
     monkeypatch.setattr(module.subprocess, "check_output", lambda args, **kw: seen.append(args) or "abc\n")
     assert module.Docker().ids("homelab-shadow", "svc") == ["abc"]

@@ -33,14 +33,23 @@ def setup_record(tmp_path):
     return record_dir, policy(root, feed)
 
 
-@pytest.mark.parametrize("change", [
-    lambda p: {**p, "extra": True},
-    lambda p: {key: value for key, value in p.items() if key != "site_id"},
-    lambda p: {**p, "schema": 2},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda p: {**p, "extra": True},
+        lambda p: {key: value for key, value in p.items() if key != "site_id"},
+        lambda p: {**p, "schema": 2},
+    ],
+)
 def test_policy_is_closed_and_versioned(tmp_path, change):
-    data = {"schema": 1, "site_id": "test-site", "signer_identity": "identity",
-            "oidc_issuer": "issuer", "trusted_root": "/root", "feed_directory": "/feed"}
+    data = {
+        "schema": 1,
+        "site_id": "test-site",
+        "signer_identity": "identity",
+        "oidc_issuer": "issuer",
+        "trusted_root": "/root",
+        "feed_directory": "/feed",
+    }
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(change(data)))
     with pytest.raises(ValueError):
@@ -49,9 +58,11 @@ def test_policy_is_closed_and_versioned(tmp_path, change):
 
 def test_policy_rejects_duplicate_schema_key(tmp_path):
     path = tmp_path / "policy.json"
-    path.write_text('{"schema":2,"schema":1,"site_id":"test-site",'
-                    '"signer_identity":"identity","oidc_issuer":"issuer",'
-                    '"trusted_root":"/root","feed_directory":"/feed"}')
+    path.write_text(
+        '{"schema":2,"schema":1,"site_id":"test-site",'
+        '"signer_identity":"identity","oidc_issuer":"issuer",'
+        '"trusted_root":"/root","feed_directory":"/feed"}'
+    )
     with pytest.raises(ValueError, match="invalid host policy") as error:
         load_host_policy(path)
     assert "duplicate object key" in str(error.value.__cause__)
@@ -66,16 +77,30 @@ def test_signature_rejections_write_nothing(tmp_path, failure):
     if failure == "missing":
         (record_dir / "record.sigstore.json").unlink()
     if failure == "identity":
-        configured = HostPolicy(configured.site_id, "wrong-identity", configured.oidc_issuer,
-                                configured.trusted_root, configured.feed_directory)
+        configured = HostPolicy(
+            configured.site_id,
+            "wrong-identity",
+            configured.oidc_issuer,
+            configured.trusted_root,
+            configured.feed_directory,
+        )
     if failure == "issuer":
-        configured = HostPolicy(configured.site_id, configured.signer_identity, "wrong-issuer",
-                                configured.trusted_root, configured.feed_directory)
+        configured = HostPolicy(
+            configured.site_id,
+            configured.signer_identity,
+            "wrong-issuer",
+            configured.trusted_root,
+            configured.feed_directory,
+        )
 
     def verifier(record, bundle, *, identity, issuer, offline, trusted_root):
         assert offline and trusted_root == configured.trusted_root
         assert bundle.is_file()
-        if identity != "identity" or issuer != "issuer" or record.read_bytes() != (record_dir / "record.json").read_bytes():
+        if (
+            identity != "identity"
+            or issuer != "issuer"
+            or record.read_bytes() != (record_dir / "record.json").read_bytes()
+        ):
             raise ValueError("signature rejected")
 
     with pytest.raises((ValueError, OSError)):
@@ -122,8 +147,11 @@ def test_file_replacement_during_verification_uses_snapshot(tmp_path):
 
     value, raw, signature, digest = verify_record(record_dir, configured, verifier)
     assert value["site_id"] == "test-site"
-    assert (raw, signature, digest) == (original_record, original_signature,
-                                        hashlib.sha256(original_record).hexdigest())
+    assert (raw, signature, digest) == (
+        original_record,
+        original_signature,
+        hashlib.sha256(original_record).hexdigest(),
+    )
     assert not any(path.exists() for path in snapshot_paths)
 
 
@@ -131,9 +159,17 @@ def test_site_mismatch_is_rejected_after_verification(tmp_path):
     record_dir, configured = setup_record(tmp_path)
     calls = []
     with pytest.raises(ValueError, match="site_id"):
-        verify_record(record_dir, HostPolicy("other", configured.signer_identity,
-                      configured.oidc_issuer, configured.trusted_root, configured.feed_directory),
-                      lambda *args, **kwargs: calls.append(True))
+        verify_record(
+            record_dir,
+            HostPolicy(
+                "other",
+                configured.signer_identity,
+                configured.oidc_issuer,
+                configured.trusted_root,
+                configured.feed_directory,
+            ),
+            lambda *args, **kwargs: calls.append(True),
+        )
     assert calls == [True]
 
 

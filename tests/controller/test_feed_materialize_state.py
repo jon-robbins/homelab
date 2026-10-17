@@ -41,9 +41,7 @@ def _record(sequence, bundle):
 def _publish(worktree, bare, sequence, bundle, record=None):
     directory = worktree / "records" / str(sequence)
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "record.json").write_text(
-        json.dumps(record or _record(sequence, bundle), separators=(",", ":"))
-    )
+    (directory / "record.json").write_text(json.dumps(record or _record(sequence, bundle), separators=(",", ":")))
     (directory / "record.sigstore.json").write_bytes(b"test signature")
     (directory / "bundle.tar").write_bytes(bundle)
     _run("git", "-C", str(worktree), "add", "records")

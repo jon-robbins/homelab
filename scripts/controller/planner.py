@@ -15,16 +15,12 @@ class ContainerView:
     config_hash: str | None
     status: str
     error: str
-    image_digest: str | None = None
-    health: str = "none"
 
 
 class DockerAdapter(Protocol):
     def config_hash(self, release_dir: Path | str, project: str, service: str) -> str: ...
 
     def container(self, project: str, service: str) -> ContainerView | None: ...
-
-    def compose_version(self) -> str: ...
 
     def path_exists(self, path: Path | str) -> bool: ...
 
@@ -35,81 +31,55 @@ class Plan:
     create_stopped: tuple[str, ...]
     notices: tuple[str, ...]
     failures: tuple[str, ...]
-    hold: str | None
 
 
 def _document(path: Path) -> Mapping[str, object]:
-    if path.suffix == ".yaml":
-        value = yaml.safe_load(path.read_bytes())
-    else:
-        value = json.loads(path.read_bytes())
-    return value
+    return yaml.safe_load(path.read_bytes()) if path.suffix == ".yaml" else json.loads(path.read_bytes())
 
 
 def _marker_paths(model: Mapping[str, object]) -> tuple[str, ...]:
-    paths: set[str] = set()
-    services = model.get("services", {})
-    for service in services.values():
-        for volume in service.get("volumes", ()):
-            if isinstance(volume, Mapping) and volume.get("type") == "bind":
-                source = volume.get("source")
-                if isinstance(source, str) and source.endswith("/.homelab-mounted"):
-                    paths.add(source)
-    return tuple(sorted(paths))
+    sources = {
+        volume.get("source")
+        for service in model.get("services", {}).values()
+        for volume in service.get("volumes", ())
+        if isinstance(volume, Mapping) and volume.get("type") == "bind"
+    }
+    return tuple(sorted(s for s in sources if isinstance(s, str) and s.endswith("/.homelab-mounted")))
 
 
-def plan(release_dir: Path | str, adapter: DockerAdapter,
-         recorded_compose_version: str | None) -> Plan:
+def plan(release_dir: Path | str, adapter: DockerAdapter) -> Plan:
     root = Path(release_dir)
-    app = _document(root / "app.json")
-    edge = _document(root / "edge.json")
-    site = _document(root / "site.yaml")
-    app_services = app.get("services", {})
-    edge_services = edge.get("services", {})
+    app, edge, site = (_document(root / name) for name in ("app.json", "edge.json", "site.yaml"))
     managed = set(site.get("managed", ()))
     site_services = site.get("services", {})
 
-    failures = [f"media disk missing: {path}" for path in _marker_paths(app)
-                if not adapter.path_exists(path)]
+    failures = [f"media disk missing: {path}" for path in _marker_paths(app) if not adapter.path_exists(path)]
     recreate: list[str] = []
     create_stopped: list[str] = []
     notices: list[str] = []
 
-    for service in sorted(app_services):
-        if service not in managed:
-            continue
+    for service in sorted(set(app.get("services", {})) & managed):
         desired = adapter.config_hash(root, "homelab", service)
         current = adapter.container("homelab", service)
         state = site_services.get(service, {}).get("state", "running")
         if current is not None and current.error:
             failures.append(f"{service} failed to start: {current.error}")
-            continue
-        if current is not None and current.status == "exited" and state == "running":
+        elif current is not None and current.status == "exited" and state == "running":
             notices.append(f"stopped by owner: {service}")
-            continue
-        changed = current is None or desired != current.config_hash
-        if changed:
+        elif current is None or desired != current.config_hash:
             (create_stopped if state == "stopped" else recreate).append(service)
 
-    for service in sorted(edge_services):
-        desired = adapter.config_hash(root, "homelab-edge", service)
+    for service in sorted(edge.get("services", {})):
         current = adapter.container("homelab-edge", service)
-        if current is None or desired != current.config_hash:
+        if current is None or adapter.config_hash(root, "homelab-edge", service) != current.config_hash:
             notices.append(f"edge change pending: {service}")
 
-    hold = None
-    if recorded_compose_version is not None and adapter.compose_version() != recorded_compose_version:
-        hold = "Compose changed: check homelabctl status, then reconcile --now"
-    return Plan(tuple(recreate), tuple(create_stopped), tuple(notices), tuple(failures), hold)
+    return Plan(tuple(recreate), tuple(create_stopped), tuple(notices), tuple(failures))
 
 
 def compose_commands(p: Plan, release_dir: Path | str) -> list[list[str]]:
-    compose = str(Path(release_dir) / "app.json")
-    commands: list[list[str]] = []
-    if p.recreate:
-        commands.append(["docker", "compose", "-p", "homelab", "-f", compose, "up", "-d",
-                         "--no-deps", "--no-build", "--pull", "never", *p.recreate])
+    compose = ["docker", "compose", "-p", "homelab", "-f", str(Path(release_dir) / "app.json")]
+    commands = [[*compose, "up", "-d", "--no-deps", "--no-build", "--pull", "never", *p.recreate]] if p.recreate else []
     if p.create_stopped:
-        commands.append(["docker", "compose", "-p", "homelab", "-f", compose, "up",
-                         "--no-deps", "--no-start", *p.create_stopped])
+        commands.append([*compose, "up", "--no-deps", "--no-start", *p.create_stopped])
     return commands

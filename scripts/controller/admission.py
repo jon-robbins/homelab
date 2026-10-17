@@ -29,18 +29,28 @@ def load_host_policy(path: Path | str) -> HostPolicy:
     except (OSError, ValueError) as error:
         raise ValueError("invalid host policy") from error
     fields = {"schema", "site_id", "signer_identity", "oidc_issuer", "trusted_root", "feed_directory"}
-    if not isinstance(value, dict) or set(value) != fields or value.get("schema") != 1 or isinstance(value.get("schema"), bool):
+    if (
+        not isinstance(value, dict)
+        or set(value) != fields
+        or value.get("schema") != 1
+        or isinstance(value.get("schema"), bool)
+    ):
         raise ValueError("host policy must contain exactly the schema 1 fields")
     for key in fields - {"schema"}:
         if not isinstance(value[key], str) or not value[key]:
             raise ValueError(f"invalid host policy field: {key}")
-    return HostPolicy(value["site_id"], value["signer_identity"], value["oidc_issuer"],
-                      Path(value["trusted_root"]), Path(value["feed_directory"]))
+    return HostPolicy(
+        value["site_id"],
+        value["signer_identity"],
+        value["oidc_issuer"],
+        Path(value["trusted_root"]),
+        Path(value["feed_directory"]),
+    )
 
 
-def verify_record(record_dir: Path | str, policy: HostPolicy | Path | str,
-                  verifier: Callable[..., None] = verify_cosign_bundle
-                  ) -> tuple[dict[str, Any], bytes, bytes, str]:
+def verify_record(
+    record_dir: Path | str, policy: HostPolicy | Path | str, verifier: Callable[..., None] = verify_cosign_bundle
+) -> tuple[dict[str, Any], bytes, bytes, str]:
     """Verify exact record bytes offline, then parse and check the host site."""
     policy = policy if isinstance(policy, HostPolicy) else load_host_policy(policy)
     directory = Path(record_dir)
@@ -62,8 +72,14 @@ def verify_record(record_dir: Path | str, policy: HostPolicy | Path | str,
         snapshot_record.write_bytes(record_bytes)
         snapshot_signature.write_bytes(signature_bytes)
         snapshot_bundle.write_bytes(bundle_bytes)
-        verifier(snapshot_record, snapshot_signature, identity=policy.signer_identity,
-                 issuer=policy.oidc_issuer, offline=True, trusted_root=policy.trusted_root)
+        verifier(
+            snapshot_record,
+            snapshot_signature,
+            identity=policy.signer_identity,
+            issuer=policy.oidc_issuer,
+            offline=True,
+            trusted_root=policy.trusted_root,
+        )
         verify_bundle(bundle_bytes)
     record = load_release_record(record_bytes)
     if record["site_id"] != policy.site_id:
