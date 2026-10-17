@@ -6,6 +6,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import sys
 import urllib.request
 
 from scripts.controller.admission import load_host_policy
@@ -41,11 +42,57 @@ def _args():
     sub.add_parser("status")
     ack = sub.add_parser("ack")
     ack.add_argument("--reason", required=True)
+    rollback = sub.add_parser("rollback")
+    rollback.add_argument("service")
+    apply = sub.add_parser("apply")
+    apply.add_argument("--edge", action="store_true")
+    apply.add_argument("--takeover", action="store_true")
     return parser.parse_args()
+
+
+def _rollback(args, ops: SubprocessOps) -> int:
+    previous = args.releases / "previous"
+    app = json.loads((previous / "app.json").read_bytes()) if previous.exists() else {}
+    services = app.get("services", {})
+    if args.service not in services:
+        print(f"unknown service: {args.service}", file=sys.stderr)
+        return 2
+    service = services[args.service]
+    if service.get("labels", {}).get("homelab.state") == "stateful":
+        ops.stop(args.service)
+        ops.restore(args.service, f"seq-{_pointer_sequence(args.releases / 'current')}")
+    ops.run(["docker", "compose", "-p", "homelab", "-f", str(previous / "app.json"),
+             "up", "-d", "--no-deps", args.service])
+    print("next: homelabctl ack --reason rollback complete")
+    return 0
+
+
+def _apply_edge(args, ops: SubprocessOps) -> int:
+    release = args.releases / "current"
+    edge = json.loads((release / "edge.json").read_bytes())
+    services = edge.get("services", {})
+    names = tuple(services)
+    if args.takeover:
+        for service in names:
+            ops.remove(service)
+    if names:
+        ops.run(["docker", "compose", "-p", "homelab-edge", "-f", str(release / "edge.json"),
+                 "up", "-d", "--no-deps", *names])
+        ops._project = "homelab-edge"
+        for service in names:
+            if not ops.healthy(service, 180):
+                return 1
+            if services[service].get("labels", {}).get("homelab.probe") and not ops.probe(service):
+                return 1
+    return 0
 
 
 def main() -> int:
     args = _args()
+    if args.command == "rollback":
+        return _rollback(args, SubprocessOps())
+    if args.command == "apply":
+        return _apply_edge(args, SubprocessOps()) if args.edge else 0
     state = State(args.state)
     if args.command == "ack":
         state.remove("DEGRADED")

@@ -28,6 +28,7 @@ class Ops(DockerAdapter, Protocol):
     def healthy(self, service: str, timeout_s: int) -> bool: ...
     def probe(self, service: str) -> bool: ...
     def snapshot(self, service: str, tag: str) -> str: ...
+    def restore(self, service: str, tag: str) -> None: ...
 
 
 class Pinger(Protocol):
@@ -208,14 +209,16 @@ class SubprocessOps:
     def healthy(self, service, timeout_s):
         deadline = time.monotonic() + timeout_s
         while True:
-            inspected = self._inspect(service)
+            project = getattr(self, "_project", "homelab")
+            inspected = self._inspect(service) if project == "homelab" else self._inspect(service, project)
             state = inspected.get("State", {}) if inspected else {}
             if state.get("Status") == "running" and state.get("Health", {}).get("Status", "none") in ("healthy", "none"): return True
             remaining = deadline - time.monotonic()
             if remaining <= 0: return False
             time.sleep(min(1, remaining))
     def probe(self, service):
-        inspected = self._inspect(service)
+        project = getattr(self, "_project", "homelab")
+        inspected = self._inspect(service) if project == "homelab" else self._inspect(service, project)
         if inspected is None: return False
         url = (inspected.get("Config", {}).get("Labels") or {}).get("homelab.probe", "")
         networks = inspected.get("NetworkSettings", {}).get("Networks", {})
@@ -226,3 +229,7 @@ class SubprocessOps:
                 return 200 <= response.status < 400
         except (OSError, ValueError): return False
     def snapshot(self, service, tag): return subprocess.check_output(["homelab-backup", "--service", service, "--tag", tag], text=True).splitlines()[-1]
+    def restore(self, service, tag): subprocess.run(["homelab-backup", "--restore", "--service", service, "--tag", tag], check=True)
+    def remove(self, service):
+        if (identifier := self._container_id("homelab", service)) is not None:
+            subprocess.run(["docker", "rm", "-f", identifier], check=True)

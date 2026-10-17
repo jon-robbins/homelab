@@ -1,22 +1,24 @@
 # Operations
 
-**Status: Current and planned.** Current CI validates source, renders Compose
-with synthetic inputs, runs tests, scans the public boundary, and builds OCI
-images off-host. It does not deploy or start containers.
-
-The supported local gate is:
+Run these commands on the controller host. `status` reports release pointers
+and service health; acknowledge a recovered degraded state explicitly.
 
 ```bash
-scripts/dev/gate   # pre-commit + nox -t no-docker; in Linux on macOS
+homelabctl status
+homelabctl ack --reason "<reason>"
+homelabctl rollback <svc>
+homelabctl apply --edge
+homelabctl apply --edge --takeover
 ```
 
-The signed release feed from N6 is current. A host controller for N7–N11 is
-still **Planned**. Private site operations and runtime backups belong outside
-this public repository.
+For a break-glass restart of one service:
 
-CI installs pinned versions of pre-commit and nox. Pinact v5.0.0 is the
-repository's pinned action-pinning tool. Install it reproducibly with
-`go install github.com/suzuki-shunsuke/pinact/v5/cmd/pinact@v5.0.0`. When
-adding a GitHub Action, write its release tag first and run `pinact run`;
-pinact writes the commit SHA and trailing version comment that Dependabot
-maintains.
+```bash
+docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps <svc>
+```
+
+For secret rotation, force recreation from the current release:
+
+```bash
+docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps --force-recreate <svc>
+```
