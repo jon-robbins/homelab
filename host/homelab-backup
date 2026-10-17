@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# homelab-backup: consistent SQLite copies + restic snapshot of app data. Runs as root.
+set -euo pipefail
+DATA_ROOT="${DATA_ROOT:-/srv/homelab/data}"
+VPN_ROOT="${VPN_ROOT:-/srv/vpn}"
+REPO="${REPO:-/mnt/media-hdd/backups/restic}"
+STAGE="${STAGE:-/var/lib/homelab-backup/sqlite}"
+EXCLUDES="${EXCLUDES:-/etc/homelab-backup/excludes.txt}"
+OFFSITE_REPO="${OFFSITE_REPO:-}"
+export RESTIC_REPOSITORY="$REPO" RESTIC_PASSWORD_FILE=/root/.config/restic/password
+
+is_sqlite() {
+  local hdr
+  hdr=$(dd if="$1" bs=15 count=1 status=none 2>/dev/null || true)
+  [[ "$hdr" == "SQLite format 3" ]]
+}
+
+slim_staged() {
+  local rel="$1" out="$2"
+  case "$rel" in
+    prowlarr/prowlarr.db)
+      sqlite3 "$out" <<'SQL'
+DELETE FROM History WHERE Date < datetime('now','-7 days');
+DELETE FROM Commands;
+VACUUM;
+SQL
+      ;;
+    sonarr/sonarr.db|radarr/radarr.db)
+      sqlite3 "$out" <<'SQL'
+DELETE FROM Commands;
+VACUUM;
+SQL
+      ;;
+    bazarr/db/bazarr.db)
+      sqlite3 "$out" <<'SQL'
+DELETE FROM table_history;
+DELETE FROM table_history_movie;
+VACUUM;
+SQL
+      ;;
+  esac
+}
+
+stage_one_sqlite() {
+  local db="$1" rel="$2"
+  local out="$STAGE/$rel"
+  mkdir -p "$(dirname "$out")"
+  if is_sqlite "$db"; then
+    if ! sqlite3 -readonly -cmd ".timeout 60000" "$db" ".backup '$out'" 2>/dev/null; then
+      cp -a "$db" "$out"
+      echo "homelab-backup: WARN sqlite .backup failed for $rel; raw copy staged instead" >&2
+      return 0
+    fi
+    slim_staged "$rel" "$out"
+  else
+    cp -a "$db" "$out"
+  fi
+}
+
+rm -rf "$STAGE" && install -d -m 0700 "$STAGE"
+
+find "$DATA_ROOT" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 |
+while IFS= read -r -d '' db; do
+  rel="${db#"$DATA_ROOT"/}"
+  case "$rel" in
+    */logs.db) continue ;;
+    */com.plexapp.plugins.library.blobs.db) continue ;;
+    autobrr.backup.*/*) continue ;;
+  esac
+  stage_one_sqlite "$db" "$rel"
+done
+
+if [[ -d "$VPN_ROOT" ]]; then
+  find "$VPN_ROOT" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 |
+  while IFS= read -r -d '' db; do
+    rel="srv/vpn/${db#"$VPN_ROOT"/}"
+    stage_one_sqlite "$db" "$rel"
+  done
+fi
+
+live=()
+for ext in db db-wal db-shm sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-shm; do
+  live+=(--exclude "$DATA_ROOT/**/*.$ext")
+  live+=(--exclude "$VPN_ROOT/**/*.$ext")
+done
+
+backup_paths=("$DATA_ROOT" "$STAGE")
+[[ -d "$VPN_ROOT" ]] && backup_paths+=("$VPN_ROOT")
+
+restic backup --one-file-system --tag app-data --exclude-file "$EXCLUDES" "${live[@]}" "${backup_paths[@]}"
+staged=$(find "$STAGE" -type f | wc -l)
+snap=$(restic ls --recursive latest --tag app-data "$STAGE" | grep -c -E '\.(db|sqlite3?)$' || true)
+[ "$staged" -eq "$snap" ] || { echo "homelab-backup: ERROR $staged staged DBs but $snap in snapshot" >&2; exit 1; }
+
+restic forget --tag app-data --keep-within 30d --prune
+
+if [[ -n "$OFFSITE_REPO" ]]; then
+  restic -r "$OFFSITE_REPO" --password-file /root/.config/restic/offsite-password copy \
+    --from-repo "$REPO" --from-password-file /root/.config/restic/password --tag app-data
+  restic -r "$OFFSITE_REPO" --password-file /root/.config/restic/offsite-password forget \
+    --tag app-data --keep-within 30d --prune
+  date -u +%FT%TZ > /var/lib/homelab-backup/last-offsite
+fi
+
+restic check --read-data-subset=2%
+date -u +%FT%TZ > /var/lib/homelab-backup/last-success
+echo "homelab-backup: ok"
