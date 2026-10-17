@@ -1,0 +1,37 @@
+services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr@sha256:cb57afc3bd35558e1e7062658f9d4d18a0b4c474f10afe55f0ccfd867025f24f
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add: [CHOWN, SETUID, SETGID]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/bazarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/TV
+        target: /tv
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/Movies
+        target: /movies
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:6767/bazarr/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true

@@ -1,0 +1,13 @@
+contract: 1
+site_id: catalog-test
+bind_roots: [APP_DATA_DIR, MEDIA_HDD_PATH, MEDIA_NVME_PATH]
+marker_roots: []
+plugins: {}
+services:
+  caddy: {}
+  cloudflared: {}
+  sonarr: {}
+  radarr: {}
+  bazarr: {}
+  prowlarr: {}
+managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr]
