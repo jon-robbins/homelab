@@ -302,7 +302,7 @@ def test_causes_make_final_ping_fail_and_ack_removes_degraded(tmp_path, monkeypa
 def test_subprocess_ops_reads_docker_state(monkeypatch, tmp_path):
     def output(argv, **kwargs):
         if argv[1] == "compose":
-            return "hash\n"
+            return "svc hash\n"
         if argv[1] == "ps":
             return "container-id\n"
         return json.dumps([{"Config": {"Labels": {"com.docker.compose.config-hash": "hash"}},

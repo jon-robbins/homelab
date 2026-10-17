@@ -179,7 +179,7 @@ class SubprocessOps:
     def compose_version(self):
         return subprocess.check_output(["docker", "compose", "version", "--short"], text=True).strip()
     def path_exists(self, path): return Path(path).exists()
-    def config_hash(self, release_dir, project, service): return subprocess.check_output(["docker", "compose", "-p", project, "-f", str(Path(release_dir).resolve() / "app.json"), "config", "--hash", service], text=True).strip()
+    def config_hash(self, release_dir, project, service): return subprocess.check_output(["docker", "compose", "-p", project, "-f", str(Path(release_dir).resolve() / "app.json"), "config", "--hash", service], text=True).split()[-1]
     def _container_id(self, project, service):
         return next(iter(subprocess.check_output(["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project={project}", "--filter", f"label=com.docker.compose.service={service}", "--format", "{{.ID}}"], text=True, stderr=subprocess.DEVNULL).splitlines()), None)
     def _inspect(self, service, project="homelab"):
