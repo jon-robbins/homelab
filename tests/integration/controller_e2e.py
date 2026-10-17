@@ -109,15 +109,12 @@ fi
     def release(self, sequence: int, *, version: str = "one", broken_nginx: bool = False,
                 state_command: str | None = None) -> None:
         source = self.root / f"source-{sequence}"
-        (source / "files").mkdir(parents=True)
+        source.mkdir(parents=True)
         app = app_definition(version=version, broken_nginx=broken_nginx, state_command=state_command)
         app_text = json.dumps(app).replace("DATA_ROOT", str(self.data))
-        (source / "files" / "app.json").write_text(app_text)
-        (source / "files" / "edge.json").write_text(json.dumps({"services": {}}))
-        (source / "files" / "site.yaml").write_text(site_definition())
-        (source / "applications.json").write_text("{}")
-        (source / "compose.yaml").write_text("services: {}\n")
-        (source / "probe-targets.json").write_text("{}")
+        (source / "app.json").write_text(app_text)
+        (source / "edge.json").write_text(json.dumps({"services": {}}))
+        (source / "site.yaml").write_text(site_definition())
         bundle = build(source)
         record = {"schema": 1, "site_id": "e2e", "sequence": sequence,
                   "tooling_git_sha": "0" * 40,
@@ -165,7 +162,7 @@ def harness(tmp_path: Path):
 
 def install_first(h: Harness) -> str:
     h.release(1)
-    run("docker", "compose", "-p", "homelab", "-f", str(h.root / "source-1" / "files" / "app.json"),
+    run("docker", "compose", "-p", "homelab", "-f", str(h.root / "source-1" / "app.json"),
         "up", "-d", "nginx", "stateful", env=h.env)
     nginx_id = inspect("nginx", "{{.Id}}")
     assert h.reconcile() == "ok"

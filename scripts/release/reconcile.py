@@ -7,7 +7,6 @@ import json
 import os
 import re
 import subprocess
-import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -15,19 +14,44 @@ from typing import Any, Mapping
 
 import yaml
 
-from .bundle import bundle_sha256
-from .compile import compile_bundle
+from .bundle import bundle_sha256, verify
 from .contracts import ValidationError, load_release_record, parse_json, validate_digest
 from .feed import FeedError, publish_next, verify_cosign_bundle
 from .github import GitHubClient, GitHubError
+from .render import render
 from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
-TRACKER_REPOSITORY = os.environ.get("TRACKER_REPOSITORY", "jon-robbins/tracker-integrations")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
 _DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$")
 _DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
+
+
+def render_release(client: Any, platform: Path, site_repository: str, site_sha: str,
+                   homelab_sha: str, output: Path,
+                   source_shas: Mapping[str, str] | None = None) -> tuple[dict[str, str], Any]:
+    """Fetch the declared plugin trees and render the site; site.yaml is kept next to *output* for compile."""
+
+    with tempfile.TemporaryDirectory(prefix="release-sources-") as directory:
+        root = Path(directory)
+        site = client.fetch(site_repository, site_sha, root / "site")
+        site_document = yaml.safe_load((site / "site.yaml").read_bytes())
+        plugins: dict[str, Path] = {}
+        sources = {"homelab": homelab_sha, "homelab-site": site_sha}
+        for name, spec in (site_document.get("plugins") or {}).items():
+            if "path" in spec:
+                plugins[name] = site / spec["path"]
+                sources[name] = site_sha
+            elif "repository" in spec:
+                repository = spec["repository"]
+                sha = (source_shas or {}).get(name) or client.ref(repository, "main")
+                plugins[name] = client.fetch(repository, sha, root / "plugins" / name)
+                sources[name] = sha
+        rendered = render(platform, site, plugins)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.with_name("site.yaml").write_bytes((site / "site.yaml").read_bytes())
+        return sources, rendered
 
 
 def load_approved_destinations(path: str | Path = _DEFAULT_APPROVED_DESTINATIONS) -> frozenset[str]:
@@ -296,85 +320,9 @@ def _next_tooling_sha(client: Any, repository: str, head: str, previous: Mapping
     return after_position[-1]
 
 
-def _materialize_site_inputs(client: Any, repository: str, ref: str, root: Path) -> None:
-    """Copy the exact site inputs at *ref* for the signing job artifact."""
-    if not hasattr(client, "contents"):
-        return
-    files = ("compose.json", "manifest.yaml", "probes.json", "policy.yaml")
-    for name in files:
-        data = client.read(repository, ref, name)
-        if data is None:
-            raise VerificationError(f"site input is missing at {repository}@{ref}: {name}")
-        target = root / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-
-    def copy_directory(path: str) -> None:
-        entries = client.contents(repository, ref, path)
-        if not isinstance(entries, list):
-            raise VerificationError(f"site input directory is not readable: {path}")
-        for entry in entries:
-            name = entry.get("name")
-            kind = entry.get("type")
-            if not isinstance(name, str):
-                raise VerificationError(f"invalid site input entry in {path}")
-            child = f"{path}/{name}" if path else name
-            if kind == "dir":
-                copy_directory(child)
-            elif kind == "file":
-                data = client.read(repository, ref, child)
-                if data is None:
-                    raise VerificationError(f"site input is missing at {repository}@{ref}: {child}")
-                target = root / child
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-            else:
-                raise VerificationError(f"unsupported site input entry: {child}")
-
-    copy_directory("files")
-
-
-def _site_manifest(root: Path) -> Mapping[str, Any]:
-    try:
-        manifest = yaml.safe_load((root / "manifest.yaml").read_bytes())
-    except (OSError, yaml.YAMLError) as error:
-        raise VerificationError("site manifest is not readable") from error
-    if not isinstance(manifest, Mapping) or not isinstance(manifest.get("applications"), list):
-        raise VerificationError("site manifest has no applications array")
-    return manifest
-
-
-def _manifest_site_id(root: Path) -> str:
-    site_id = _site_manifest(root).get("site_id")
-    if not isinstance(site_id, str):
-        raise VerificationError("site manifest is missing site_id")
-    return site_id
-
-
 def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
     prefix = "ghcr.io/jon-robbins/homelab/"
     return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
-
-
-def _manifest_image_refs(root: Path, previous: Mapping[str, Any] | None, images: list[dict[str, Any]]) -> dict[str, str]:
-    """Map each site application to the newest released digest ref of its repository.
-
-    The compiler validates the manifest and the refs; this only joins them.
-    """
-    by_repository = {
-        reference.split("@", 1)[0]: reference
-        for reference in (previous or {}).get("images", {}).values()
-        if isinstance(reference, str) and "@" in reference
-    }
-    by_repository.update({item["destination"]: f"{item['destination']}@{item['manifest_digest']}" for item in images})
-    references: dict[str, str] = {}
-    for application in _site_manifest(root)["applications"]:
-        name, repository = application.get("name"), application.get("image")
-        if repository not in by_repository:
-            raise VerificationError(f"no released image reference for application: {name}")
-        references[name] = by_repository[repository]
-    return references
-
 
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
@@ -392,10 +340,24 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
         sha = _bootstrap_sha(client, repository, main_head, _destination_images(load_approved_destinations()))
     tooling_sha = sha or (previous.get("sources", {}).get("homelab") or previous.get("tooling_git_sha") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
-    tracker_sha = client.ref(TRACKER_REPOSITORY, "main")
-    sources = {"homelab": tooling_sha, "homelab-site": site_sha, "tracker-integrations": tracker_sha}
+    site_yaml = client.read(site_repository, site_sha, "site.yaml")
+    try:
+        site_document = yaml.safe_load(site_yaml or b"")
+    except yaml.YAMLError as error:
+        raise VerificationError("site.yaml is not valid YAML") from error
+    if not isinstance(site_document, Mapping) or not isinstance(site_document.get("site_id"), str):
+        raise VerificationError("site.yaml has no site_id")
+    plugin_repositories = {
+        name: spec.get("repository", site_repository)
+        for name, spec in (site_document.get("plugins") or {}).items()
+        if isinstance(spec, Mapping) and (isinstance(spec.get("repository"), str) or isinstance(spec.get("path"), str))
+    }
+    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
+    source_path = input_root / "bundle.tar"
+    sources, rendered = render_release(client, Path("."), site_repository, site_sha, tooling_sha, source_path)
     if previous and previous.get("sources") == sources:
-        result = {"release": False, "sha": tooling_sha, "sequence": next_sequence, "images": [], "image_refs": previous.get("images", {})}
+        result = {"release": False, "sha": tooling_sha, "sequence": next_sequence, "images": [],
+                  "image_refs": previous.get("images", {}), "sources": sources}
     else:
         approved = load_approved_destinations()
         all_images = _destination_images(approved)
@@ -410,16 +372,24 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
             missing = sorted(all_images - set(builds))
             raise VerificationError(f"first release requires verified builds for all images; missing {missing[0]}")
         owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
-        verified = verify_release(client, sources, builds, required_images=required, repositories={"homelab": repository, "homelab-site": site_repository, "tracker-integrations": TRACKER_REPOSITORY}, owners={"homelab": (), "homelab-site": owners, "tracker-integrations": owners}, ruleset_repositories={"homelab"})
+        repositories = {"homelab": repository, "homelab-site": site_repository, **plugin_repositories}
+        verified = verify_release(client, sources, builds, required_images=required, repositories=repositories,
+                                  owners={"homelab": (), "homelab-site": owners, **{name: owners for name in plugin_repositories}},
+                                  ruleset_repositories={"homelab"})
         if not isinstance(verified, VerificationResult):
             raise VerificationError("build is not complete")
         images = [{"image": image, "artifact_name": builds[image]["artifact_name"], "run_id": builds[image]["run_id"], "manifest_digest": builds[image]["manifest_digest"], "destination": f"ghcr.io/jon-robbins/homelab/{image}"} for image in sorted(verified.images)]
         if any(item["destination"] not in approved for item in images):
             raise VerificationError("build requested an unapproved destination")
-        input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
-        _materialize_site_inputs(client, site_repository, site_sha, input_root)
-        image_refs = _manifest_image_refs(input_root, previous, images)
-        result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images, "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0, "sources": sources, "site_id": _manifest_site_id(input_root), "tooling_git_sha": main_head}
+        image_refs = dict(previous.get("images", {}) if previous else {})
+        image_refs.update({item["image"]: f"{item['destination']}@{item['manifest_digest']}" for item in images})
+        result = {"release": True, "sha": tooling_sha, "sequence": next_sequence, "images": images,
+                  "image_refs": image_refs, "rollback_floor": previous.get("rollback_floor", 0) if previous else 0,
+                  "sources": sources, "site_id": site_document["site_id"], "tooling_git_sha": main_head}
+    from .compile import compile_bundle
+
+    # Compile only now: first-party images are pinned to the digests this release built (D7).
+    compile_bundle(rendered, source_path.with_name("site.yaml"), source_path, result["image_refs"])
     if output:
         output.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return result
@@ -429,22 +399,20 @@ def sign_plan(plan_path: Path, output_dir: Path) -> None:
     plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
     if not plan_data.get("release", bool(plan_data.get("images"))):
         return
-    input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "bundle.tar"
-    inputs = [input_root / name for name in ("compose.json", "manifest.yaml", "probes.json", "policy.yaml", "files")]
-    if not all(path.exists() for path in inputs):
-        # Keep the command useful for local operators and older callers that
-        # already materialized inputs under the explicit environment paths.
-        inputs = [Path(os.environ[name]) for name in ("RELEASE_COMPOSE", "RELEASE_MANIFEST", "RELEASE_PROBES", "RELEASE_POLICY", "RELEASE_FILES")]
-    image_refs = plan_data["image_refs"]
-    digest = compile_bundle(*inputs, bundle_path, image_refs)
-    with tarfile.open(bundle_path, "r") as bundle:
-        applications = json.loads(bundle.extractfile("applications.json").read())
-    bundle_images = {item["name"]: item["image"] for item in applications["applications"]}
-    if bundle_images != image_refs:
-        raise VerificationError("release record image map does not match compiled bundle")
-    record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"], "tooling_git_sha": plan_data["tooling_git_sha"], "sources": plan_data["sources"], "images": image_refs, "bundle_sha256": digest, "rollback_floor": plan_data.get("rollback_floor", 0)}
+    source_bundle = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT)) / "bundle.tar"
+    try:
+        data = source_bundle.read_bytes()
+        verify(data)
+    except (OSError, ValueError) as error:
+        raise VerificationError("release plan bundle is missing or invalid") from error
+    bundle_path.write_bytes(data)
+    image_refs = plan_data.get("image_refs", {})
+    record = {"schema": 1, "site_id": plan_data["site_id"], "sequence": plan_data["sequence"],
+              "tooling_git_sha": plan_data["tooling_git_sha"], "sources": plan_data["sources"],
+              "images": image_refs, "bundle_sha256": bundle_sha256(data),
+              "rollback_floor": plan_data.get("rollback_floor", 0)}
     data = sign_record(record, output_dir / "record.sigstore.json")
     (output_dir / "record.json").write_bytes(data)
 
@@ -491,7 +459,7 @@ def check_read(client: Any | None = None, *, output: Path | None = None) -> list
     client = client or GitHubClient(token=os.environ.get("PRIVATE_INPUT_READ_TOKEN"))
     results: list[bool] = []
     heads: dict[str, str] = {}
-    for repository, label in ((SITE_REPOSITORY, "homelab-site head"), (TRACKER_REPOSITORY, "tracker-integrations head")):
+    for repository, label in ((SITE_REPOSITORY, "homelab-site head"),):
         try:
             heads[repository] = client.ref(repository, "main")
             results.append(_check_line("read", label, True, "default branch is readable"))
