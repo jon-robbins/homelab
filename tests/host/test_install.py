@@ -73,7 +73,7 @@ def test_preserves_previous_tooling_tree(tmp_path: Path):
     assert os.readlink(tooling / "previous") == "old"
 
 
-def test_preserves_previous_target_after_upgrade(tmp_path: Path):
+def test_replaces_previous_target_after_upgrade(tmp_path: Path):
     assert run(tmp_path).returncode == 0
     tooling = tmp_path / "srv/homelab/tooling"
     (tooling / "A").mkdir()
@@ -82,7 +82,7 @@ def test_preserves_previous_target_after_upgrade(tmp_path: Path):
     (tooling / "current").symlink_to("B")
     (tooling / "previous").symlink_to("A")
     assert run(tmp_path).returncode == 0
-    assert (tooling / "A").is_dir() and (tooling / "B").is_dir()
+    assert not (tooling / "A").exists() and (tooling / "B").is_dir()
     assert os.readlink(tooling / "previous") == "B"
 
 
