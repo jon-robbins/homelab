@@ -26,6 +26,7 @@ services:
         mode: 0444
     secrets: [CLOUDFLARE_TOKEN]
     networks: [homelab_net]
+    extra_hosts: ["host.docker.internal:host-gateway"]
     labels:
       homelab.state: stateful
     healthcheck:

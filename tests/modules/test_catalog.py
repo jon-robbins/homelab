@@ -53,9 +53,6 @@ def _fake_compose(monkeypatch):
         return type("Result", (), {"returncode": 0, "stdout": json.dumps(merged), "stderr": ""})()
 
     monkeypatch.setattr("scripts.release.render.subprocess.run", compose)
-    # The catalog intentionally retains production cap_add values; the release
-    # policy is tested separately and rejects that legacy runtime field.
-    monkeypatch.setattr("scripts.release.render.check_policy", lambda *args, **kwargs: None)
 
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda path: path.stem)
