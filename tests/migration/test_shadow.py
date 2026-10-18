@@ -20,7 +20,7 @@ class Docker:
 
     def run(self, args):
         self.calls.append(args)
-        if self.fail and "create" in args:
+        if self.fail and "--no-start" in args:
             raise RuntimeError("create failed")
 
 

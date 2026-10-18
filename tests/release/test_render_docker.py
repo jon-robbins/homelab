@@ -54,7 +54,7 @@ def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
         "managed": ["demo"], "bind_roots": ["APP_DATA_DIR"], "marker_roots": ["APP_DATA_DIR"],
     }))
     config = site / "settings.txt"
-    config.write_text("hello from inline config\n")
+    config.write_text("hello from ${HOME} $x inline config\n")
     config.chmod(0o640)
     model = render(platform, site, {}).app
     assert model["services"]["demo"]["labels"]["homelab.state"] == "stateless"
@@ -66,7 +66,7 @@ def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
         _docker(*command, "up", "-d")
         container = _docker(*command, "ps", "-q", "demo").stdout.strip()
         assert container
-        assert _docker("exec", container, "cat", "/etc/test-config").stdout == "hello from inline config\n"
+        assert _docker("exec", container, "cat", "/etc/test-config").stdout == "hello from ${HOME} $x inline config\n"
         assert _docker("exec", container, "stat", "-c", "%a", "/etc/test-config").stdout.strip() == "640"
         _docker("stop", container)
         marker.unlink()
