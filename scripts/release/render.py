@@ -82,12 +82,15 @@ def _compose(files: list[Path], tier: str, site: Path, directory: Path) -> dict[
 
 
 def _inline_configs(model: dict[str, Any]) -> None:
-    """A release must not point back into a git checkout (D15): config files become inline content."""
+    """A release must not point back into a git checkout (D15): config files become inline content.
+
+    Compose interpolates inline content, so every $ is escaped as $$ to reach the container unchanged.
+    """
     modes = {}
     for name, config in (model.get("configs") or {}).items():
         if "file" in config:
             path = Path(config.pop("file"))
-            config["content"] = path.read_text(encoding="utf-8")
+            config["content"] = path.read_text(encoding="utf-8").replace("$", "$$")
             modes[name] = path.stat().st_mode & 0o777
     for service in (model.get("services") or {}).values():
         for entry in service.get("configs") or []:

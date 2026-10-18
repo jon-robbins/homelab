@@ -61,3 +61,9 @@ def render_docker(session: nox.Session) -> None:
 @nox.session(python=PYTHON, tags=["no-docker"])
 def docs(session: nox.Session) -> None:
     session.run("bash", "tests/docs/run_tests.sh", external=True)
+
+
+@nox.session(python=PYTHON, tags=["no-docker"])
+def host(session: nox.Session) -> None:
+    install(session, "pytest", "pyyaml")  # cutover.sh rewrites the agent config with PyYAML
+    session.run("pytest", "-q", "tests/host")

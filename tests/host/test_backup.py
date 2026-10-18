@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).parents[2]
@@ -194,6 +197,8 @@ def test_nightly_failure_pings_deadman_and_missing_file_does_not(tmp_path: Path)
 
 
 def test_nightly_slims_staged_intake_database(tmp_path: Path):
+    if shutil.which("sqlite3") is None:
+        pytest.skip("sqlite3 is unavailable")
     root, stage = tmp_path / "data", tmp_path / "stage"
     live = root / "tl-intake-gate/intake.sqlite3"
     live.parent.mkdir(parents=True)
