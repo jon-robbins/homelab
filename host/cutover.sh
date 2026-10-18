@@ -1,88 +1,219 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+# Move host duties off the legacy stack: Tailscale from its container to the host daemon, the Infisical agent onto
+# /srv/homelab, the boot orchestrator off, and disk markers onto the media roots. A dead-man timer runs --rollback
+# unless --confirm succeeds from a new SSH session over Tailscale within 10 minutes.
+set -euo pipefail
 
-ROOT=${ROOT:-}; DRY=0; ROLLBACK=0; CONFIRM=0; LEGACY=; MEDIA=()
+ROOT=${ROOT:-}
+DRY=0
+ROLLBACK=0
+CONFIRM=0
+LEGACY_ARG=
+MEDIA=()
 while (($#)); do
   case $1 in
-    --legacy-root) LEGACY=${2:?missing root}; shift 2;; --media-root) MEDIA+=("${2:?missing root}"); shift 2;;
-    --dry-run) DRY=1; shift;; --rollback) ROLLBACK=1; shift;; --confirm) CONFIRM=1; shift;;
-    *) echo "unknown option: $1" >&2; exit 2;;
+    --legacy-root) LEGACY_ARG=${2:?missing root}; shift 2 ;;
+    --media-root) MEDIA+=("${2:?missing root}"); shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    --rollback) ROLLBACK=1; shift ;;
+    --confirm) CONFIRM=1; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
+
 P() { printf '%s%s' "$ROOT" "$1"; }
-SCRIPT=$(realpath "$0"); LEGACY_ARG=$LEGACY; LEGACY=$(P "$LEGACY")
-STATE=$(P /srv/homelab/state/cutover); TS_DIR=$(P /var/lib/tailscale); CONFIG=$(P /etc/infisical-agent/config.yaml)
-DROPIN=$(P /etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf); HOST_FILES=$(P /srv/homelab/HOST-FILES); PY=$(P /srv/homelab/tooling/current/venv/bin/python)
+SCRIPT=$(realpath "$0")
+LEGACY=$(P "$LEGACY_ARG")
+STATE=$(P /srv/homelab/state/cutover)
+TS_DIR=$(P /var/lib/tailscale)
+CONFIG=$(P /etc/infisical-agent/config.yaml)
+DROPIN=$(P /etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf)
+HOST_FILES=$(P /srv/homelab/HOST-FILES)
+PY=$(P /srv/homelab/tooling/current/venv/bin/python)
+DEADMAN=homelab-cutover-deadman
+
 run() { if ((DRY)); then printf '[dry-run]'; printf ' %q' "$@"; echo; else "$@"; fi; }
 
-rollback() {
-  local bad=0 p src
-  if systemctl stop homelab-cutover-deadman.timer 2>/dev/null; then :; fi
-  for p in "${MEDIA[@]}"; do [[ -e "$(P "$p")/.homelab-mounted" ]] || continue; if ! media_action "$p" -i rm; then echo "rollback failed: media $p"; bad=1; fi; done
-  if [[ -f $STATE/infisical-config.yaml.bak ]]; then
-    if ! cp -a "$STATE/infisical-config.yaml.bak" "$CONFIG"; then echo 'rollback failed: restore infisical config'; bad=1; fi
-    if ! rm -f "$DROPIN"; then echo 'rollback failed: remove infisical drop-in'; bad=1; fi
-    if ! systemctl daemon-reload; then echo 'rollback failed: daemon-reload'; bad=1; fi
-    if ! systemctl restart homelab-infisical-agent; then echo 'rollback failed: restart infisical'; bad=1; fi
+# `tailscale status --json` on stdin → "BackendState|HostName|first Tailscale IP|DNSName"
+ts_fields() {
+  python3 -c 'import json, sys
+status = json.load(sys.stdin)
+me = status.get("Self") or {}
+print(status.get("BackendState", ""), me.get("HostName", ""), (me.get("TailscaleIPs") or [""])[0],
+      me.get("DNSName", ""), sep="|")'
+}
+
+# Flip the immutable bit (+i/-i) on the directory a media disk mounts over, reached through a bind mount of /
+# so the bit lands on the root filesystem's directory, not on the mounted disk.
+set_immutable() {
+  local root=$1 flag=$2 view rc=0
+  view=$(P /tmp/homelab-cutover.XXXXXX)
+  if ((DRY)); then run mktemp -d "$view"; else view=$(mktemp -d "$view"); fi
+  run mount --bind "$(P /)" "$view"
+  run chattr "$flag" "$view$root" || rc=$?
+  run umount "$view"
+  return "$rc"
+}
+
+mark_media() {
+  local root=$1
+  mountpoint -q "$(P "$root")" || { echo "skip: $root is not a mountpoint"; return 0; }
+  run touch "$(P "$root")/.homelab-mounted"
+  set_immutable "$root" +i
+}
+
+unmark_media() {
+  local root=$1
+  [[ -e $(P "$root")/.homelab-mounted ]] || return 0
+  set_immutable "$root" -i && run rm -f "$(P "$root")/.homelab-mounted"
+}
+
+tailscale_cutover() {
+  local c status src host ip dns state now_ip now_dns i
+  c=$(docker ps -q --filter label=com.docker.compose.project=homelab --filter label=com.docker.compose.service=tailscale)
+  [[ -n $c ]] || { echo 'tailscale container not found; skipping'; return 0; }
+  run mkdir -p "$STATE" "$TS_DIR"
+  run sh -c 'docker exec "$1" tailscale --socket=/tmp/tailscaled.sock status --json > "$2"' _ "$c" "$STATE/tailscale.json"
+  if ((DRY)); then
+    status=$(docker exec "$c" tailscale --socket=/tmp/tailscaled.sock status --json)
+  else
+    status=$(cat "$STATE/tailscale.json")
   fi
-  if ! systemctl enable homelab-boot-orchestrator.service; then echo 'rollback failed: enable orchestrator'; bad=1; fi
+  IFS='|' read -r _ host ip dns <<<"$(ts_fields <<<"$status")"
+  [[ -n $host && -n $ip ]] || { echo 'cannot read the tailscale identity' >&2; return 1; }
+
+  src=$(P "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/tailscale"}}{{.Source}}{{end}}{{end}}' "$c")")
+  run sh -c 'printf "%s\n" "$1" > "$2"' _ "$src" "$STATE/tailscale-source"
+  run docker stop "$c"
+  run cp -a "$src/." "$TS_DIR/"
+  run systemctl unmask tailscaled
+  run systemctl enable --now tailscaled
+  if ((DRY)); then
+    echo '[dry-run] wait for tailscale BackendState=Running'
+    run tailscale set "--hostname=$host"
+    return 0
+  fi
+
+  for ((i = 0; i < 60; i++)); do
+    status=$(tailscale status --json 2>/dev/null) || status='{}'
+    IFS='|' read -r state _ <<<"$(ts_fields <<<"$status")"
+    [[ $state == Running ]] && break
+    sleep 1
+  done
+  [[ $state == Running ]] || { echo 'tailscale did not reach BackendState=Running' >&2; return 1; }
+  run tailscale set "--hostname=$host"
+  IFS='|' read -r _ _ now_ip now_dns <<<"$(tailscale status --json | ts_fields)"
+  [[ $now_ip == "$ip" && $now_dns == "$dns" ]] || { echo 'tailscale identity mismatch' >&2; return 1; }
+  run docker rm "$c"
+}
+
+infisical_cutover() {
+  local source=$LEGACY/config/infisical/templates target
+  target=$(P /srv/homelab/infisical/templates)
+  run mkdir -p "$(dirname "$CONFIG")" "$(dirname "$DROPIN")" "$target"
+  run cp -a "$source/." "$target/"
+  run cp -a "$CONFIG" "$STATE/infisical-config.yaml.bak"
+  run "$PY" - "$CONFIG" "$source/" "$target/" <<'PY'
+import sys
+
+import yaml
+
+path, old, new = sys.argv[1:]
+
+
+def rewrite(node):
+    """Drop the agent's reload commands (the controller restarts services) and repoint template paths."""
+    if isinstance(node, dict):
+        return {key: rewrite(value) for key, value in node.items() if key != "commands"}
+    if isinstance(node, list):
+        return [rewrite(value) for value in node]
+    return node.replace(old, new) if isinstance(node, str) else node
+
+
+with open(path) as handle:
+    config = yaml.safe_load(handle)
+with open(path, "w") as handle:
+    yaml.safe_dump(rewrite(config), handle, sort_keys=False)
+PY
+  run sh -c 'printf "[Service]\nWorkingDirectory=/srv/homelab\n" > "$1"' _ "$DROPIN"
+  run systemctl daemon-reload
+  run systemctl restart homelab-infisical-agent
+}
+
+ROLLBACK_FAILED=0
+undo() { run "$@" || { echo "rollback failed: $*"; ROLLBACK_FAILED=1; }; }
+
+# Undo whatever the cutover got to, in reverse order. A failing step is reported and the remaining steps still run.
+rollback() {
+  local root src
+  systemctl stop "$DEADMAN.timer" 2>/dev/null || true
+  for root in "${MEDIA[@]}"; do
+    unmark_media "$root" || { echo "rollback failed: media $root"; ROLLBACK_FAILED=1; }
+  done
+  if [[ -f $STATE/infisical-config.yaml.bak ]]; then
+    undo cp -a "$STATE/infisical-config.yaml.bak" "$CONFIG"
+    undo rm -f "$DROPIN"
+    undo systemctl daemon-reload
+    undo systemctl restart homelab-infisical-agent
+  fi
+  undo systemctl enable homelab-boot-orchestrator.service
   if [[ -f $STATE/tailscale-source ]]; then
     src=$(cat "$STATE/tailscale-source")
-    if ! systemctl disable --now tailscaled; then echo 'rollback failed: disable tailscaled'; bad=1; fi
-    if ! systemctl mask tailscaled; then echo 'rollback failed: mask tailscaled'; bad=1; fi
-    if ! cp -a "$TS_DIR/." "$src/"; then echo 'rollback failed: restore tailscale state'; bad=1; fi
-    if ! docker compose -p homelab -f "$LEGACY/docker-compose.yml" up -d --no-deps tailscale; then echo 'rollback failed: compose tailscale'; bad=1; fi
+    undo systemctl disable --now tailscaled
+    undo systemctl mask tailscaled
+    undo cp -a "$TS_DIR/." "$src/"
+    undo docker compose -p homelab -f "$LEGACY/docker-compose.yml" up -d --no-deps tailscale
   fi
-  return $bad
+  return "$ROLLBACK_FAILED"
 }
-media_action() {
-  local p=$1 hp t; hp=$(P "$p"); mountpoint -q "$hp" || { echo "skip: $p is not a mountpoint"; return; }
-  if ((DRY)); then
-    t=$(P /tmp/homelab-cutover.XXXXXX); run touch "$hp/.homelab-mounted" || return $?; run mktemp -d "$t" || return $?; run mount --bind "$(P /)" "$t" || return $?; run chattr "$2" "$t$p" || return $?; run umount "$t" || return $?; [[ $3 == rm ]] && run rm -f "$hp/.homelab-mounted"; return 0
-  fi
-  [[ $3 == rm ]] || run touch "$hp/.homelab-mounted" || return $?; t=$(mktemp -d "$(P /tmp/homelab-cutover.XXXXXX)") || return $?
-  run mount --bind "$(P /)" "$t" || return $?; run chattr "$2" "$t$p" || return $?; run umount "$t" || return $?; if [[ $3 == rm ]]; then run rm -f "$hp/.homelab-mounted" || return $?; fi
-  return 0
-}
-tailscale_cutover() {
-  local c src_raw src json host oldip olddns nowip nowdns i running=0
-  c=$(docker ps -q --filter label=com.docker.compose.project=homelab --filter label=com.docker.compose.service=tailscale); [[ -n $c ]] || { echo 'tailscale container not found; skipping'; return; }
-  run mkdir -p "$STATE" "$TS_DIR"; run sh -c 'docker exec "$1" tailscale --socket=/tmp/tailscaled.sock status --json > "$2"' _ "$c" "$STATE/tailscale.json"
-  if ((DRY)); then json=$(docker exec "$c" tailscale --socket=/tmp/tailscaled.sock status --json); else json=$(cat "$STATE/tailscale.json"); fi
-  host=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["HostName"])' <<<"$json"); oldip=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["TailscaleIPs"][0])' <<<"$json"); olddns=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"])' <<<"$json")
-  src_raw=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/tailscale"}}{{.Source}}{{end}}{{end}}' "$c"); src=$(P "$src_raw")
-  run sh -c 'printf "%s\n" "$1" > "$2"' _ "$src" "$STATE/tailscale-source"; run docker stop "$c"; run cp -a "$src/." "$TS_DIR/"; run systemctl unmask tailscaled; run systemctl enable --now tailscaled
-  if ((DRY)); then echo '[dry-run] wait for tailscale BackendState=Running'; else
-    for ((i=0;i<60;i++)); do [[ $(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState"))') == Running ]] && { running=1; break; }; sleep 1; done
-    ((running)) || { echo 'tailscale did not reach BackendState=Running' >&2; return 1; }
-  fi
-  run tailscale set "--hostname=$host"; if ((DRY)); then return 0; fi
-  nowdns=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self",{}).get("DNSName"))'); nowip=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self",{}).get("TailscaleIPs",[""])[0])')
-  [[ $nowip == "$oldip" && $nowdns == "$olddns" ]] || { echo 'tailscale identity mismatch' >&2; return 1; }; run docker rm "$c"
-}
-infisical_cutover() {
-  local source=$LEGACY/config/infisical/templates target code; target=$(P /srv/homelab/infisical/templates)
-  run mkdir -p "$(dirname "$CONFIG")" "$(dirname "$DROPIN")" "$target"; run cp -a "$source/." "$target/"; run cp -a "$CONFIG" "$STATE/infisical-config.yaml.bak"
-  code='import sys,yaml; p=sys.argv[1]; d=yaml.safe_load(open(p)); f=lambda x: ({k:f(v) for k,v in x.items() if k != "commands"} if isinstance(x,dict) else [f(v) for v in x] if isinstance(x,list) else x.replace(sys.argv[2],sys.argv[3]) if isinstance(x,str) else x); open(p,"w").write(yaml.safe_dump(f(d),sort_keys=False))'
-  run "$PY" -c "$code" "$CONFIG" "$source/" "$target/"; run sh -c "printf '%s\n' '[Service]' 'WorkingDirectory=/srv/homelab' > '$DROPIN'"; run systemctl daemon-reload; run systemctl restart homelab-infisical-agent
-}
-if ((CONFIRM)); then
-  fail=0
+
+# Run by the owner from a new SSH session over Tailscale: that session is the real check; this adds what it can see.
+confirm() {
+  local ok=1 status saved_ip saved_dns state ip dns
   if [[ -f $STATE/tailscale.json ]]; then
-    saved=$(cat "$STATE/tailscale.json")
-    if ! now=$(tailscale status --json); then echo 'tailscale status failed'; fail=1
+    IFS='|' read -r _ _ saved_ip saved_dns <<<"$(ts_fields <"$STATE/tailscale.json")"
+    if ! status=$(tailscale status --json); then
+      echo 'tailscale status failed'; ok=0
     else
-      python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); assert b.get("BackendState") == "Running" and b["Self"]["TailscaleIPs"][0] and a["Self"]["TailscaleIPs"][0] == b["Self"]["TailscaleIPs"][0] and a["Self"]["DNSName"] == b["Self"]["DNSName"]' "$saved" "$now" || { echo 'tailscale identity check failed'; fail=1; }
+      IFS='|' read -r state _ ip dns <<<"$(ts_fields <<<"$status")"
+      if [[ $state != Running || -z $ip || $ip != "$saved_ip" || $dns != "$saved_dns" ]]; then
+        echo 'tailscale identity check failed'; ok=0
+      fi
     fi
   fi
-  systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; fail=1; }; if (( ! fail )); then systemctl stop homelab-cutover-deadman.timer || { echo 'failed to stop homelab-cutover-deadman.timer'; exit 1; }; echo confirmed; fi; exit $fail
+  systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; ok=0; }
+  ((ok)) || return 1
+  systemctl stop "$DEADMAN.timer" || { echo "failed to stop $DEADMAN.timer"; return 1; }
+  echo confirmed
+}
+
+if ((CONFIRM)); then confirm; exit; fi
+if ((ROLLBACK)); then rollback; exit; fi
+
+deadman=(--unit="$DEADMAN" --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG")
+for root in "${MEDIA[@]}"; do deadman+=(--media-root "$root"); done
+run systemd-run "${deadman[@]}" --rollback
+
+# From here on, any failure rolls back before exiting.
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  ((rc == 0)) || rollback || true
+  exit "$rc"
+}
+trap on_exit EXIT
+run mkdir -p "$STATE"
+tailscale_cutover
+run systemctl disable --now homelab-boot-orchestrator.service
+infisical_cutover
+for root in "${MEDIA[@]}"; do mark_media "$root"; done
+if policy=$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' 3x-ui 2>/dev/null); then
+  echo "3x-ui restart policy: ${policy:-}"
+else
+  echo '3x-ui: not found'
 fi
-if ((ROLLBACK)); then rollback; exit $?; fi
-args=(--unit=homelab-cutover-deadman --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG"); for p in "${MEDIA[@]}"; do args+=(--media-root "$p"); done; args+=(--rollback); run systemd-run "${args[@]}"
-# shellcheck disable=SC2154
-trap 'rc=$?; trap - ERR; rollback || :; exit "$rc"' ERR
-run mkdir -p "$STATE"; tailscale_cutover; run systemctl disable --now homelab-boot-orchestrator.service; infisical_cutover
-for p in "${MEDIA[@]}"; do media_action "$p" +i keep; done
-if policy=$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' 3x-ui 2>/dev/null); then echo "3x-ui restart policy: ${policy:-}"; else echo '3x-ui: not found'; fi
-if [[ ! -f $HOST_FILES ]] || ! grep -Fxq "$DROPIN" "$HOST_FILES"; then run sh -c "printf '%s\n' '$DROPIN' >> '$HOST_FILES'"; fi
-echo 'cutover done; automatic rollback in 10 min unless confirmed.'; echo "From a new SSH session over Tailscale run: $SCRIPT --confirm"
+grep -Fxqs "$DROPIN" "$HOST_FILES" || run sh -c 'printf "%s\n" "$1" >> "$2"' _ "$DROPIN" "$HOST_FILES"
+trap - EXIT
+
+echo 'cutover done; automatic rollback in 10 min unless confirmed.'
+echo "From a new SSH session over Tailscale run: $SCRIPT --confirm"

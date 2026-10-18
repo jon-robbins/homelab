@@ -70,38 +70,38 @@ for pair in "${files[@]}"; do
 done
 (( ! bad )) || exit 1
 
-backup_root=; backup_files=(); created_files=()
-for pair in "${files[@]}"; do
-  path=${pair%%:*}; wanted=${pair#*:}
-  if [[ -e $path ]] && ! cmp -s "$path" "$wanted"; then
-    [[ -n $backup_root ]] || { backup_root=$h/state/install-backup/$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$backup_root"; echo "backup: $backup_root"; }
-    rel=${path#"$d"}; mkdir -p "$backup_root$(dirname "$rel")"; cp "$path" "$backup_root$rel"; backup_files+=("$path:$backup_root$rel")
-  fi
-done
-
-old=
-if [[ -L $h/tooling/current ]]; then old=$(readlink "$h/tooling/current"); fi
-old_previous=; [[ -L $h/tooling/previous ]] && old_previous=$(readlink "$h/tooling/previous")
+# From here on the host changes. A failure puts back what this run replaced or created.
+old=$(readlink "$h/tooling/current" 2>/dev/null || true)
+old_previous=$(readlink "$h/tooling/previous" 2>/dev/null || true)
+backup=$h/state/install-backup/$(date -u +%Y%m%dT%H%M%SZ)
 new_state=0
 [[ -e $h/state ]] || new_state=1
-tooling_new=0; marker_new=0
+new_tooling=0
+[[ -e $t ]] || new_tooling=1
+replaced=()
+created=()
+restore_link() { if [[ -n $2 ]]; then ln -sfn "$2" "$1"; else rm -f "$1"; fi; }
 rollback() {
-  local pair path saved
-  set +e
-  for pair in "${backup_files[@]}"; do path=${pair%%:*}; saved=${pair#*:}; mkdir -p "$(dirname "$path")"; cp "$saved" "$path"; done
-  for path in "${created_files[@]}"; do rm -f "$path"; done
-  [[ $tooling_new == 1 ]] && rm -rf "$t"
-  if [[ -n $old ]]; then ln -sfn "$old" "$h/tooling/current"; else rm -f "$h/tooling/current"; fi
-  if [[ -n $old_previous ]]; then ln -sfn "$old_previous" "$h/tooling/previous"; else rm -f "$h/tooling/previous"; fi
-  [[ $marker_new == 1 ]] && rm -f "$h/state/observe-only"
-  [[ -z ${DESTDIR:-} ]] && systemctl daemon-reload
+  local path
+  for path in "${replaced[@]}"; do cp "$backup${path#"$d"}" "$path"; done
+  for path in "${created[@]}"; do rm -f "$path"; done
+  if ((new_tooling)); then rm -rf "$t"; fi
+  restore_link "$h/tooling/current" "$old"
+  restore_link "$h/tooling/previous" "$old_previous"
+  if ((new_state)); then rm -f "$h/state/observe-only"; fi
+  if [[ -z $d ]]; then systemctl daemon-reload; fi
 }
-# shellcheck disable=SC2154
-trap 'rc=$?; trap - ERR; rollback; exit "$rc"' ERR
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  if ((rc)); then set +e; rollback; fi
+  rm -rf "$tmp"
+  exit "$rc"
+}
+trap on_exit EXIT
 mkdir -p "$h" "$h/tooling" "$h/trust" "$h/state" "$h/releases" "$h/data"
 chmod 700 "$h/trust"
-if [[ ! -e $t ]]; then
-  tooling_new=1
+if ((new_tooling)); then
   mkdir -p "$t"
   for dir in scripts host schemas config; do mkdir -p "$t/$dir"; cp -R "$repo/$dir/." "$t/$dir/"; done
   python3 -m venv "$t/venv"
@@ -116,17 +116,30 @@ ln -sfn "$sha" "$h/tooling/current"
 previous_target=
 if [[ -L $h/tooling/previous ]]; then previous_target=$(readlink "$h/tooling/previous"); fi
 find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$previous_target" -exec rm -rf -- {} +
-if (( new_state )); then marker_new=1; touch "$h/state/observe-only"; fi
+if ((new_state)); then touch "$h/state/observe-only"; fi
 
+changed=$((new_tooling || new_state))
 for pair in "${files[@]}"; do
   path=${pair%%:*}; wanted=${pair#*:}
-  if [[ ! -e $path ]]; then created_files+=("$path"); install -D -m 0644 "$wanted" "$path"
-  elif ! cmp -s "$path" "$wanted"; then install -D -m 0644 "$wanted" "$path"; fi
+  if [[ ! -e $path ]]; then
+    created+=("$path")
+  elif cmp -s "$path" "$wanted"; then
+    continue
+  else
+    [[ -d $backup ]] || echo "backup: $backup"
+    mkdir -p "$(dirname "$backup${path#"$d"}")"
+    cp "$path" "$backup${path#"$d"}"
+    replaced+=("$path")
+  fi
+  install -D -m 0644 "$wanted" "$path"
+  changed=1
 done
-if [[ -z ${DESTDIR:-} ]]; then
+if [[ -z $d ]]; then
   systemctl daemon-reload
   systemctl enable --now homelab-controller.timer
   systemctl enable homelab-backup.timer
   sysctl --load /etc/sysctl.d/90-homelab.conf
 fi
-(( ${#backup_files[@]} || tooling_new || marker_new )) && echo "installed" || echo "no changes"
+trap - EXIT
+rm -rf "$tmp"
+((changed)) && echo "installed" || echo "no changes"
