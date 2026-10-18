@@ -14,8 +14,8 @@ INSTALL = ROOT / "host/install.sh"
 SHA = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
 
-def run(dest: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "DESTDIR": str(dest), "HOMELAB_PIP": "true"}
+def run(dest: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "DESTDIR": str(dest), "HOMELAB_PIP": "true", **(env or {})}
     return subprocess.run([str(INSTALL), "--sha", SHA, *args], cwd=ROOT, env=env,
                           text=True, capture_output=True)
 
@@ -52,6 +52,9 @@ def test_conflict_requires_replace(tmp_path: Path):
     assert tree(tmp_path) == before
     replaced = run(tmp_path, "--replace", "homelab-backup")
     assert replaced.returncode == 0 and "Type=oneshot" in unit.read_text()
+    backups = list((tmp_path / "srv/homelab/state/install-backup").iterdir())
+    assert len(backups) == 1
+    assert (backups[0] / "etc/systemd/system/homelab-backup.service").read_text() == "changed\n"
 
 
 def test_removes_obsolete_tooling_tree(tmp_path: Path):
@@ -124,3 +127,53 @@ def test_sha_mismatch_writes_nothing(tmp_path: Path):
                             text=True, capture_output=True)
     assert result.returncode == 1
     assert not list(tmp_path.iterdir())
+
+
+def test_pip_failure_removes_new_tooling_without_units_or_marker(tmp_path: Path):
+    result = run(tmp_path, env={"HOMELAB_PIP": "false"})
+    assert result.returncode != 0
+    assert not list((tmp_path / "etc").rglob("*.service"))
+    assert not (tmp_path / "srv/homelab/tooling/current").exists()
+    assert not (tmp_path / "srv/homelab/tooling" / SHA).exists()
+    assert not (tmp_path / "srv/homelab/state/observe-only").exists()
+
+
+def test_file_install_failure_restores_old_current_and_prior_files(tmp_path: Path):
+    tooling = tmp_path / "srv/homelab/tooling"
+    (tooling / "old").mkdir(parents=True)
+    (tooling / "current").symlink_to("old")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_install = fake_bin / "install"
+    fake_install.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in *homelab-backup.timer) exit 7;; esac\n"
+        "exec /usr/bin/install \"$@\"\n"
+    )
+    fake_install.chmod(0o755)
+    result = run(tmp_path, env={"PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode != 0
+    assert os.readlink(tooling / "current") == "old"
+    assert not (tooling / SHA).exists()
+    for name in (
+        "homelab-controller.service", "homelab-controller.timer",
+        "homelab-backup.service", "homelab-backup.timer",
+    ):
+        assert not (tmp_path / "etc/systemd/system" / name).exists()
+
+
+def test_touch_failure_removes_new_observe_only_marker(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_touch = fake_bin / "touch"
+    fake_touch.write_text(
+        "#!/bin/sh\n"
+        "/usr/bin/touch \"$@\"\n"
+        "case \"$*\" in *observe-only) exit 7;; esac\n"
+    )
+    fake_touch.chmod(0o755)
+    result = run(tmp_path, env={"PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode == 7
+    assert not (tmp_path / "srv/homelab/state/observe-only").exists()
+    assert not (tmp_path / "srv/homelab/tooling/current").exists()
+    assert not (tmp_path / "srv/homelab/tooling" / SHA).exists()

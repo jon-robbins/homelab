@@ -20,7 +20,7 @@ class Docker:
 
     def run(self, args):
         self.calls.append(args)
-        if self.fail and "create" in args:
+        if self.fail and "--no-start" in args:
             raise RuntimeError("create failed")
 
 
@@ -38,8 +38,10 @@ def release(tmp_path):
         (lambda x: x["HostConfig"]["CapAdd"].pop(), "HostConfig.CapAdd"),
         (lambda x: x["Config"]["Env"].__setitem__(0, "TOKEN=other"), "Config.Env.TOKEN"),
         (lambda x: x["Mounts"].__setitem__(0, {**x["Mounts"][0], "Source": "/srv/homelab/data/x"}), "svc: clean"),
+        (lambda x: x["Mounts"].reverse() or x["Mounts"].append({**x["Mounts"][0], "Destination": "/z"}), "Mounts"),
+        (lambda x: x.update(AppArmorProfile="") or x["HostConfig"].update(OomKillDisable=False, Dns=[]), "svc: clean"),
     ],
-    ids=["identical", "device-request", "capability", "environment", "legacy-bind"],
+    ids=["identical", "device-request", "capability", "environment", "legacy-bind", "extra-mount", "create-noise"],
 )
 def test_shadow_diffs_normalized_inspects(tmp_path, capsys, change, text):
     release(tmp_path)
@@ -59,12 +61,30 @@ def test_shadow_not_running_is_difference(tmp_path, capsys):
     assert capsys.readouterr().out == "svc: not running\n"
 
 
-def test_shadow_cleans_up_when_create_fails(tmp_path):
+def test_shadow_reports_and_cleans_up_when_create_fails(tmp_path, capsys):
     release(tmp_path)
     docker = Docker(json.loads(FIXTURE.read_text()), fail=True)
-    with pytest.raises(RuntimeError):
-        shadow(tmp_path, Path("/legacy"), adapter=docker)
-    assert docker.calls and docker.calls[-1][-2:] == ["-f", "svc"]
+    assert shadow(tmp_path, Path("/legacy"), adapter=docker) == 1
+    assert capsys.readouterr().out == "svc: create failed: create failed\n"
+    assert docker.calls and docker.calls[-1][-3:] == ["-f", "-v", "svc"]
+
+
+def test_shadow_drops_disk_markers_and_maps_legacy_binds(tmp_path, capsys):
+    marker = {"type": "bind", "source": "/mnt/hdd/.homelab-mounted", "target": "/homelab-markers/MEDIA_HDD_PATH"}
+    data = {"type": "bind", "source": "/srv/homelab/data/svc", "target": "/config"}
+    service = {"image": "example/svc", "volumes": [data, marker]}
+    for name in ("app", "edge"):
+        (tmp_path / f"{name}.json").write_text(json.dumps({"services": {"svc": service} if name == "app" else {}}))
+    running = json.loads(FIXTURE.read_text())
+    candidate = json.loads(FIXTURE.read_text())
+    running["HostConfig"]["Binds"] = ["/legacy/svc:/config:rw"]
+    candidate["HostConfig"]["Binds"] = ["/srv/homelab/data/svc:/config:rw"]
+    docker = Docker(running, candidate)
+    written = []
+    docker.run = lambda args: written.append(json.loads(Path(args[5]).read_text())) if "--no-start" in args else None
+    assert shadow(tmp_path, Path("/legacy"), adapter=docker) == 0
+    assert written[0]["services"]["svc"]["volumes"] == [data]
+    assert capsys.readouterr().out == "svc: clean\n"
 
 
 def test_works_with_a_read_only_release_dir(tmp_path):
@@ -83,3 +103,13 @@ def test_container_lookup_includes_created_containers(monkeypatch):
     monkeypatch.setattr(controller.subprocess, "check_output", lambda args, **kw: seen.append(args) or "abc\n")
     assert controller.SubprocessOps()._container_id("homelab-shadow", "svc") == "abc"
     assert "-a" in seen[0]
+
+
+def test_mount_order_is_not_a_difference(tmp_path, capsys):
+    release(tmp_path)
+    running = json.loads(FIXTURE.read_text())
+    running["Mounts"].append({**running["Mounts"][0], "Destination": "/z"})
+    candidate = json.loads(json.dumps(running))
+    candidate["Mounts"].reverse()
+    assert shadow(tmp_path, Path("/legacy"), adapter=Docker(running, candidate)) == 0
+    assert capsys.readouterr().out == "svc: clean\n"

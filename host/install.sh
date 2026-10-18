@@ -70,17 +70,40 @@ for pair in "${files[@]}"; do
 done
 (( ! bad )) || exit 1
 
-old=
-if [[ -L $h/tooling/current ]]; then old=$(readlink "$h/tooling/current"); fi
+# From here on the host changes. A failure puts back what this run replaced or created.
+old=$(readlink "$h/tooling/current" 2>/dev/null || true)
+old_previous=$(readlink "$h/tooling/previous" 2>/dev/null || true)
+backup=$h/state/install-backup/$(date -u +%Y%m%dT%H%M%SZ)
 new_state=0
 [[ -e $h/state ]] || new_state=1
-changed=0
+new_tooling=0
+[[ -e $t ]] || new_tooling=1
+replaced=()
+created=()
+restore_link() { if [[ -n $2 ]]; then ln -sfn "$2" "$1"; else rm -f "$1"; fi; }
+rollback() {
+  local path
+  for path in "${replaced[@]}"; do cp "$backup${path#"$d"}" "$path"; done
+  for path in "${created[@]}"; do rm -f "$path"; done
+  if ((new_tooling)); then rm -rf "$t"; fi
+  restore_link "$h/tooling/current" "$old"
+  restore_link "$h/tooling/previous" "$old_previous"
+  if ((new_state)); then rm -f "$h/state/observe-only"; fi
+  if [[ -z $d ]]; then systemctl daemon-reload; fi
+}
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  if ((rc)); then set +e; rollback; fi
+  rm -rf "$tmp"
+  exit "$rc"
+}
+trap on_exit EXIT
 mkdir -p "$h" "$h/tooling" "$h/trust" "$h/state" "$h/releases" "$h/data"
 chmod 700 "$h/trust"
-if [[ ! -e $t ]]; then
-  changed=1
+if ((new_tooling)); then
   mkdir -p "$t"
-  for dir in scripts host schemas config; do cp -a "$repo/$dir" "$t/$dir"; done
+  for dir in scripts host schemas config; do mkdir -p "$t/$dir"; cp -R "$repo/$dir/." "$t/$dir/"; done
   python3 -m venv "$t/venv"
   pip=${HOMELAB_PIP:-$t/venv/bin/pip}
   "$pip" install --require-hashes -r "$t/config/release/requirements.txt"
@@ -93,16 +116,30 @@ ln -sfn "$sha" "$h/tooling/current"
 previous_target=
 if [[ -L $h/tooling/previous ]]; then previous_target=$(readlink "$h/tooling/previous"); fi
 find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$previous_target" -exec rm -rf -- {} +
-if (( new_state )); then touch "$h/state/observe-only"; changed=1; fi
+if ((new_state)); then touch "$h/state/observe-only"; fi
 
+changed=$((new_tooling || new_state))
 for pair in "${files[@]}"; do
   path=${pair%%:*}; wanted=${pair#*:}
-  if [[ ! -e $path ]] || ! cmp -s "$path" "$wanted"; then install -D -m 0644 "$wanted" "$path"; changed=1; fi
+  if [[ ! -e $path ]]; then
+    created+=("$path")
+  elif cmp -s "$path" "$wanted"; then
+    continue
+  else
+    [[ -d $backup ]] || echo "backup: $backup"
+    mkdir -p "$(dirname "$backup${path#"$d"}")"
+    cp "$path" "$backup${path#"$d"}"
+    replaced+=("$path")
+  fi
+  install -D -m 0644 "$wanted" "$path"
+  changed=1
 done
-if [[ -z ${DESTDIR:-} ]]; then
+if [[ -z $d ]]; then
   systemctl daemon-reload
   systemctl enable --now homelab-controller.timer
   systemctl enable homelab-backup.timer
   sysctl --load /etc/sysctl.d/90-homelab.conf
 fi
-(( changed )) && echo "installed" || echo "no changes"
+trap - EXIT
+rm -rf "$tmp"
+((changed)) && echo "installed" || echo "no changes"

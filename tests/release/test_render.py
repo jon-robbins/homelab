@@ -53,7 +53,7 @@ def site(root: Path, services=None, plugins=None, markers=("MEDIA_HDD_PATH",)) -
     }
     (folder / "site.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
     (folder / "site.env").write_text(ENV, encoding="utf-8")
-    (folder / "settings.ini").write_text("hello\n", encoding="utf-8")
+    (folder / "settings.ini").write_text("hello $HOME\n", encoding="utf-8")
     (folder / "settings.ini").chmod(0o640)
     return folder
 
@@ -91,7 +91,7 @@ def test_no_marker_without_a_bind_under_a_marker_root(tmp_path):
 def test_config_is_inlined_with_the_source_files_mode(tmp_path, entry):
     module(tmp_path / "platform", configs=[entry])
     result = render(tmp_path / "platform", site(tmp_path), {})
-    assert result.app["configs"]["settings"]["content"] == "hello\n" and "file" not in result.app["configs"]["settings"]
+    assert result.app["configs"]["settings"]["content"] == "hello $$HOME\n" and "file" not in result.app["configs"]["settings"]
     assert demo(result)["configs"][0]["mode"] == 0o640
 
 
