@@ -74,7 +74,7 @@ def fetch_newest(highwater: int, policy: FeedPolicy) -> Candidate | None:
             (record_dir / name).write_bytes(_git(root, "show", f"{ref}:records/{sequence}/{name}"))
         if policy.host_policy is not None:
             # Admission binds the record directory to the feed root; the fetched copy is temporary.
-            record, raw, signature, _ = verify_record(record_dir, replace(policy.host_policy, feed_directory=root))
+            record, raw, signature, _ = verify_record(record_dir, replace(policy.host_policy, feed_directory=str(root)))
         else:
             raw, signature = (
                 (record_dir / "record.json").read_bytes(),

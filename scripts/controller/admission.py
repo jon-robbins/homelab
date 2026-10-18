@@ -19,7 +19,7 @@ class HostPolicy:
     signer_identity: str
     oidc_issuer: str
     trusted_root: Path
-    feed_directory: Path
+    feed_directory: str  # git source of the feed: a URL in production, a path in tests
 
 
 def load_host_policy(path: Path | str) -> HostPolicy:
@@ -44,7 +44,7 @@ def load_host_policy(path: Path | str) -> HostPolicy:
         value["signer_identity"],
         value["oidc_issuer"],
         Path(value["trusted_root"]),
-        Path(value["feed_directory"]),
+        value["feed_directory"],
     )
 
 
@@ -54,7 +54,7 @@ def verify_record(
     """Verify exact record bytes offline, then parse and check the host site."""
     policy = policy if isinstance(policy, HostPolicy) else load_host_policy(policy)
     directory = Path(record_dir)
-    if not directory.resolve().is_relative_to(policy.feed_directory.resolve()):
+    if not directory.resolve().is_relative_to(Path(policy.feed_directory).resolve()):
         raise ValueError("record directory is outside the configured feed directory")
     record_path = directory / "record.json"
     signature_path = directory / "record.sigstore.json"
