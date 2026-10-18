@@ -1,6 +1,7 @@
 services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:4.0.17.2952-ls309@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020
+    pids_limit: 500
     networks: [homelab_net]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

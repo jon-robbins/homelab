@@ -1,6 +1,7 @@
 services:
   homelab-arr-missing-search:
     image: ghcr.io/jon-robbins/homelab/homelab-workers@sha256:6b5fa615d3fdfcf2f49404ac5683b8d683cabdb442787fc63c2d800bfeefa823
+    pids_limit: 100
     entrypoint: ["homelab-arr-missing-search"]
     user: "${PUID}:${PGID}"
     networks: [homelab_net]

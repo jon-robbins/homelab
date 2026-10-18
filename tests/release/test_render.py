@@ -87,6 +87,20 @@ def test_no_marker_without_a_bind_under_a_marker_root(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (None, {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}),
+        ({"driver": "local", "options": {"max-size": "1m", "max-file": "1"}},
+         {"driver": "local", "options": {"max-size": "1m", "max-file": "1"}}),
+    ],
+)
+def test_logging_default_is_added_and_explicit_logging_is_preserved(tmp_path, configured, expected):
+    service = {} if configured is None else {"logging": configured}
+    module(tmp_path / "platform", **service)
+    assert demo(render(tmp_path / "platform", site(tmp_path), {}))["logging"] == expected
+
+
 @pytest.mark.parametrize("entry", [{"source": "settings", "target": "/etc/settings"}, "settings"])
 def test_config_is_inlined_with_the_source_files_mode(tmp_path, entry):
     module(tmp_path / "platform", configs=[entry])

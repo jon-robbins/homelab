@@ -1,6 +1,9 @@
 services:
   plex:
     image: lscr.io/linuxserver/plex:1.43.3.10828-00f62d37d-ls316@sha256:507713a14f9586f827d00c81381ecdcd438009172342b322b62a0e2b65081fdf
+    mem_limit: 8g
+    memswap_limit: 16g
+    pids_limit: 500
     networks: [homelab_net]
     ports: ["32400:32400/tcp"]
     security_opt: ["no-new-privileges:true"]
