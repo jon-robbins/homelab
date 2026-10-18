@@ -25,7 +25,10 @@ DROP = {
     "GraphDriver",
     "RestartCount",
     "Platform",
+    "AppArmorProfile",  # empty until a container first starts
+    "HostConfig.OomKillDisable",  # null vs false across engine versions
 }
+UNORDERED = {"HostConfig.Binds", "HostConfig.Mounts", "Mounts"}
 
 
 def _normal(value: Any, path: str, legacy: Path) -> Any:
@@ -58,11 +61,18 @@ def _normal(value: Any, path: str, legacy: Path) -> Any:
             if f"{path}.{key}" not in DROP and key not in DROP
         }
     if isinstance(value, list):
-        return [_normal(item, path, legacy) for item in value]
+        return _normal_list(value, path, legacy)
     prefix = str(legacy).rstrip("/") + "/"
     if (path.endswith(".Source") or path == "HostConfig.Binds") and isinstance(value, str) and value.startswith(prefix):
         return "/srv/homelab/data/" + value[len(prefix) :]
     return value
+
+
+def _normal_list(value: list[Any], path: str, legacy: Path) -> list[Any] | None:
+    items = [_normal(item, path, legacy) for item in value]
+    if not items:
+        return None  # docker reports unset lists as [] or null depending on how they were created
+    return sorted(items, key=lambda item: json.dumps(item, sort_keys=True)) if path in UNORDERED else items
 
 
 def _diff(left: Any, right: Any, path: str = "") -> list[str]:
@@ -118,7 +128,7 @@ def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapt
             except Exception as error:  # one service failing to create must not hide the rest of the report
                 candidate = error
             finally:
-                adapter.run(["docker", "compose", "-p", "homelab-shadow", "-f", handle.name, "rm", "-f", service])
+                adapter.run(["docker", "compose", "-p", "homelab-shadow", "-f", handle.name, "rm", "-f", "-v", service])
         if isinstance(candidate, Exception):
             print(f"{service}: create failed: {candidate}")
             result = 1
