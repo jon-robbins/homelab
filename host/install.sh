@@ -70,17 +70,40 @@ for pair in "${files[@]}"; do
 done
 (( ! bad )) || exit 1
 
+backup_root=; backup_files=(); created_files=()
+for pair in "${files[@]}"; do
+  path=${pair%%:*}; wanted=${pair#*:}
+  if [[ -e $path ]] && ! cmp -s "$path" "$wanted"; then
+    [[ -n $backup_root ]] || { backup_root=$h/state/install-backup/$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$backup_root"; echo "backup: $backup_root"; }
+    rel=${path#"$d"}; mkdir -p "$backup_root$(dirname "$rel")"; cp "$path" "$backup_root$rel"; backup_files+=("$path:$backup_root$rel")
+  fi
+done
+
 old=
 if [[ -L $h/tooling/current ]]; then old=$(readlink "$h/tooling/current"); fi
+old_previous=; [[ -L $h/tooling/previous ]] && old_previous=$(readlink "$h/tooling/previous")
 new_state=0
 [[ -e $h/state ]] || new_state=1
-changed=0
+tooling_new=0; marker_new=0
+rollback() {
+  local pair path saved
+  set +e
+  for pair in "${backup_files[@]}"; do path=${pair%%:*}; saved=${pair#*:}; mkdir -p "$(dirname "$path")"; cp "$saved" "$path"; done
+  for path in "${created_files[@]}"; do rm -f "$path"; done
+  [[ $tooling_new == 1 ]] && rm -rf "$t"
+  if [[ -n $old ]]; then ln -sfn "$old" "$h/tooling/current"; else rm -f "$h/tooling/current"; fi
+  if [[ -n $old_previous ]]; then ln -sfn "$old_previous" "$h/tooling/previous"; else rm -f "$h/tooling/previous"; fi
+  [[ $marker_new == 1 ]] && rm -f "$h/state/observe-only"
+  [[ -z ${DESTDIR:-} ]] && systemctl daemon-reload
+}
+# shellcheck disable=SC2154
+trap 'rc=$?; trap - ERR; rollback; exit "$rc"' ERR
 mkdir -p "$h" "$h/tooling" "$h/trust" "$h/state" "$h/releases" "$h/data"
 chmod 700 "$h/trust"
 if [[ ! -e $t ]]; then
-  changed=1
+  tooling_new=1
   mkdir -p "$t"
-  for dir in scripts host schemas config; do cp -a "$repo/$dir" "$t/$dir"; done
+  for dir in scripts host schemas config; do mkdir -p "$t/$dir"; cp -R "$repo/$dir/." "$t/$dir/"; done
   python3 -m venv "$t/venv"
   pip=${HOMELAB_PIP:-$t/venv/bin/pip}
   "$pip" install --require-hashes -r "$t/config/release/requirements.txt"
@@ -93,11 +116,12 @@ ln -sfn "$sha" "$h/tooling/current"
 previous_target=
 if [[ -L $h/tooling/previous ]]; then previous_target=$(readlink "$h/tooling/previous"); fi
 find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$previous_target" -exec rm -rf -- {} +
-if (( new_state )); then touch "$h/state/observe-only"; changed=1; fi
+if (( new_state )); then touch "$h/state/observe-only"; marker_new=1; fi
 
 for pair in "${files[@]}"; do
   path=${pair%%:*}; wanted=${pair#*:}
-  if [[ ! -e $path ]] || ! cmp -s "$path" "$wanted"; then install -D -m 0644 "$wanted" "$path"; changed=1; fi
+  if [[ ! -e $path ]]; then created_files+=("$path"); install -D -m 0644 "$wanted" "$path"
+  elif ! cmp -s "$path" "$wanted"; then install -D -m 0644 "$wanted" "$path"; fi
 done
 if [[ -z ${DESTDIR:-} ]]; then
   systemctl daemon-reload
@@ -105,4 +129,4 @@ if [[ -z ${DESTDIR:-} ]]; then
   systemctl enable homelab-backup.timer
   sysctl --load /etc/sysctl.d/90-homelab.conf
 fi
-(( changed )) && echo "installed" || echo "no changes"
+(( ${#backup_files[@]} || tooling_new || marker_new )) && echo "installed" || echo "no changes"

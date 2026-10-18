@@ -4,6 +4,9 @@ set -o errtrace
 DATA_ROOTS="${DATA_ROOTS:-/srv/homelab/data}"; VPN_ROOT="${VPN_ROOT:-/srv/vpn}"; SERVICE_ROOT="${SERVICE_ROOT:-/srv/homelab/data}"
 REPO="${REPO:-/mnt/media-hdd/backups/restic}"; STAGE="${STAGE:-/var/lib/homelab-backup/sqlite}"; EXCLUDES="${EXCLUDES:-/etc/homelab-backup/excludes.txt}"; OFFSITE_REPO="${OFFSITE_REPO:-}"
 export RESTIC_REPOSITORY="$REPO" RESTIC_PASSWORD_FILE=/root/.config/restic/password
+sqlite3() { local bin input; bin=$(type -P sqlite3 || true); if [[ -n $bin ]]; then "$bin" "$@"; return; fi
+  input=$(cat); python3 -c 'import re,sqlite3,sys; a=sys.argv[1:]; sql=a.pop(); db=next(x for x in a if not x.startswith(("-","."))); q=next((x for x in a if x.startswith(".backup")),""); c=sqlite3.connect(db); dest=re.search(r"\x27([^\x27]+)\x27",q).group(1) if q else ""; dest and c.backup(sqlite3.connect(dest)); not q and c.executescript(sql); c.commit()' "$@" "$input"
+}
 is_sqlite() { [[ "$(dd if="$1" bs=15 count=1 status=none 2>/dev/null || true)" == "SQLite format 3" ]]; }
 slim_staged() { local rel="$1" out="$2"; case "$rel" in
   prowlarr/prowlarr.db) sqlite3 "$out" <<'SQL'
