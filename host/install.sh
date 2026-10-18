@@ -116,7 +116,7 @@ ln -sfn "$sha" "$h/tooling/current"
 previous_target=
 if [[ -L $h/tooling/previous ]]; then previous_target=$(readlink "$h/tooling/previous"); fi
 find "$h/tooling" -mindepth 1 -maxdepth 1 -type d ! -name "$sha" ! -name "$previous_target" -exec rm -rf -- {} +
-if (( new_state )); then touch "$h/state/observe-only"; marker_new=1; fi
+if (( new_state )); then marker_new=1; touch "$h/state/observe-only"; fi
 
 for pair in "${files[@]}"; do
   path=${pair%%:*}; wanted=${pair#*:}

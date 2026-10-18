@@ -160,3 +160,20 @@ def test_file_install_failure_restores_old_current_and_prior_files(tmp_path: Pat
         "homelab-backup.service", "homelab-backup.timer",
     ):
         assert not (tmp_path / "etc/systemd/system" / name).exists()
+
+
+def test_touch_failure_removes_new_observe_only_marker(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_touch = fake_bin / "touch"
+    fake_touch.write_text(
+        "#!/bin/sh\n"
+        "/usr/bin/touch \"$@\"\n"
+        "case \"$*\" in *observe-only) exit 7;; esac\n"
+    )
+    fake_touch.chmod(0o755)
+    result = run(tmp_path, env={"PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode == 7
+    assert not (tmp_path / "srv/homelab/state/observe-only").exists()
+    assert not (tmp_path / "srv/homelab/tooling/current").exists()
+    assert not (tmp_path / "srv/homelab/tooling" / SHA).exists()

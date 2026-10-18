@@ -69,10 +69,13 @@ infisical_cutover() {
 if ((CONFIRM)); then
   fail=0
   if [[ -f $STATE/tailscale.json ]]; then
-    saved=$(cat "$STATE/tailscale.json"); now=$(tailscale status --json)
-    python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); assert b.get("BackendState") == "Running" and a["Self"]["TailscaleIPs"][0] == b["Self"]["TailscaleIPs"][0] and a["Self"]["DNSName"] == b["Self"]["DNSName"]' "$saved" "$now" || { echo 'tailscale identity check failed'; fail=1; }
+    saved=$(cat "$STATE/tailscale.json")
+    if ! now=$(tailscale status --json); then echo 'tailscale status failed'; fail=1
+    else
+      python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); assert b.get("BackendState") == "Running" and b["Self"]["TailscaleIPs"][0] and a["Self"]["TailscaleIPs"][0] == b["Self"]["TailscaleIPs"][0] and a["Self"]["DNSName"] == b["Self"]["DNSName"]' "$saved" "$now" || { echo 'tailscale identity check failed'; fail=1; }
+    fi
   fi
-  systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; fail=1; }; if (( ! fail )); then systemctl stop homelab-cutover-deadman.timer; echo confirmed; fi; exit $fail
+  systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; fail=1; }; if (( ! fail )); then systemctl stop homelab-cutover-deadman.timer || { echo 'failed to stop homelab-cutover-deadman.timer'; exit 1; }; echo confirmed; fi; exit $fail
 fi
 if ((ROLLBACK)); then rollback; exit $?; fi
 args=(--unit=homelab-cutover-deadman --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG"); for p in "${MEDIA[@]}"; do args+=(--media-root "$p"); done; args+=(--rollback); run systemd-run "${args[@]}"

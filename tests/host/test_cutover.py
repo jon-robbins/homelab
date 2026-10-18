@@ -13,7 +13,8 @@ SCRIPT = Path(__file__).parents[2] / "host/cutover.sh"
 def setup_host(tmp_path: Path, *, container: bool = True, mismatch: bool = False,
                dns_mismatch: bool = False, inactive: bool = False,
                fail_agent_restart: bool = False, fail_chattr: bool = False,
-               fail_systemd_run: bool = False):
+               fail_systemd_run: bool = False, empty_ip: bool = False,
+               fail_status: bool = False, fail_timer_stop: bool = False):
     root = tmp_path / "root"
     legacy = root / "legacy"
     (legacy / "config/infisical/templates").mkdir(parents=True)
@@ -47,10 +48,12 @@ if n == 'docker':
  elif a[:1] == ['inspect'] and a[-1] == 'c': print(os.environ['SOURCE'])
  elif a[:1] == ['inspect']: print('unless-stopped')
 elif n == 'tailscale' and a[:2] == ['status','--json']:
- print(json.dumps({'BackendState':'Running','Self':{'TailscaleIPs':['9.9.9.9'] if os.environ.get('MISMATCH') else ['1.2.3.4'],'DNSName':'new.ts.net' if os.environ.get('MISMATCH') or os.environ.get('DNS_MISMATCH') else 'old.ts.net'}}))
+ if os.environ.get('FAIL_STATUS'): sys.exit(1)
+ print(json.dumps({'BackendState':'Running','Self':{'TailscaleIPs':[''] if os.environ.get('EMPTY_IP') else ['9.9.9.9'] if os.environ.get('MISMATCH') else ['1.2.3.4'],'DNSName':'new.ts.net' if os.environ.get('MISMATCH') or os.environ.get('DNS_MISMATCH') else 'old.ts.net'}}))
 elif n == 'systemctl':
  if a[:2] == ['is-active','homelab-infisical-agent'] and os.environ.get('INACTIVE'): sys.exit(1)
  if a[:2] == ['restart','homelab-infisical-agent'] and os.environ.get('FAIL_AGENT_RESTART'): sys.exit(1)
+ if a[:2] == ['stop','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_TIMER_STOP'): sys.exit(1)
 elif n == 'chattr' and os.environ.get('FAIL_CHATTR'): sys.exit(1)
 elif n == 'systemd-run' and os.environ.get('FAIL_SYSTEMD_RUN'): sys.exit(1)
 elif n == 'mountpoint': sys.exit(1 if a[-1].endswith('/unmounted') else 0)
@@ -65,7 +68,10 @@ elif n == 'cp': sys.exit(subprocess.call(['/bin/cp', *a]))
                         "DNS_MISMATCH": "1" if dns_mismatch else "", "INACTIVE": "1" if inactive else "",
                         "FAIL_AGENT_RESTART": "1" if fail_agent_restart else "",
                         "FAIL_CHATTR": "1" if fail_chattr else "",
-                        "FAIL_SYSTEMD_RUN": "1" if fail_systemd_run else ""}
+                        "FAIL_SYSTEMD_RUN": "1" if fail_systemd_run else "",
+                        "EMPTY_IP": "1" if empty_ip else "",
+                        "FAIL_STATUS": "1" if fail_status else "",
+                        "FAIL_TIMER_STOP": "1" if fail_timer_stop else ""}
     return root, legacy, media, env, log
 
 
@@ -216,6 +222,52 @@ def test_confirm_inactive_agent_does_not_stop_deadman(tmp_path: Path):
                             capture_output=True)
     assert result.returncode == 1
     assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+
+
+def test_confirm_rejects_empty_first_ip(tmp_path: Path):
+    root, _, _, env, log = setup_host(tmp_path, empty_ip=True)
+    state = root / "srv/homelab/state/cutover"
+    state.mkdir(parents=True)
+    (state / "tailscale.json").write_text(json.dumps({
+        "Self": {"TailscaleIPs": [""], "DNSName": "old.ts.net"}
+    }))
+    env["PATH"] = str(tmp_path / "bin") + ":" + os.environ["PATH"]
+    result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
+                            capture_output=True)
+    assert result.returncode == 1
+    assert "tailscale identity check failed" in result.stdout
+    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+
+
+def test_confirm_reports_status_failure(tmp_path: Path):
+    root, _, _, env, log = setup_host(tmp_path, fail_status=True)
+    state = root / "srv/homelab/state/cutover"
+    state.mkdir(parents=True)
+    (state / "tailscale.json").write_text(json.dumps({
+        "Self": {"TailscaleIPs": ["1.2.3.4"], "DNSName": "old.ts.net"}
+    }))
+    env["PATH"] = str(tmp_path / "bin") + ":" + os.environ["PATH"]
+    result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
+                            capture_output=True)
+    assert result.returncode == 1
+    assert "tailscale status failed" in result.stdout
+    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+
+
+def test_confirm_reports_timer_stop_failure(tmp_path: Path):
+    root, _, _, env, log = setup_host(tmp_path, fail_timer_stop=True)
+    state = root / "srv/homelab/state/cutover"
+    state.mkdir(parents=True)
+    (state / "tailscale.json").write_text(json.dumps({
+        "Self": {"TailscaleIPs": ["1.2.3.4"], "DNSName": "old.ts.net"}
+    }))
+    env["PATH"] = str(tmp_path / "bin") + ":" + os.environ["PATH"]
+    result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
+                            capture_output=True)
+    assert result.returncode == 1
+    assert "failed to stop homelab-cutover-deadman.timer" in result.stdout
+    assert "confirmed" not in result.stdout
+    assert "systemctl stop homelab-cutover-deadman.timer" in log.read_text()
 
 
 def test_agent_restart_failure_runs_rollback(tmp_path: Path):
