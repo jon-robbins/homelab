@@ -10,7 +10,7 @@ slim_staged() { local rel="$1" out="$2"; case "$rel" in
 DELETE FROM History WHERE Date < datetime('now','-7 days'); DELETE FROM Commands; VACUUM;
 SQL
     ;;
-  sonarr/sonarr.db|radarr/radarr.db) sqlite3 "$out" <<'SQL'
+  sonarr/sonarr.db|radarr/radarr.db|readarr/readarr.db|whisparr/whisparr3.db) sqlite3 "$out" <<'SQL'
 DELETE FROM Commands; VACUUM;
 SQL
     ;;
@@ -18,11 +18,15 @@ SQL
 DELETE FROM table_history; DELETE FROM table_history_movie; VACUUM;
 SQL
     ;;
+  tl-intake-gate/intake.sqlite3) sqlite3 "$out" <<'SQL'
+DROP TABLE IF EXISTS outcome_snapshots; DELETE FROM decisions WHERE decided_at < strftime('%s','now','-7 days'); VACUUM;
+SQL
+    ;;
 esac; }
 stage_one_sqlite() { local db="$1" rel="$2" out="$3"; mkdir -p "$(dirname "$out")"; if is_sqlite "$db"; then
   if ! sqlite3 -readonly -cmd ".timeout 60000" "$db" ".backup '$out'" 2>/dev/null; then cp -a "$db" "$out"; echo "homelab-backup: WARN sqlite .backup failed for $rel; raw copy staged instead" >&2; else slim_staged "$rel" "$out"; fi
 else cp -a "$db" "$out"; fi; }
-skip_db() { case "$1" in */logs.db|*/com.plexapp.plugins.library.blobs.db|autobrr.backup.*/*) return 0;; esac; return 1; }
+skip_db() { case "$1" in */logs.db|*/com.plexapp.plugins.library.blobs.db|autobrr.backup.*/*|filebrowser/tmp/*|tl-intake-gate/backups/*|readarr/cache.db|3x-ui/db/*|3x-ui/exports/*|overseerr-pr1918/*) return 0;; esac; return 1; }
 data_roots() { local -a roots; read -ra roots <<< "$DATA_ROOTS"; printf '%s\n' "${roots[@]}"; }
 stage_data() { local root="$1" i="$2" db rel; find "$root" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do rel="${db#"$root"/}"; skip_db "$rel" && continue; stage_one_sqlite "$db" "$rel" "$STAGE/$i/$rel"; done; }
 dry_run_dbs() { local root i=0 db rel; while read -r root; do find "$root" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do rel="${db#"$root"/}"; skip_db "$rel" && continue; printf '%s\n' "$STAGE/$i/$rel"; done; i=$((i + 1)); done < <(data_roots); if [[ -d "$VPN_ROOT" ]]; then find "$VPN_ROOT" -xdev -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -size +0 -print0 | while IFS= read -r -d '' db; do printf '%s\n' "$STAGE/srv/vpn/${db#"$VPN_ROOT"/}"; done; fi; return 0; }

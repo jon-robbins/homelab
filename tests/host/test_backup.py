@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 
 
@@ -84,6 +85,12 @@ def test_nightly_multiroot_stages_and_excludes_live_databases(tmp_path: Path):
     db(first / "nested/logs.db")
     db(first / "plex/com.plexapp.plugins.library.blobs.db")
     db(first / "autobrr.backup.old/state.db")
+    db(first / "filebrowser/tmp/x.db")
+    db(first / "tl-intake-gate/backups/old.sqlite3")
+    db(first / "readarr/cache.db")
+    db(first / "3x-ui/db/x-ui.db")
+    db(first / "3x-ui/exports/x.db")
+    db(first / "overseerr-pr1918/db.sqlite3")
     db(vpn / "vpn.db")
     stage = tmp_path / "stage"
     log, env = tools(tmp_path)
@@ -101,6 +108,8 @@ def test_nightly_multiroot_stages_and_excludes_live_databases(tmp_path: Path):
     assert not (stage / "0/nested/logs.db").exists()
     assert not (stage / "0/plex/com.plexapp.plugins.library.blobs.db").exists()
     assert not (stage / "0/autobrr.backup.old/state.db").exists()
+    for rel in ("filebrowser/tmp/x.db", "tl-intake-gate/backups/old.sqlite3", "readarr/cache.db", "3x-ui/db/x-ui.db", "3x-ui/exports/x.db", "overseerr-pr1918/db.sqlite3"):
+        assert not (stage / "0" / rel).exists()
 
 
 def test_dry_run_prints_arguments_and_staged_database_list_without_calls(tmp_path: Path):
@@ -182,3 +191,26 @@ def test_nightly_failure_pings_deadman_and_missing_file_does_not(tmp_path: Path)
     result = run(script_for(tmp_path), env)
     assert result.returncode == 0, result.stderr
     assert not (tmp_path / "curl.log").exists()
+
+
+def test_nightly_slims_staged_intake_database(tmp_path: Path):
+    root, stage = tmp_path / "data", tmp_path / "stage"
+    live = root / "tl-intake-gate/intake.sqlite3"
+    live.parent.mkdir(parents=True)
+    with sqlite3.connect(live) as conn:
+        conn.executescript(
+            "CREATE TABLE outcome_snapshots (x); INSERT INTO outcome_snapshots VALUES (1);"
+            "CREATE TABLE decisions (decided_at INTEGER);"
+            "INSERT INTO decisions VALUES (0), (strftime('%s','now'));"
+        )
+    log, env = tools(tmp_path)
+    (tmp_path / "bin/sqlite3").unlink()
+    env.update(DATA_ROOTS=str(root), VPN_ROOT=str(tmp_path / "vpn"), STAGE=str(stage), REPO=str(tmp_path / "repo"))
+    result = run(script_for(tmp_path), env)
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(stage / "0/tl-intake-gate/intake.sqlite3") as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert tables == {"decisions"}
+        assert conn.execute("SELECT count(*) FROM decisions").fetchone() == (1,)
+    with sqlite3.connect(live) as conn:
+        assert conn.execute("SELECT count(*) FROM outcome_snapshots").fetchone() == (1,)
