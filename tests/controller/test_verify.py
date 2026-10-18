@@ -56,6 +56,16 @@ def test_policy_is_closed_and_versioned(tmp_path, change):
         load_host_policy(path)
 
 
+def test_policy_keeps_feed_url_verbatim(tmp_path):
+    url = "https://github.com/owner/site.git"
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps({
+        "schema": 1, "site_id": "s", "signer_identity": "i", "oidc_issuer": "o",
+        "trusted_root": "/root", "feed_directory": url,
+    }))
+    assert load_host_policy(path).feed_directory == url
+
+
 def test_policy_rejects_duplicate_schema_key(tmp_path):
     path = tmp_path / "policy.json"
     path.write_text(
