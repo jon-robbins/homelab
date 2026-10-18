@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT=${ROOT:-}; DRY=0; ROLLBACK=0; CONFIRM=0; LEGACY=; MEDIA=()
 while (($#)); do
@@ -75,7 +75,7 @@ if ((CONFIRM)); then
   systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; fail=1; }; if (( ! fail )); then systemctl stop homelab-cutover-deadman.timer; echo confirmed; fi; exit $fail
 fi
 if ((ROLLBACK)); then rollback; exit $?; fi
-args=(--unit=homelab-cutover-deadman --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG"); for p in "${MEDIA[@]}"; do args+=(--media-root "$p"); done; args+=(--rollback); run systemd-run "${args[@]}" || :
+args=(--unit=homelab-cutover-deadman --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG"); for p in "${MEDIA[@]}"; do args+=(--media-root "$p"); done; args+=(--rollback); run systemd-run "${args[@]}"
 # shellcheck disable=SC2154
 trap 'rc=$?; trap - ERR; rollback || :; exit "$rc"' ERR
 run mkdir -p "$STATE"; tailscale_cutover; run systemctl disable --now homelab-boot-orchestrator.service; infisical_cutover
