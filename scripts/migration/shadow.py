@@ -60,7 +60,7 @@ def _normal(value: Any, path: str, legacy: Path) -> Any:
     if isinstance(value, list):
         return [_normal(item, path, legacy) for item in value]
     prefix = str(legacy).rstrip("/") + "/"
-    if path.endswith(".Source") and isinstance(value, str) and value.startswith(prefix):
+    if (path.endswith(".Source") or path == "HostConfig.Binds") and isinstance(value, str) and value.startswith(prefix):
         return "/srv/homelab/data/" + value[len(prefix) :]
     return value
 
@@ -89,6 +89,11 @@ def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapt
         running = adapter.inspect(service, "homelab")
         definition = json.loads(json.dumps(model))
         definition["services"][service].pop("container_name", None)
+        # disk markers exist only after cutover, and legacy containers never bind them
+        volumes = definition["services"][service].get("volumes") or []
+        definition["services"][service]["volumes"] = [
+            volume for volume in volumes if not str(volume.get("target", "")).startswith("/homelab-markers/")
+        ]
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:  # releases are read-only
             json.dump(definition, handle)
             handle.flush()
@@ -110,8 +115,14 @@ def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapt
                     ]
                 )
                 candidate = adapter.inspect(service, "homelab-shadow")
+            except Exception as error:  # one service failing to create must not hide the rest of the report
+                candidate = error
             finally:
                 adapter.run(["docker", "compose", "-p", "homelab-shadow", "-f", handle.name, "rm", "-f", service])
+        if isinstance(candidate, Exception):
+            print(f"{service}: create failed: {candidate}")
+            result = 1
+            continue
         if running is None:
             print(f"{service}: not running")
             result = 1
@@ -119,7 +130,7 @@ def shadow(release: Path, legacy: Path, services: list[str] | None = None, adapt
         differences = _diff(_normal(running, "", legacy), _normal(candidate, "", legacy))
         if differences:
             result = 1
-            print("\n".join(differences))
+            print("\n".join(f"{service}: {line}" for line in differences))
         else:
             print(f"{service}: clean")
     return result
