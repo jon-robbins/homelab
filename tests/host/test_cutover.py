@@ -20,7 +20,9 @@ def setup_host(tmp_path: Path, *, container: bool = True, mismatch: bool = False
     (legacy / "config/infisical/templates").mkdir(parents=True)
     (legacy / "config/infisical/templates/KEY.tmpl").write_text("key")
     (root / "srv/homelab/tooling/current/venv/bin").mkdir(parents=True)
-    (root / "srv/homelab/tooling/current/venv/bin/python").symlink_to(sys.executable)
+    python = root / "srv/homelab/tooling/current/venv/bin/python"
+    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')  # a symlink would lose the test venv
+    python.chmod(0o755)
     (root / "etc/infisical-agent").mkdir(parents=True)
     (root / "etc/infisical-agent/config.yaml").write_text(
         "items:\n  - source-path: %s\n    commands: [bad]\n"
