@@ -75,12 +75,7 @@ def test_catalog_render_has_production_limits_and_service_settings():
     qbt_events = services["homelab-qbt-events"]
     assert qbt_events["user"] == "1000:1000"
     assert qbt_events["labels"]["homelab.state"] == "stateful"
-    assert qbt_events["volumes"] == [
-        {
-            "type": "bind",
-            "source": "/tmp/homelab-catalog/data/qbt-events",
-            "target": "/state",
-            "bind": {"create_host_path": False},
-        }
-    ]
+    [state] = qbt_events["volumes"]
+    assert (state["type"], state["source"], state["target"]) == ("bind", "/tmp/homelab-catalog/data/qbt-events", "/state")
+    assert not state.get("bind", {}).get("create_host_path")  # compose prints false as an empty bind block
     assert services["jellyfin"]["group_add"] == ["video"]

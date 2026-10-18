@@ -78,12 +78,7 @@ def _compose(files: list[Path], tier: str, site: Path, directory: Path) -> dict[
     result = subprocess.run(command, cwd=directory, env={"PATH": os.environ["PATH"]}, capture_output=True, text=True)
     if result.returncode:
         raise ValidationError("$", f"docker compose config failed: {result.stderr.strip()}")
-    model = json.loads(result.stdout)
-    for service in (model.get("services") or {}).values():
-        for volume in service.get("volumes") or []:
-            if volume.get("type") == "bind" and not volume.get("bind"):
-                volume["bind"] = {"create_host_path": False}
-    return model
+    return json.loads(result.stdout)
 
 
 def _inline_configs(model: dict[str, Any]) -> None:
