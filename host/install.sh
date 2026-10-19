@@ -46,6 +46,11 @@ printf '%s\n' \
   /etc/systemd/system/homelab-controller.timer \
   /etc/sysctl.d/90-homelab.conf \
   /var/lib/tailscale >"$tmp/HOST-FILES"
+# Keep the lines cutover.sh appended (files it installed); install only owns its own.
+if [[ -f $h/HOST-FILES ]]; then
+  grep -Fxvf "$tmp/HOST-FILES" "$h/HOST-FILES" >"$tmp/kept" || true
+  cat "$tmp/kept" >>"$tmp/HOST-FILES"
+fi
 
 files=(
   "$d/etc/systemd/system/homelab-controller.service:$tmp/controller.service"
