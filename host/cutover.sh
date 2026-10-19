@@ -27,6 +27,7 @@ SCRIPT=$(realpath "$0")
 LEGACY=$(P "$LEGACY_ARG")
 STATE=$(P /srv/homelab/state/cutover)
 TS_DIR=$(P /var/lib/tailscale)
+RESOLV=$(P /etc/resolv.conf)
 CONFIG=$(P /etc/infisical-agent/config.yaml)
 DROPIN=$(P /etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf)
 HOST_FILES=$(P /srv/homelab/HOST-FILES)
@@ -71,6 +72,11 @@ unmark_media() {
   set_immutable "$root" -i && run rm -f "$(P "$root")/.homelab-mounted"
 }
 
+restore_resolv() {
+  [[ -f $STATE/resolv-link ]] || return 0
+  run ln -sfn "$(cat "$STATE/resolv-link")" "$RESOLV"
+}
+
 tailscale_cutover() {
   local c status src host ip dns state now_ip now_dns i
   c=$(docker ps -q --filter label=com.docker.compose.project=homelab --filter label=com.docker.compose.service=tailscale)
@@ -89,13 +95,18 @@ tailscale_cutover() {
   run sh -c 'printf "%s\n" "$1" > "$2"' _ "$src" "$STATE/tailscale-source"
   run docker stop "$c"
   run cp -a "$src/." "$TS_DIR/"
+  # The container never managed host DNS. The host daemon starts with the container's prefs, accepts tailnet DNS
+  # and replaces resolv.conf with MagicDNS only, which has no upstream for public names on this tailnet. Turning
+  # the pref off does not put the file back, so the original link is restored by hand.
+  local resolv
+  resolv=$(readlink "$RESOLV") || resolv=
+  [[ -z $resolv ]] || run sh -c 'printf "%s\n" "$1" > "$2"' _ "$resolv" "$STATE/resolv-link"
   run systemctl unmask tailscaled
   run systemctl enable --now tailscaled
-  # The container never managed host DNS. With it accepted, resolv.conf points only at MagicDNS, which has no
-  # upstream for public names on this tailnet, so every public lookup fails.
   if ((DRY)); then
     echo '[dry-run] wait for tailscale BackendState=Running'
     run tailscale set "--hostname=$host" --accept-dns=false
+    restore_resolv
     return 0
   fi
 
@@ -107,6 +118,7 @@ tailscale_cutover() {
   done
   [[ $state == Running ]] || { echo 'tailscale did not reach BackendState=Running' >&2; return 1; }
   run tailscale set "--hostname=$host" --accept-dns=false
+  restore_resolv
   IFS='|' read -r _ _ now_ip now_dns <<<"$(tailscale status --json | ts_fields)"
   [[ $now_ip == "$ip" && $now_dns == "$dns" ]] || { echo 'tailscale identity mismatch' >&2; return 1; }
   run docker rm "$c"
@@ -197,6 +209,7 @@ rollback() {
     src=$(cat "$STATE/tailscale-source")
     undo systemctl disable --now tailscaled
     undo systemctl mask tailscaled
+    undo restore_resolv
     undo cp -a "$TS_DIR/." "$src/"
     undo docker compose -p homelab -f "$LEGACY/docker-compose.yml" up -d --no-deps tailscale
   fi
