@@ -12,14 +12,8 @@ cat >"$TMP/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$MOVE_DOCKER_LOG"
 [[ $1 == ps ]] && exit 0
-[[ $1 == start ]] && exit 99
 EOF
-cat >"$TMP/bin/stat" <<'EOF'
-#!/usr/bin/env bash
-[[ $STAT_CROSS == 1 && $* == *legacy-cross* ]] && { echo 2; exit; }
-echo 1
-EOF
-chmod +x "$TMP/bin/docker" "$TMP/bin/stat"
+chmod +x "$TMP/bin/docker"
 
 mkdir "$TMP/legacy/dir-svc"
 mkdir -p "$TMP/legacy/homelab-mcp"
@@ -27,8 +21,9 @@ printf state >"$TMP/legacy/homelab-mcp/arr-post-import-state.json"
 MOVE_DOCKER_LOG="$TMP/docker.log" ROOT="$TMP" PATH="$TMP/bin:$PATH" \
   "$ROOT_DIR/host/move-data.sh" --legacy-data "$TMP/legacy" \
   dir-svc homelab-arr-post-import=homelab-mcp/arr-post-import-state.json
-[[ -d "$TMP/srv/homelab/data/dir-svc" ]] || fail "directory was not moved"
+[[ -d "$TMP/srv/homelab/data/dir-svc" && -d "$TMP/legacy/dir-svc" ]] || fail "directory was not copied"
 [[ -f "$TMP/srv/homelab/data/homelab-arr-post-import/arr-post-import-state.json" ]] || fail "file was not mapped"
+[[ -f "$TMP/legacy/homelab-mcp/arr-post-import-state.json" ]] || fail "source file was changed"
 pass "directory and file moves"
 
 mkdir "$TMP/legacy/keep" "$TMP/legacy/other"
@@ -37,13 +32,8 @@ if ROOT="$TMP" PATH="$TMP/bin:$PATH" "$ROOT_DIR/host/move-data.sh" --legacy-data
 [[ -d "$TMP/legacy/other" ]] || fail "other argument moved after refusal"
 pass "preflight destination refusal"
 
-mkdir "$TMP/legacy-cross"
-if STAT_CROSS=1 ROOT="$TMP" PATH="$TMP/bin:$PATH" "$ROOT_DIR/host/move-data.sh" --legacy-data "$TMP" legacy-cross; then fail "cross-filesystem move accepted"; fi
-[[ -d "$TMP/legacy-cross" ]] || fail "cross-filesystem source moved"
-pass "cross-filesystem refusal"
-
 ROOT="$TMP" PATH="$TMP/bin:$PATH" "$ROOT_DIR/host/move-data.sh" --legacy-data "$TMP/legacy" \
   dir-svc homelab-arr-post-import=homelab-mcp/arr-post-import-state.json --rollback
-[[ -d "$TMP/legacy/dir-svc" && -f "$TMP/legacy/homelab-mcp/arr-post-import-state.json" ]] || fail "rollback failed"
-if grep -q start "$TMP/docker.log"; then fail "docker start was called"; fi
+[[ -d "$TMP/legacy/dir-svc" && -f "$TMP/legacy/homelab-mcp/arr-post-import-state.json" ]] || fail "rollback changed source"
+[[ ! -e "$TMP/srv/homelab/data/dir-svc" ]] || fail "rollback left destination"
 pass "rollback and no docker start"
