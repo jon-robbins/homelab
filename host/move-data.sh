@@ -22,6 +22,8 @@ destinations=()
 total=0
 for spec in "${specs[@]}"; do
   svc=${spec%%=*}
+  # rollback runs rm -rf $data/$svc: an empty or path-like name would reach outside one service's directory
+  [[ -n $svc && $svc != *[/]* && $svc != .. && $svc != . ]] || { echo "bad service name: $spec" >&2; exit 1; }
   path=$svc
   [[ $spec == *=* ]] && path=${spec#*=}
   src=$legacy/$path
