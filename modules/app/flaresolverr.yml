@@ -1,6 +1,9 @@
 services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:v3.4.6@sha256:7962759d99d7e125e108e0f5e7f3cdbcd36161776d058d1d9b7153b92ef1af9e
+    mem_limit: 2g
+    memswap_limit: 4g
+    pids_limit: 500
     networks: [homelab_net]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]

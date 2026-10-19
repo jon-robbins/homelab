@@ -1,6 +1,9 @@
 services:
   autobrr:
     image: ghcr.io/autobrr/autobrr:v1.85.0@sha256:f7594d15dfe9a59e7bbc4bce8aee437a1d440d60b350e2ee74331c0d4ec01928
+    mem_limit: 512m
+    memswap_limit: 1g
+    pids_limit: 200
     networks: [homelab_net]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]

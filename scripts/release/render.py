@@ -118,6 +118,14 @@ def _add_markers(model: dict[str, Any], site: Site) -> None:
                 )
 
 
+def _add_logging_defaults(model: dict[str, Any]) -> None:
+    for service in (model.get("services") or {}).values():
+        service.setdefault(
+            "logging",
+            {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}},
+        )
+
+
 def render(platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Rendered:
     platform = Path(platform).resolve()
     site = load_site(site_dir, platform, plugins)
@@ -144,6 +152,7 @@ def render(platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Rende
         if model:
             _inline_configs(model)
             _add_markers(model, site)
+            _add_logging_defaults(model)
             check_policy(model, ctx)
     return Rendered(models["app"], models["edge"])
 

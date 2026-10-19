@@ -1,6 +1,9 @@
 services:
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:5.1.4-r3-ls451@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2
+    mem_limit: 4g
+    memswap_limit: 8g
+    pids_limit: 200
     networks: [homelab_net]
     ports: ["51423:51423/tcp", "51423:51423/udp"]
     security_opt: ["no-new-privileges:true"]
