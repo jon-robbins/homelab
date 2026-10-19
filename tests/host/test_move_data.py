@@ -83,3 +83,14 @@ def test_bad_args_print_usage_and_exit_two():
     result = subprocess.run([str(SCRIPT)], text=True, capture_output=True)
     assert result.returncode == 2
     assert "usage: move-data.sh --legacy-data DIR [--rollback] SVC[=PATH]..." in result.stderr
+
+
+def test_bad_service_names_refused_before_any_change(tmp_path):
+    root, legacy = tmp_path / "root", tmp_path / "legacy"
+    data = root / "srv/homelab/data"
+    (data / "kept").mkdir(parents=True)
+    (legacy / "x").mkdir(parents=True)
+    for spec in ("=x", "../x", "a/b=x", ".."):
+        result = run(root, legacy, spec, "--rollback")
+        assert result.returncode == 1 and "bad service name" in result.stderr
+        assert (data / "kept").is_dir()
