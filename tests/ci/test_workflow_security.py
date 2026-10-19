@@ -529,7 +529,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
         check = next(step for step in image_builds["steps"] if step.get("if") == "matrix.check_version")
         self.assertIn("--cap-drop ALL --security-opt no-new-privileges:true", check["run"])
-        self.assertIn(" version", check["run"])
+        self.assertIn(" version)", check["run"])
+        self.assertIn('"v$base "*', check["run"])
 
         public_readiness = workflow["jobs"]["public-readiness"]
         self.assertEqual(

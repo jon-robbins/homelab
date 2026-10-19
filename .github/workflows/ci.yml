@@ -157,8 +157,13 @@ jobs:
       - name: Check Caddy version without capabilities
         if: matrix.check_version
         env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
           JOB_INDEX: ${{ strategy.job-index }}
-        run: docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "ci-$JOB_INDEX" version
+        run: |
+          version=$(docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "ci-$JOB_INDEX" version)
+          base=$(sed -n 's/^FROM caddy:\([0-9.]*\)$/\1/p' "$DOCKERFILE")
+          echo "caddy $version; base image $base"
+          case $version in "v$base "*) ;; *) exit 1 ;; esac
 
   public-readiness:
     runs-on: ubuntu-latest
