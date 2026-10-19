@@ -25,6 +25,7 @@ def setup_host(tmp_path: Path, *, container: bool = True, mismatch: bool = False
     (root / "srv/homelab/tooling/current/config/infisical/templates").mkdir(parents=True)
     (root / "srv/homelab/tooling/current/config/infisical/templates/KEY.tmpl").write_text("tooling key")
     (root / "etc/systemd/system").mkdir(parents=True)
+    (root / "etc/resolv.conf").symlink_to("/run/systemd/resolve/resolv.conf")
     (root / "srv/homelab/tooling/current/venv/bin").mkdir(parents=True)
     python = root / "srv/homelab/tooling/current/venv/bin/python"
     python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')  # a symlink would lose the test venv
@@ -63,6 +64,10 @@ elif n == 'systemctl':
  if a[:2] == ['restart','homelab-infisical-agent'] and os.environ.get('FAIL_AGENT_RESTART'): sys.exit(1)
  if a[:3] == ['disable','--now','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_TIMER_STOP'): sys.exit(1)
  if a[:3] == ['enable','--now','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_DEADMAN'): sys.exit(1)
+ if a[:3] == ['enable','--now','tailscaled']:  # like tailscaled taking over DNS on start
+  resolv = pathlib.Path(os.environ['ROOT'], 'etc/resolv.conf')
+  resolv.unlink()
+  resolv.write_text('magicdns only')
 elif n == 'chattr' and os.environ.get('FAIL_CHATTR'): sys.exit(1)
 elif n == 'mountpoint': sys.exit(1 if a[-1].endswith('/unmounted') else 0)
 elif n == 'cp': sys.exit(subprocess.call(['/bin/cp', *a]))
@@ -119,6 +124,7 @@ def test_cutover_rewrites_config_and_rollback(tmp_path: Path):
     timer = (units / "homelab-cutover-deadman.timer").read_text()
     assert "OnActiveSec=10min" in timer and "WantedBy=timers.target" in timer
     assert "tailscale set --hostname=old --accept-dns=false" in forward
+    assert os.readlink(root / "etc/resolv.conf") == "/run/systemd/resolve/resolv.conf"
     assert "3x-ui restart policy: unless-stopped" in result.stdout
     assert "cutover done; automatic rollback in 10 min unless confirmed." in result.stdout
     assert f"From a new SSH session over Tailscale run: {SCRIPT.resolve()} --confirm" in result.stdout
