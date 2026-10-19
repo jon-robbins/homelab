@@ -1,7 +1,7 @@
 FROM caddy:2.11.7-builder AS builder
-RUN xcaddy build v2.11.2 \
+RUN xcaddy build \
     --with github.com/caddy-dns/cloudflare@v0.2.4 \
-    --with github.com/lucaslorentz/caddy-docker-proxy/v2@v2.12.0
+    && setcap -r /usr/bin/caddy
 
 FROM busybox:musl AS busybox
 
