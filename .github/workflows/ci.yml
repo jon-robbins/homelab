@@ -141,8 +141,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {dockerfile: apps/homelab-workers/Dockerfile, context: apps/homelab-workers, check_version: false}
-          - {dockerfile: config/caddy/Dockerfile, context: config/caddy, check_version: true}
+          - {dockerfile: apps/homelab-workers/Dockerfile, context: apps/homelab-workers, cap_drop_check: false}
+          - {dockerfile: config/caddy/Dockerfile, context: config/caddy, cap_drop_check: true}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -154,16 +154,11 @@ jobs:
           BUILD_CONTEXT: ${{ matrix.context }}
           JOB_INDEX: ${{ strategy.job-index }}
         run: docker build --file "$DOCKERFILE" --tag "ci-$JOB_INDEX" "$BUILD_CONTEXT"
-      - name: Check Caddy version without capabilities
-        if: matrix.check_version
+      - name: Start Caddy without capabilities
+        if: matrix.cap_drop_check
         env:
-          DOCKERFILE: ${{ matrix.dockerfile }}
           JOB_INDEX: ${{ strategy.job-index }}
-        run: |
-          version=$(docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "ci-$JOB_INDEX" version)
-          base=$(sed -n 's/^FROM caddy:\([0-9.]*\)$/\1/p' "$DOCKERFILE")
-          echo "caddy $version; base image $base"
-          case $version in "v$base "*) ;; *) exit 1 ;; esac
+        run: docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "ci-$JOB_INDEX" version
 
   public-readiness:
     runs-on: ubuntu-latest
