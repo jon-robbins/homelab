@@ -103,6 +103,15 @@ def test_host_files_dropin_and_no_infisical_unit(tmp_path: Path):
     assert not list((tmp_path / "etc").rglob("homelab-infisical-agent.*"))
 
 
+def test_keeps_host_files_lines_added_by_cutover(tmp_path: Path):
+    assert run(tmp_path).returncode == 0
+    host_files = tmp_path / "srv/homelab/HOST-FILES"
+    dropin = "/etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf\n"
+    host_files.write_text(host_files.read_text() + dropin)
+    again = run(tmp_path)
+    assert again.returncode == 0 and "no changes" in again.stdout
+    assert host_files.read_text().endswith(dropin)
+
 def test_units_verify_with_systemd_analyze(tmp_path: Path):
     systemd_analyze = shutil.which("systemd-analyze")
     if systemd_analyze is None:
