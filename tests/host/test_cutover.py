@@ -13,12 +13,18 @@ SCRIPT = Path(__file__).parents[2] / "host/cutover.sh"
 def setup_host(tmp_path: Path, *, container: bool = True, mismatch: bool = False,
                dns_mismatch: bool = False, inactive: bool = False,
                fail_agent_restart: bool = False, fail_chattr: bool = False,
-               fail_systemd_run: bool = False, empty_ip: bool = False,
-               fail_status: bool = False, fail_timer_stop: bool = False):
+               fail_deadman: bool = False, empty_ip: bool = False,
+               fail_status: bool = False, fail_timer_stop: bool = False,
+               legacy_templates: bool = True):
     root = tmp_path / "root"
     legacy = root / "legacy"
-    (legacy / "config/infisical/templates").mkdir(parents=True)
-    (legacy / "config/infisical/templates/KEY.tmpl").write_text("key")
+    legacy.mkdir(parents=True)
+    if legacy_templates:
+        (legacy / "config/infisical/templates").mkdir(parents=True)
+        (legacy / "config/infisical/templates/KEY.tmpl").write_text("key")
+    (root / "srv/homelab/tooling/current/config/infisical/templates").mkdir(parents=True)
+    (root / "srv/homelab/tooling/current/config/infisical/templates/KEY.tmpl").write_text("tooling key")
+    (root / "etc/systemd/system").mkdir(parents=True)
     (root / "srv/homelab/tooling/current/venv/bin").mkdir(parents=True)
     python = root / "srv/homelab/tooling/current/venv/bin/python"
     python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')  # a symlink would lose the test venv
@@ -55,22 +61,22 @@ elif n == 'tailscale' and a[:2] == ['status','--json']:
 elif n == 'systemctl':
  if a[:2] == ['is-active','homelab-infisical-agent'] and os.environ.get('INACTIVE'): sys.exit(1)
  if a[:2] == ['restart','homelab-infisical-agent'] and os.environ.get('FAIL_AGENT_RESTART'): sys.exit(1)
- if a[:2] == ['stop','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_TIMER_STOP'): sys.exit(1)
+ if a[:3] == ['disable','--now','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_TIMER_STOP'): sys.exit(1)
+ if a[:3] == ['enable','--now','homelab-cutover-deadman.timer'] and os.environ.get('FAIL_DEADMAN'): sys.exit(1)
 elif n == 'chattr' and os.environ.get('FAIL_CHATTR'): sys.exit(1)
-elif n == 'systemd-run' and os.environ.get('FAIL_SYSTEMD_RUN'): sys.exit(1)
 elif n == 'mountpoint': sys.exit(1 if a[-1].endswith('/unmounted') else 0)
 elif n == 'cp': sys.exit(subprocess.call(['/bin/cp', *a]))
 """
     )
     fake.chmod(0o755)
-    for name in "docker systemctl systemd-run tailscale mountpoint mount umount chattr cp".split():
+    for name in "docker systemctl tailscale mountpoint mount umount chattr cp".split():
         (bindir / name).symlink_to(fake)
     env = os.environ | {"ROOT": str(root), "LOG": str(log), "SOURCE": "/tailscale-source",
                         "CONTAINER": "1" if container else "", "MISMATCH": "1" if mismatch else "",
                         "DNS_MISMATCH": "1" if dns_mismatch else "", "INACTIVE": "1" if inactive else "",
                         "FAIL_AGENT_RESTART": "1" if fail_agent_restart else "",
                         "FAIL_CHATTR": "1" if fail_chattr else "",
-                        "FAIL_SYSTEMD_RUN": "1" if fail_systemd_run else "",
+                        "FAIL_DEADMAN": "1" if fail_deadman else "",
                         "EMPTY_IP": "1" if empty_ip else "",
                         "FAIL_STATUS": "1" if fail_status else "",
                         "FAIL_TIMER_STOP": "1" if fail_timer_stop else ""}
@@ -106,9 +112,13 @@ def test_cutover_rewrites_config_and_rollback(tmp_path: Path):
     assert at("docker rm c") < at("systemctl disable --now homelab-boot-orchestrator.service")
     assert at("systemctl restart homelab-infisical-agent") < at("mountpoint -q")
     assert at("chattr +i") < at("docker inspect -f {{.HostConfig.RestartPolicy.Name}} 3x-ui")
-    assert at("systemd-run --unit=homelab-cutover-deadman") < at("docker stop c")
-    assert "--legacy-root /legacy --media-root /media --media-root /unmounted --rollback" in next(
-        line for line in forward if line.startswith("systemd-run "))
+    assert at("systemctl enable --now homelab-cutover-deadman.timer") < at("docker stop c")
+    units = root / "etc/systemd/system"
+    assert (f"ExecStart={SCRIPT.resolve()} --legacy-root /legacy --media-root /media --media-root /unmounted "
+            "--rollback") in (units / "homelab-cutover-deadman.service").read_text()
+    timer = (units / "homelab-cutover-deadman.timer").read_text()
+    assert "OnActiveSec=10min" in timer and "WantedBy=timers.target" in timer
+    assert "tailscale set --hostname=old --accept-dns=false" in forward
     assert "3x-ui restart policy: unless-stopped" in result.stdout
     assert "cutover done; automatic rollback in 10 min unless confirmed." in result.stdout
     assert f"From a new SSH session over Tailscale run: {SCRIPT.resolve()} --confirm" in result.stdout
@@ -136,6 +146,15 @@ def test_cutover_rewrites_config_and_rollback(tmp_path: Path):
     assert f"docker compose -p homelab -f {legacy}/docker-compose.yml up -d --no-deps tailscale" in rollback
     assert not any(line.startswith("chattr ") and line.endswith("/unmounted")
                    for line in rollback)
+    assert "systemctl disable --now homelab-cutover-deadman.timer" in rollback
+    assert not (units / "homelab-cutover-deadman.timer").exists()
+    assert not (units / "homelab-cutover-deadman.service").exists()
+
+
+def test_missing_legacy_templates_come_from_tooling(tmp_path: Path):
+    result, root, _, _ = run_cutover(tmp_path, legacy_templates=False)
+    assert result.returncode == 0, result.stderr
+    assert (root / "srv/homelab/infisical/templates/KEY.tmpl").read_text() == "tooling key"
 
 
 def test_dry_run_does_not_mutate(tmp_path: Path):
@@ -147,8 +166,9 @@ def test_dry_run_does_not_mutate(tmp_path: Path):
     assert f"mount --bind {root}/ {root}/tmp/homelab-cutover.XXXXXX" in result.stdout
     assert "tailscale.json" in result.stdout and r"docker\ exec" in result.stdout
     assert "tailscale-source" in result.stdout and "printf" in result.stdout
-    assert "[dry-run] systemd-run --unit=homelab-cutover-deadman" in result.stdout
-    assert "systemd-run " not in log.read_text()
+    assert "[dry-run] systemctl enable --now homelab-cutover-deadman.timer" in result.stdout
+    assert "homelab-cutover-deadman" not in log.read_text()
+    assert not (root / "etc/systemd/system/homelab-cutover-deadman.timer").exists()
     assert not (root / "srv/homelab/state/cutover/tailscale.json").exists()
     assert not (root / "srv/homelab/state/cutover/tailscale-source").exists()
 
@@ -176,12 +196,10 @@ def test_missing_tailscale_is_skipped(tmp_path: Path):
 
 
 def test_deadman_failure_stops_before_mutation(tmp_path: Path):
-    result, _, _, log = run_cutover(tmp_path, fail_systemd_run=True)
+    result, root, _, log = run_cutover(tmp_path, fail_deadman=True)
     assert result.returncode != 0
-    assert log.read_text().splitlines() == [
-        "systemd-run --unit=homelab-cutover-deadman --on-active=10min "
-        f"{SCRIPT.resolve()} --legacy-root /legacy --media-root /media --rollback"
-    ]
+    assert all(line.startswith("systemctl ") for line in log.read_text().splitlines())
+    assert not (root / "etc/systemd/system/homelab-cutover-deadman.timer").exists()
 
 
 def test_confirm_stops_deadman_when_identity_and_agent_are_ok(tmp_path: Path):
@@ -195,7 +213,7 @@ def test_confirm_stops_deadman_when_identity_and_agent_are_ok(tmp_path: Path):
     result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
                             capture_output=True)
     assert result.returncode == 0 and result.stdout.strip() == "confirmed"
-    assert "systemctl stop homelab-cutover-deadman.timer" in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" in log.read_text()
 
 
 def test_confirm_identity_mismatch_does_not_stop_deadman(tmp_path: Path):
@@ -209,7 +227,7 @@ def test_confirm_identity_mismatch_does_not_stop_deadman(tmp_path: Path):
     result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
                             capture_output=True)
     assert result.returncode == 1
-    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" not in log.read_text()
 
 
 def test_confirm_inactive_agent_does_not_stop_deadman(tmp_path: Path):
@@ -223,7 +241,7 @@ def test_confirm_inactive_agent_does_not_stop_deadman(tmp_path: Path):
     result = subprocess.run([str(SCRIPT), "--confirm"], env=env, text=True,
                             capture_output=True)
     assert result.returncode == 1
-    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" not in log.read_text()
 
 
 def test_confirm_rejects_empty_first_ip(tmp_path: Path):
@@ -238,7 +256,7 @@ def test_confirm_rejects_empty_first_ip(tmp_path: Path):
                             capture_output=True)
     assert result.returncode == 1
     assert "tailscale identity check failed" in result.stdout
-    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" not in log.read_text()
 
 
 def test_confirm_reports_status_failure(tmp_path: Path):
@@ -253,7 +271,7 @@ def test_confirm_reports_status_failure(tmp_path: Path):
                             capture_output=True)
     assert result.returncode == 1
     assert "tailscale status failed" in result.stdout
-    assert "systemctl stop homelab-cutover-deadman.timer" not in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" not in log.read_text()
 
 
 def test_confirm_reports_timer_stop_failure(tmp_path: Path):
@@ -269,7 +287,7 @@ def test_confirm_reports_timer_stop_failure(tmp_path: Path):
     assert result.returncode == 1
     assert "failed to stop homelab-cutover-deadman.timer" in result.stdout
     assert "confirmed" not in result.stdout
-    assert "systemctl stop homelab-cutover-deadman.timer" in log.read_text()
+    assert "systemctl disable --now homelab-cutover-deadman.timer" in log.read_text()
 
 
 def test_agent_restart_failure_runs_rollback(tmp_path: Path):

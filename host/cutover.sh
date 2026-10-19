@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Move host duties off the legacy stack: Tailscale from its container to the host daemon, the Infisical agent onto
 # /srv/homelab, the boot orchestrator off, and disk markers onto the media roots. A dead-man timer runs --rollback
-# unless --confirm succeeds from a new SSH session over Tailscale within 10 minutes.
+# unless --confirm succeeds from a new SSH session over Tailscale within 10 minutes. The timer is an enabled unit, so a
+# reboot before --confirm re-arms it for 10 minutes after boot.
 set -euo pipefail
 
 ROOT=${ROOT:-}
@@ -29,8 +30,10 @@ TS_DIR=$(P /var/lib/tailscale)
 CONFIG=$(P /etc/infisical-agent/config.yaml)
 DROPIN=$(P /etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf)
 HOST_FILES=$(P /srv/homelab/HOST-FILES)
-PY=$(P /srv/homelab/tooling/current/venv/bin/python)
+TOOLING=$(P /srv/homelab/tooling/current)
+PY=$TOOLING/venv/bin/python
 DEADMAN=homelab-cutover-deadman
+UNITS=$(P /etc/systemd/system)
 
 run() { if ((DRY)); then printf '[dry-run]'; printf ' %q' "$@"; echo; else "$@"; fi; }
 
@@ -88,9 +91,11 @@ tailscale_cutover() {
   run cp -a "$src/." "$TS_DIR/"
   run systemctl unmask tailscaled
   run systemctl enable --now tailscaled
+  # The container never managed host DNS. With it accepted, resolv.conf points only at MagicDNS, which has no
+  # upstream for public names on this tailnet, so every public lookup fails.
   if ((DRY)); then
     echo '[dry-run] wait for tailscale BackendState=Running'
-    run tailscale set "--hostname=$host"
+    run tailscale set "--hostname=$host" --accept-dns=false
     return 0
   fi
 
@@ -101,17 +106,21 @@ tailscale_cutover() {
     sleep 1
   done
   [[ $state == Running ]] || { echo 'tailscale did not reach BackendState=Running' >&2; return 1; }
-  run tailscale set "--hostname=$host"
+  run tailscale set "--hostname=$host" --accept-dns=false
   IFS='|' read -r _ _ now_ip now_dns <<<"$(tailscale status --json | ts_fields)"
   [[ $now_ip == "$ip" && $now_dns == "$dns" ]] || { echo 'tailscale identity mismatch' >&2; return 1; }
   run docker rm "$c"
 }
 
 infisical_cutover() {
-  local source=$LEGACY/config/infisical/templates target
+  local source=$LEGACY/config/infisical/templates target templates
   target=$(P /srv/homelab/infisical/templates)
+  # The agent config names the legacy templates directory even where that checkout no longer has it; the
+  # release tooling ships the same templates.
+  templates=$source
+  [[ -d $templates ]] || templates=$TOOLING/config/infisical/templates
   run mkdir -p "$(dirname "$CONFIG")" "$(dirname "$DROPIN")" "$target"
-  run cp -a "$source/." "$target/"
+  run cp -a "$templates/." "$target/"
   run cp -a "$CONFIG" "$STATE/infisical-config.yaml.bak"
   run "$PY" - "$CONFIG" "$source/" "$target/" <<'PY'
 import sys
@@ -140,13 +149,40 @@ PY
   run systemctl restart homelab-infisical-agent
 }
 
+# The dead-man timer is a unit file rather than a transient systemd-run timer so that it survives a reboot.
+arm_deadman() {
+  local exec=("$SCRIPT" --legacy-root "$LEGACY_ARG") root
+  for root in "${MEDIA[@]}"; do exec+=(--media-root "$root"); done
+  exec+=(--rollback)
+  run sh -c 'printf "%s\n" "$1" > "$2"' _ "[Unit]
+Description=Roll back the homelab cutover
+[Service]
+Type=oneshot
+ExecStart=${exec[*]}" "$UNITS/$DEADMAN.service"
+  run sh -c 'printf "%s\n" "$1" > "$2"' _ "[Unit]
+Description=Roll back the homelab cutover 10 min after it starts or after a boot, unless confirmed
+[Timer]
+OnActiveSec=10min
+AccuracySec=1s
+[Install]
+WantedBy=timers.target" "$UNITS/$DEADMAN.timer"
+  run systemctl daemon-reload
+  run systemctl enable --now "$DEADMAN.timer" || { disarm_deadman 2>/dev/null || true; return 1; }
+}
+
+disarm_deadman() {
+  run systemctl disable --now "$DEADMAN.timer" || return 1
+  run rm -f "$UNITS/$DEADMAN.timer" "$UNITS/$DEADMAN.service"
+  run systemctl daemon-reload
+}
+
 ROLLBACK_FAILED=0
 undo() { run "$@" || { echo "rollback failed: $*"; ROLLBACK_FAILED=1; }; }
 
 # Undo whatever the cutover got to, in reverse order. A failing step is reported and the remaining steps still run.
 rollback() {
   local root src
-  systemctl stop "$DEADMAN.timer" 2>/dev/null || true
+  disarm_deadman 2>/dev/null || true
   for root in "${MEDIA[@]}"; do
     unmark_media "$root" || { echo "rollback failed: media $root"; ROLLBACK_FAILED=1; }
   done
@@ -183,16 +219,14 @@ confirm() {
   fi
   systemctl is-active homelab-infisical-agent >/dev/null || { echo 'infisical agent inactive'; ok=0; }
   ((ok)) || return 1
-  systemctl stop "$DEADMAN.timer" || { echo "failed to stop $DEADMAN.timer"; return 1; }
+  disarm_deadman || { echo "failed to stop $DEADMAN.timer"; return 1; }
   echo confirmed
 }
 
 if ((CONFIRM)); then confirm; exit; fi
 if ((ROLLBACK)); then rollback; exit; fi
 
-deadman=(--unit="$DEADMAN" --on-active=10min "$SCRIPT" --legacy-root "$LEGACY_ARG")
-for root in "${MEDIA[@]}"; do deadman+=(--media-root "$root"); done
-run systemd-run "${deadman[@]}" --rollback
+arm_deadman
 
 # From here on, any failure rolls back before exiting.
 on_exit() {
