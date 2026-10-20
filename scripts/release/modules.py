@@ -86,23 +86,10 @@ def check_variables(text: str, env: Mapping[str, str], where: str) -> list[Valid
 
 
 def _module_name(path: Path) -> str:
-    return path.name[: -len(_MODULE_SUFFIX)]
-
-
-def _legacy_module(path: Path) -> ValidationError:
-    expected = path.with_name(f"{path.stem}{_MODULE_SUFFIX}")
-    return ValidationError(str(path), f"expected {expected}")
-
-
-def _check_legacy_modules(root: Path) -> None:
-    for tier in TIERS:
-        for path in sorted((root / "modules" / tier).glob("*.yml")):
-            if not path.name.endswith(_MODULE_SUFFIX):
-                raise _legacy_module(path)
+    return path.name.removesuffix(_MODULE_SUFFIX)
 
 
 def find_module(root: Path, service: str) -> Path | None:
-    _check_legacy_modules(root)
     matches = [path for tier in TIERS if (path := root / "modules" / tier / f"{service}{_MODULE_SUFFIX}").exists()]
     if len(matches) > 1:
         raise ValidationError(f"$.services.{service}", "module exists in both tiers")
@@ -112,17 +99,9 @@ def find_module(root: Path, service: str) -> Path | None:
 def check_module(path: Path, env: Mapping[str, str]) -> str:
     """Validate one modules/<tier>/<service>.compose.yml file; return its tier."""
     errors = []
-    valid_path = (
-        path.name.endswith(_MODULE_SUFFIX) and path.parent.name in TIERS and path.parent.parent.name == "modules"
-    )
-    if not valid_path:
-        expected = (
-            path.with_name(f"{path.stem}{_MODULE_SUFFIX}")
-            if path.parent.name in TIERS and path.parent.parent.name == "modules"
-            else "modules/<app|edge>/<svc>.compose.yml"
-        )
-        errors.append(ValidationError(str(path), f"module must be {expected}"))
-    service = _module_name(path) if path.name.endswith(_MODULE_SUFFIX) else path.stem
+    if not path.name.endswith(_MODULE_SUFFIX) or path.parent.name not in TIERS or path.parent.parent.name != "modules":
+        errors.append(ValidationError(str(path), "module must be modules/<app|edge>/<service>.compose.yml"))
+    service = _module_name(path)
     services = (load_yaml(path) or {}).get("services")
     if not isinstance(services, dict) or list(services) != [service]:
         errors.append(ValidationError(f"{path}:services", f"must define exactly one service, named {service}"))
@@ -149,7 +128,6 @@ def load_plugin(name: str, root: Path, env: Mapping[str, str], platform: Path) -
                 f"{name}:homelab-plugin.yaml", "contract must be 1, name a lowercase id, image_namespace non-empty"
             )
         )
-    _check_legacy_modules(root)
     modules = sorted(root.glob("modules/*/*.compose.yml"))
     readme = (root / "README.md").read_text(encoding="utf-8") if (root / "README.md").exists() else ""
     if not modules:
@@ -205,7 +183,6 @@ def load_site(root: Path, platform: Path, plugin_dirs: Mapping[str, Path] | None
     plugin_dirs (the release fetches it at its verified SHA). A plugin that can't be found is an error.
     """
     root = Path(root).resolve()
-    _check_legacy_modules(Path(platform))
     config, env = load_yaml(root / "site.yaml"), read_env(root / "site.env")
     errors = _check_site_config(config, env)
     if errors:
