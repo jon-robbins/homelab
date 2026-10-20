@@ -29,6 +29,7 @@ EXPECTED = {  # tag@digest = what production runs today (verified against each r
     "radarr": "lscr.io/linuxserver/radarr:6.1.1.10360-ls300@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d",
     "sonarr": "lscr.io/linuxserver/sonarr:4.0.17.2952-ls309@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020",
 }
+_COMPOSE_FILENAME = re.compile(r"(docker-)?compose(-[\w]+)?(?>\.[\w-]+)?\.ya?ml", re.IGNORECASE)
 
 
 def _modules():
@@ -37,6 +38,15 @@ def _modules():
 
 def _service(path):
     return path.name.removesuffix(".compose.yml")
+
+
+def test_catalog_files_have_compose_recognized_names():
+    invalid = [
+        path.relative_to(ROOT)
+        for path in ROOT.glob("modules/*/*")
+        if path.is_file() and not _COMPOSE_FILENAME.search(path.name)
+    ]
+    assert invalid == []
 
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda path: path.stem)
