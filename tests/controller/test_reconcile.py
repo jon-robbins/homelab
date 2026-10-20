@@ -81,13 +81,15 @@ class Ops:
         return f"snapshot-{service}"
 
 
-def release(tmp_path: Path, sequence=7, *, service="svc", state=None):
+def release(tmp_path: Path, sequence=7, *, service="svc", state=None, volumes=None):
     root = tmp_path / "releases" / str(sequence)
     root.parent.mkdir(parents=True, exist_ok=True)
     root.mkdir()
     definition = {"image": "example/svc@sha256:" + "a" * 64}
     if state:
         definition["labels"] = {"homelab.state": state}
+    if volumes is not None or state == "stateful":
+        definition["volumes"] = volumes if volumes is not None else [{"type": "bind", "source": f"/srv/homelab/data/{service}"}]
     (root / "app.json").write_text(json.dumps({"services": {service: definition}}))
     (root / "edge.json").write_text(json.dumps({"services": {}}))
     (root / "site.yaml").write_text(f"managed: [{service}]\nservices: {{}}\n")
@@ -202,6 +204,42 @@ def test_snapshot_error_starts_service_again(tmp_path, monkeypatch):
     assert ("start", "svc") in ops.calls
 
 
+def test_stateful_snapshot_uses_data_dir(tmp_path, monkeypatch):
+    ops = Ops(services=set())
+    state, _, _ = prepared(
+        monkeypatch,
+        tmp_path,
+        ops,
+        release_state="stateful",
+    )
+    root = tmp_path / "releases" / "7"
+    app = json.loads((root / "app.json").read_text())
+    app["services"]["svc"]["volumes"] = [{"type": "bind", "source": "/srv/homelab/data/qbt-events/subdir"}]
+    (root / "app.json").write_text(json.dumps(app))
+
+    controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert ("snapshot", "qbt-events", "seq-7") in ops.calls
+
+
+@pytest.mark.parametrize(
+    "volumes, found",
+    [([], "none"), ([{"type": "bind", "source": "/srv/homelab/data/one"}, {"type": "bind", "source": "/srv/homelab/data/two"}], "one, two")],
+)
+def test_stateful_data_dir_validation_precedes_stop(tmp_path, monkeypatch, volumes, found):
+    ops = Ops(services=set())
+    state, root, _ = prepared(monkeypatch, tmp_path, ops, release_state="stateful")
+    app = json.loads((root / "app.json").read_text())
+    app["services"]["svc"]["volumes"] = volumes
+    (root / "app.json").write_text(json.dumps(app))
+
+    result = controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert f"stateful service svc" in result
+    assert f"found {found}" in result
+    assert not any(call[0] == "stop" for call in ops.calls)
+
+
 def test_pass_records_pointers_and_highwater(tmp_path, monkeypatch):
     ops = Ops()
     state, _, candidate = prepared(monkeypatch, tmp_path, ops)
@@ -218,6 +256,7 @@ def test_second_service_failure_records_its_snapshot(tmp_path, monkeypatch):
     state, root, candidate = prepared(monkeypatch, tmp_path, ops, release_state="stateful")
     app = json.loads((root / "app.json").read_text())
     app["services"]["zeta"] = dict(app["services"]["svc"])
+    app["services"]["zeta"]["volumes"] = [{"type": "bind", "source": "/srv/homelab/data/zeta"}]
     (root / "app.json").write_text(json.dumps(app))
     (root / "site.yaml").write_text("managed: [svc, zeta]\nservices: {}\n")
     ops.unhealthy.add("zeta")

@@ -12,7 +12,7 @@ import urllib.request
 from scripts.controller.admission import load_host_policy
 from scripts.controller.feed import FeedPolicy
 from scripts.controller.planner import plan
-from scripts.controller.reconcile import SubprocessOps, reconcile
+from scripts.controller.reconcile import SubprocessOps, _data_dir, reconcile
 from scripts.controller.state import State
 
 ROOT = Path("/srv/homelab")
@@ -55,13 +55,15 @@ def _rollback(args, ops: SubprocessOps) -> int:
         print(f"unknown service: {args.service}", file=sys.stderr)
         return 2
     if services[args.service].get("labels", {}).get("homelab.state") == "stateful":
+        current_services = json.loads((args.releases / "current" / "app.json").read_bytes()).get("services", {})
+        data_dir = _data_dir(current_services, args.service)
         ops.stop(args.service)
         degraded = State(args.state).read("DEGRADED", "")
         snapshot = next(
             (line[len("snapshot: ") :] for line in degraded.splitlines() if line.startswith("snapshot: ")), "none"
         )
         tag = Path(snapshot).stem if snapshot != "none" else f"seq-{_pointer_sequence(args.releases / 'current')}"
-        ops.restore(args.service, tag)
+        ops.restore(data_dir, tag)
     ops.run(
         ["docker", "compose", "-p", "homelab", "-f", str(previous / "app.json"), "up", "-d", "--no-deps", args.service]
     )

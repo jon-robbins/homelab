@@ -52,6 +52,23 @@ def _services(release: Path) -> dict[str, dict[str, Any]]:
     return json.loads((release / "app.json").read_bytes()).get("services", {})
 
 
+def _data_dir(services: dict[str, dict[str, Any]], service: str) -> str:
+    root = Path("/srv/homelab/data")
+    dirs = {
+        Path(source).relative_to(root).parts[0]
+        for volume in services.get(service, {}).get("volumes", ())
+        if isinstance(volume, dict)
+        and volume.get("type") == "bind"
+        and isinstance(source := volume.get("source"), str)
+        and Path(source).is_relative_to(root)
+        and Path(source).relative_to(root).parts
+    }
+    if len(dirs) != 1:
+        found = ", ".join(sorted(dirs)) or "none"
+        raise RuntimeError(f"stateful service {service}: expected one data dir, found {found}")
+    return next(iter(dirs))
+
+
 def _ping(pinger: Pinger, causes: list[str]) -> str:
     pinger.fail("; ".join(causes)) if causes else pinger.ok()
     return "ok"
@@ -113,11 +130,16 @@ def _snapshot(ops: Ops, release: Path, p: Plan, sequence: int) -> dict[str, str]
         raise RuntimeError("low free space on /")
     ops.pull(release, tuple(sorted({*p.recreate, *p.create_stopped})))
     services, snapshots = _services(release), {}
+    data_dirs = {
+        service: _data_dir(services, service)
+        for service in p.recreate
+        if services.get(service, {}).get("labels", {}).get("homelab.state") == "stateful"
+    }
     for service in p.recreate:
-        if services.get(service, {}).get("labels", {}).get("homelab.state") == "stateful":
+        if service in data_dirs:
             ops.stop(service)
             try:
-                snapshots[service] = ops.snapshot(service, f"seq-{sequence}")
+                snapshots[service] = ops.snapshot(data_dirs[service], f"seq-{sequence}")
             except Exception:
                 ops.start(service)
                 raise
