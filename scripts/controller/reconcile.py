@@ -240,4 +240,4 @@ class SubprocessOps:
         return _out("homelab-backup", "--service", service, "--tag", tag).splitlines()[-1]
 
     def restore(self, service, tag):
-        self.run(["homelab-backup", "--restore", "--service", service, "--tag", tag])
+        self.run(["homelab-backup", "--restore", service, "--tag", tag])

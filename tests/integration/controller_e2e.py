@@ -83,9 +83,10 @@ class Harness:
         backup = verifier.parent / "homelab-backup"
         backup.write_text("""#!/bin/sh
 set -eu
-archive="$E2E_BACKUP_ROOT/${5:-$4}.tar"
+[ "$3" = --tag ] || exit 2  # same argument check as host/homelab-backup
+archive="$E2E_BACKUP_ROOT/$4.tar"
 if [ "$1" = --restore ]; then
-  printf '%s\n' "${5:-$4}" >> "$E2E_RESTORE_LOG"
+  printf '%s\n' "$4" >> "$E2E_RESTORE_LOG"
   rm -rf "$E2E_DATA_ROOT"/*
   tar -xf "$archive" -C "$E2E_DATA_ROOT"
 else

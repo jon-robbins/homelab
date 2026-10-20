@@ -300,6 +300,15 @@ def test_subprocess_ops_uses_compose_container_for_stop_and_start(monkeypatch):
     assert calls == [["docker", "stop", "generated-id"], ["docker", "start", "generated-id"]]
 
 
+def test_subprocess_ops_restore_uses_homelab_backup_argument_order(monkeypatch):
+    calls = []
+    monkeypatch.setattr(controller.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+
+    controller.SubprocessOps().restore("svc", "seq-7")
+
+    assert calls == [["homelab-backup", "--restore", "svc", "--tag", "seq-7"]]
+
+
 def test_subprocess_ops_ignores_absent_container_for_stop_and_start(monkeypatch):
     calls = []
     monkeypatch.setattr(controller.subprocess, "check_output", lambda *args, **kwargs: "")
