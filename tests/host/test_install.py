@@ -42,6 +42,23 @@ def test_install_is_idempotent_and_only_initializes_observe_only(tmp_path: Path)
     assert not (tmp_path / "srv/homelab/state/observe-only").exists()
 
 
+def test_homelabctl_finds_its_own_homelab_backup_first(tmp_path: Path):
+    dest = tmp_path / "dest"
+    assert run(dest).returncode == 0
+    tooling = dest / "srv/homelab/tooling" / SHA
+    python = tooling / "venv/bin/python"
+    python.unlink()
+    python.write_text("#!/bin/sh\ncommand -v homelab-backup\n")
+    python.chmod(0o755)
+    stale = tmp_path / "sbin"
+    stale.mkdir()
+    (stale / "homelab-backup").write_text("#!/bin/sh\n")
+    (stale / "homelab-backup").chmod(0o755)
+    env = {**os.environ, "PATH": f"{stale}:{os.environ['PATH']}"}
+    found = subprocess.run([str(tooling / "bin/homelabctl")], env=env, text=True, capture_output=True, check=True)
+    assert Path(found.stdout.strip()).resolve() == (tooling / "host/homelab-backup").resolve()
+
+
 def test_conflict_requires_replace(tmp_path: Path):
     assert run(tmp_path).returncode == 0
     unit = tmp_path / "etc/systemd/system/homelab-backup.service"

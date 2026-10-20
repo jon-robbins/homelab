@@ -113,7 +113,8 @@ if ((new_tooling)); then
   pip=${HOMELAB_PIP:-$t/venv/bin/pip}
   "$pip" install --require-hashes -r "$t/config/release/requirements.txt"
   mkdir -p "$t/bin"
-  printf '%s\n' '#!/usr/bin/env bash' "cd \"\$(dirname \"\$0\")/..\" && exec venv/bin/python -m scripts.controller.homelabctl \"\$@\"" >"$t/bin/homelabctl"
+  # host/ first: the controller runs homelab-backup by name; a stale copy elsewhere on PATH must not win.
+  printf '%s\n' '#!/usr/bin/env bash' "cd \"\$(dirname \"\$0\")/..\" && PATH=\"\$PWD/host:\$PATH\" exec venv/bin/python -m scripts.controller.homelabctl \"\$@\"" >"$t/bin/homelabctl"
   chmod 755 "$t/bin/homelabctl"
 fi
 if [[ -n $old && $old != "$sha" ]]; then ln -sfn "$old" "$h/tooling/previous"; fi
