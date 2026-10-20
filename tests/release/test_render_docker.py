@@ -18,6 +18,49 @@ def _docker(*args, check=True):
     return subprocess.run(["docker", *map(str, args)], check=check, capture_output=True, text=True)
 
 
+def test_compose_hash_changes_for_inline_config_content(tmp_path):
+    platform = tmp_path / "platform"
+    module = platform / "modules/app/demo.compose.yml"
+    module.parent.mkdir(parents=True)
+    module.write_text(yaml.safe_dump({"services": {"demo": {
+        "image": "traefik/whoami:v1.10.3@sha256:" + "a" * 64,
+        "healthcheck": {"test": ["CMD", "true"]},
+        "labels": {"homelab.state": "stateless"},
+        "configs": ["settings"],
+    }}, "configs": {"settings": {"content": "first\n"}}}))
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "site.env").write_text(f"APP_DATA_DIR={tmp_path / 'data'}\n")
+    (site / "site.yaml").write_text(yaml.safe_dump({
+        "contract": 1, "site_id": "docker-test", "plugins": {}, "services": {"demo": {}},
+        "managed": [], "bind_roots": ["APP_DATA_DIR"], "marker_roots": [],
+    }))
+
+    def write_model(path, model):
+        path.write_text(json.dumps({"services": model["services"], "configs": model["configs"]}))
+
+    first = render(platform, site, {}).app
+    second = render(platform, site, {}).app
+    first_file, second_file = tmp_path / "first.json", tmp_path / "second.json"
+    write_model(first_file, first)
+    write_model(second_file, second)
+    first_hash = _docker("compose", "-f", first_file, "config", "--hash", "demo").stdout
+    second_hash = _docker("compose", "-f", second_file, "config", "--hash", "demo").stdout
+    assert first_hash == second_hash
+
+    module.write_text(yaml.safe_dump({"services": {"demo": {
+        "image": "traefik/whoami:v1.10.3@sha256:" + "a" * 64,
+        "healthcheck": {"test": ["CMD", "true"]},
+        "labels": {"homelab.state": "stateless"},
+        "configs": ["settings"],
+    }}, "configs": {"settings": {"content": "second\n"}}}))
+    changed = render(platform, site, {}).app
+    changed_file = tmp_path / "changed.json"
+    write_model(changed_file, changed)
+    changed_hash = _docker("compose", "-f", changed_file, "config", "--hash", "demo").stdout
+    assert changed_hash != first_hash
+
+
 def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
     example = render(ROOT, ROOT / "examples/site", {"plugin-hello": ROOT / "examples/plugin-hello"})
     assert example.edge == {}
@@ -32,7 +75,7 @@ def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
     _docker("pull", "traefik:v3.0")
     image = json.loads(_docker("image", "inspect", "traefik:v3.0").stdout)[0]["RepoDigests"][0]
     platform = tmp_path / "platform"
-    module = platform / "modules/app/demo.yml"
+    module = platform / "modules/app/demo.compose.yml"
     module.parent.mkdir(parents=True)
     module.write_text(yaml.safe_dump({"services": {"demo": {
         "image": image, "command": ["sleep", "300"],

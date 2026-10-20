@@ -7,12 +7,12 @@ repos:
       - id: ruff
         files: ^apps/homelab-workers/.*\.py$
       - id: ruff
-        name: ruff complexity (controller, migration, rewritten release code; C901 <= 10)
-        files: ^scripts/((controller|migration)/.*|release/(modules|compose_policy|render|compile))\.py$
+        name: ruff complexity (controller, rewritten release code; C901 <= 10)
+        files: ^scripts/(controller/.*|release/(modules|compose_policy|render|compile))\.py$
         args: [--select, C901, --config, "lint.mccabe.max-complexity = 10"]
       - id: ruff-format
         name: ruff format (same files; the line budget counts formatted code)
-        files: ^scripts/((controller|migration)/.*|release/(modules|compose_policy|render|compile))\.py$
+        files: ^scripts/(controller/.*|release/(modules|compose_policy|render|compile))\.py$
         args: [--line-length, "120"]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1

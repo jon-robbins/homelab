@@ -192,7 +192,7 @@ class SubprocessOps:
         ids = _out("docker", "ps", "-a", "--filter", labels[0], "--filter", labels[1], "--format", "{{.ID}}")
         return next(iter(ids.splitlines()), None)
 
-    def inspect(self, service, project="homelab"):  # also used by scripts/migration/shadow
+    def inspect(self, service, project="homelab"):
         identifier = self._container_id(project, service)
         return json.loads(_out("docker", "inspect", identifier))[0] if identifier else None
 

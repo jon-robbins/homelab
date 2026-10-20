@@ -33,7 +33,7 @@ def module(root: Path, name="demo", tier="app", **service) -> Path:
         document["configs"] = {"settings": {"file": "site:settings.ini"}}
     if "secrets" in service:
         document["secrets"] = {"TOKEN": {"file": "${HOMELAB_SECRET_DIR}/TOKEN"}}
-    path = root / "modules" / tier / f"{name}.yml"
+    path = root / "modules" / tier / f"{name}.compose.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path
@@ -107,6 +107,58 @@ def test_config_is_inlined_with_the_source_files_mode(tmp_path, entry):
     result = render(tmp_path / "platform", site(tmp_path), {})
     assert result.app["configs"]["settings"]["content"] == "hello $$HOME\n" and "file" not in result.app["configs"]["settings"]
     assert demo(result)["configs"][0]["mode"] == 0o640
+
+
+def test_inline_config_short_syntax_gets_a_digest_default_mode(tmp_path):
+    path = module(tmp_path / "platform", configs=["settings"])
+    document = yaml.safe_load(path.read_text())
+    document["configs"]["settings"] = {"content": "inline\n"}
+    path.write_text(yaml.safe_dump(document))
+    result = render(tmp_path / "platform", site(tmp_path), {})
+    assert "homelab.config-digest" in demo(result)["labels"]
+
+
+def test_external_config_gets_a_digest_without_inline_content(tmp_path):
+    path = module(tmp_path / "platform", configs=["settings"])
+    document = yaml.safe_load(path.read_text())
+    document["configs"]["settings"] = {"external": True}
+    path.write_text(yaml.safe_dump(document))
+    first = render(tmp_path / "platform", site(tmp_path), {})
+    second = render(tmp_path / "platform", tmp_path / "site", {})
+    assert first == second
+    assert first.app["configs"]["settings"]["external"] is True
+    assert "content" not in first.app["configs"]["settings"]
+    assert "homelab.config-digest" in demo(first)["labels"]
+
+
+def test_config_digest_changes_only_for_config_service(tmp_path):
+    platform = tmp_path / "platform"
+    module(platform, configs=[{"source": "settings", "target": "/etc/settings"}])
+    module(platform, name="other")
+    folder = site(tmp_path, services={"demo": {}, "other": {}})
+    first = render(platform, folder, {})
+    assert "homelab.config-digest" in demo(first)["labels"]
+    assert "homelab.config-digest" not in first.app["services"]["other"]["labels"]
+    other = first.app["services"]["other"]
+    (folder / "settings.ini").write_text("changed\n")
+    second = render(platform, folder, {})
+    assert demo(first)["labels"]["homelab.config-digest"] != demo(second)["labels"]["homelab.config-digest"]
+    assert second.app["services"]["other"] == other
+
+
+def test_config_digest_is_deterministic_and_includes_mode_and_target(tmp_path):
+    platform = tmp_path / "platform"
+    module(platform, configs=[{"source": "settings", "target": "/etc/settings", "mode": 0o600}])
+    folder = site(tmp_path)
+    first = render(platform, folder, {})
+    second = render(platform, folder, {})
+    assert first == second
+    module(platform, configs=[{"source": "settings", "target": "/etc/other", "mode": 0o600}])
+    target_changed = render(platform, folder, {})
+    assert demo(first)["labels"]["homelab.config-digest"] != demo(target_changed)["labels"]["homelab.config-digest"]
+    module(platform, configs=[{"source": "settings", "target": "/etc/other", "mode": 0o640}])
+    mode_changed = render(platform, folder, {})
+    assert demo(target_changed)["labels"]["homelab.config-digest"] != demo(mode_changed)["labels"]["homelab.config-digest"]
 
 
 def test_site_override_is_merged_by_compose_and_gets_a_marker(tmp_path):

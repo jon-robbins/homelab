@@ -33,9 +33,3 @@ docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-d
 After a Docker Compose upgrade, run `homelabctl status` before the next apply: a Compose upgrade can change every
 service's config hash, so the next tick would recreate every managed service. If `status` lists services you didn't
 change, wait for a quiet moment and run `homelabctl reconcile --now`.
-
-Before adopting a service (migration only, removed in M7), compare the running container with the release:
-
-```bash
-python3 -m scripts.migration.shadow --release /srv/homelab/releases/<seq> --legacy-data <legacy data dir> [svc...]
-```

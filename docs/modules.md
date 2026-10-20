@@ -1,6 +1,6 @@
 # Modules
 
-A module is one ordinary Compose service in `modules/<tier>/<service>.yml`, where `<tier>` is `app` or `edge`
+A module is one ordinary Compose service in `modules/<tier>/<service>.compose.yml`, where `<tier>` is `app` or `edge`
 and the service name matches the file name. There is no second module format: Compose expresses the service, and
 `homelab.*` labels carry the homelab contract.
 

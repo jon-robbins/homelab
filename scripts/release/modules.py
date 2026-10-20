@@ -26,6 +26,7 @@ SITE_ENV_KEYS = frozenset(
 )
 _NAME = re.compile(r"[a-z][a-z0-9-]{0,62}")
 _REFERENCE = re.compile(r"\$\{(\w+)\}")
+_MODULE_SUFFIX = ".compose.yml"
 
 
 @dataclass(frozen=True)
@@ -84,21 +85,26 @@ def check_variables(text: str, env: Mapping[str, str], where: str) -> list[Valid
     return errors
 
 
+def _module_name(path: Path) -> str:
+    return path.name.removesuffix(_MODULE_SUFFIX)
+
+
 def find_module(root: Path, service: str) -> Path | None:
-    matches = [path for tier in TIERS if (path := root / "modules" / tier / f"{service}.yml").exists()]
+    matches = [path for tier in TIERS if (path := root / "modules" / tier / f"{service}{_MODULE_SUFFIX}").exists()]
     if len(matches) > 1:
         raise ValidationError(f"$.services.{service}", "module exists in both tiers")
     return matches[0] if matches else None
 
 
 def check_module(path: Path, env: Mapping[str, str]) -> str:
-    """Validate one modules/<tier>/<service>.yml file; return its tier."""
+    """Validate one modules/<tier>/<service>.compose.yml file; return its tier."""
     errors = []
-    if path.suffix != ".yml" or path.parent.name not in TIERS or path.parent.parent.name != "modules":
-        errors.append(ValidationError(str(path), "module must be modules/<app|edge>/<service>.yml"))
+    if not path.name.endswith(_MODULE_SUFFIX) or path.parent.name not in TIERS or path.parent.parent.name != "modules":
+        errors.append(ValidationError(str(path), "module must be modules/<app|edge>/<service>.compose.yml"))
+    service = _module_name(path)
     services = (load_yaml(path) or {}).get("services")
-    if not isinstance(services, dict) or list(services) != [path.stem]:
-        errors.append(ValidationError(f"{path}:services", f"must define exactly one service, named {path.stem}"))
+    if not isinstance(services, dict) or list(services) != [service]:
+        errors.append(ValidationError(f"{path}:services", f"must define exactly one service, named {service}"))
     errors += check_variables(path.read_text(encoding="utf-8"), env, str(path))
     if errors:
         raise ValidationErrors(errors)
@@ -122,15 +128,16 @@ def load_plugin(name: str, root: Path, env: Mapping[str, str], platform: Path) -
                 f"{name}:homelab-plugin.yaml", "contract must be 1, name a lowercase id, image_namespace non-empty"
             )
         )
-    modules = sorted(root.glob("modules/*/*.yml"))
+    modules = sorted(root.glob("modules/*/*.compose.yml"))
     readme = (root / "README.md").read_text(encoding="utf-8") if (root / "README.md").exists() else ""
     if not modules:
         errors.append(ValidationError(f"{name}:modules", "plugin must ship a module"))
     for module in modules:
-        if find_module(platform, module.stem) is not None:
-            errors.append(ValidationError(f"{name}:modules", f"{module.stem} reuses a platform module name"))
-        if not re.search(rf"(?<![\w-]){re.escape(module.stem)}(?![\w-])", readme):
-            errors.append(ValidationError(f"{name}:README.md", f"does not mention service {module.stem}"))
+        service = _module_name(module)
+        if find_module(platform, service) is not None:
+            errors.append(ValidationError(f"{name}:modules", f"{service} reuses a platform module name"))
+        if not re.search(rf"(?<![\w-]){re.escape(service)}(?![\w-])", readme):
+            errors.append(ValidationError(f"{name}:README.md", f"does not mention service {service}"))
         try:
             check_module(module, env)
         except ValidationErrors as error:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -98,6 +99,27 @@ def _inline_configs(model: dict[str, Any]) -> None:
                 entry.setdefault("mode", modes[entry["source"]])
 
 
+def _add_config_digests(model: dict[str, Any]) -> None:
+    for service in (model.get("services") or {}).values():
+        entries = service.get("configs") or []
+        if not entries:
+            continue
+        configs = model.get("configs") or {}
+        values = sorted(
+            (
+                [
+                    entry.get("target", f"/{entry['source']}"),
+                    entry.get("mode", 0o444),
+                    configs[entry["source"]].get("content"),
+                ]
+                for entry in entries
+            ),
+            key=lambda value: value[0],
+        )
+        digest = hashlib.sha256(json.dumps(values, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
+        service.setdefault("labels", {})["homelab.config-digest"] = digest
+
+
 def _add_markers(model: dict[str, Any], site: Site) -> None:
     """D9: a service that binds under a media root also binds that root's marker, so it can't start without the disk."""
     roots = {key: site.env[key] for key in site.config.get("marker_roots", [])}
@@ -151,6 +173,7 @@ def render(platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Rende
     for model in models.values():
         if model:
             _inline_configs(model)
+            _add_config_digests(model)
             _add_markers(model, site)
             _add_logging_defaults(model)
             check_policy(model, ctx)

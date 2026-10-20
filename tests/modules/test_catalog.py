@@ -29,22 +29,36 @@ EXPECTED = {  # tag@digest = what production runs today (verified against each r
     "radarr": "lscr.io/linuxserver/radarr:6.1.1.10360-ls300@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d",
     "sonarr": "lscr.io/linuxserver/sonarr:4.0.17.2952-ls309@sha256:3580aec3802c915f0f819a88d5099abce61734b925732b8393d176b5dc561020",
 }
+_COMPOSE_FILENAME = re.compile(r"(docker-)?compose(-[\w]+)?(?>\.[\w-]+)?\.ya?ml", re.IGNORECASE)
 
 
 def _modules():
-    return sorted(ROOT.glob("modules/*/*.yml"))
+    return sorted(ROOT.glob("modules/*/*.compose.yml"))
+
+
+def _service(path):
+    return path.name.removesuffix(".compose.yml")
+
+
+def test_catalog_files_have_compose_recognized_names():
+    invalid = [
+        path.relative_to(ROOT)
+        for path in ROOT.glob("modules/*/*")
+        if path.is_file() and not _COMPOSE_FILENAME.search(path.name)
+    ]
+    assert invalid == []
 
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda path: path.stem)
 def test_catalog_modules_validate_and_match_inventory(path):
     check_module(path, ENV)
-    assert re.search(r"(?m)^\s*image:\s*(\S+)$", path.read_text()).group(1) == EXPECTED[path.stem]
+    assert re.search(r"(?m)^\s*image:\s*(\S+)$", path.read_text()).group(1) == EXPECTED[_service(path)]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI with Compose")
 def test_catalog_site_renders_every_module():
     result = render(ROOT, SITE, {})
-    assert set(result.app["services"]) == {path.stem for path in ROOT.glob("modules/app/*.yml")}
+    assert set(result.app["services"]) == {_service(path) for path in ROOT.glob("modules/app/*.compose.yml")}
     assert set(result.edge["services"]) == {"caddy", "cloudflared"}
 
 

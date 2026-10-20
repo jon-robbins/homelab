@@ -8,13 +8,12 @@ updates:
       github-actions:
         patterns: ["*"]
   - package-ecosystem: docker-compose
-    directory: /modules
+    directories: ["/modules/app", "/modules/edge"]
     schedule:
       interval: weekly
     groups:
       stateless:
         patterns:
-          - "cloudflare/cloudflared"
           - "ghcr.io/flaresolverr/flaresolverr"
   - package-ecosystem: docker
     directory: /apps/homelab-workers
