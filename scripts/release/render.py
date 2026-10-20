@@ -110,7 +110,7 @@ def _add_config_digests(model: dict[str, Any]) -> None:
                 [
                     entry.get("target", f"/{entry['source']}"),
                     entry.get("mode", 0o444),
-                    configs[entry["source"]]["content"],
+                    configs[entry["source"]].get("content"),
                 ]
                 for entry in entries
             ),

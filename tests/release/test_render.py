@@ -118,6 +118,19 @@ def test_inline_config_short_syntax_gets_a_digest_default_mode(tmp_path):
     assert "homelab.config-digest" in demo(result)["labels"]
 
 
+def test_external_config_gets_a_digest_without_inline_content(tmp_path):
+    path = module(tmp_path / "platform", configs=["settings"])
+    document = yaml.safe_load(path.read_text())
+    document["configs"]["settings"] = {"external": True}
+    path.write_text(yaml.safe_dump(document))
+    first = render(tmp_path / "platform", site(tmp_path), {})
+    second = render(tmp_path / "platform", tmp_path / "site", {})
+    assert first == second
+    assert first.app["configs"]["settings"]["external"] is True
+    assert "content" not in first.app["configs"]["settings"]
+    assert "homelab.config-digest" in demo(first)["labels"]
+
+
 def test_config_digest_changes_only_for_config_service(tmp_path):
     platform = tmp_path / "platform"
     module(platform, configs=[{"source": "settings", "target": "/etc/settings"}])
