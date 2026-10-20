@@ -1,5 +1,0 @@
-{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/llm" -}}
-{{- range . -}}
-{{- if eq .Key "TELEGRAM_OWNER_MCP_API_TOKEN" -}}{{ .Value }}{{ end -}}
-{{- end -}}
-{{- end -}}

@@ -14,11 +14,6 @@ MANAGED_SECRET_KEY_PATH_PAIRS: tuple[tuple[str, str], ...] = (
     ("/arr", "AUTOBRR_API_KEY"),
     ("/qbt", "QBITTORRENT_USERNAME"),
     ("/qbt", "QBITTORRENT_PASSWORD"),
-    ("/llm", "GEMINI_API_KEY"),
-    ("/llm", "MCP_API_TOKEN"),
-    ("/llm", "MEDIA_AGENT_TOKEN"),
-    ("/llm", "HOMELAB_AGENT_API_TOKEN"),
-    ("/llm", "VLLM_API_KEY"),
     ("/media", "PLEX_TOKEN"),
 )
 
