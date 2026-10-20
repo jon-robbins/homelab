@@ -1,6 +1,6 @@
 services:
   plex:
-    image: lscr.io/linuxserver/plex:1.43.3.10828-00f62d37d-ls316@sha256:507713a14f9586f827d00c81381ecdcd438009172342b322b62a0e2b65081fdf
+    image: lscr.io/linuxserver/plex:1.43.4.10903-e5521bd8c-ls328@sha256:fc852e4c21359252896227aaafd48d7f052c0142cbe8e1ac3068d060faeb6d56
     mem_limit: 8g
     memswap_limit: 16g
     pids_limit: 500
