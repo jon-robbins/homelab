@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/llm" -}}
+{{- range . -}}
+{{- if eq .Key "TELEGRAM_OWNER_BOT_TOKEN" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}
