@@ -1,18 +1,24 @@
-# Public documentation
+# Documentation
 
-**Status: Current and planned.** Current pages describe the public repository
-as it exists; planned items are explicitly marked and are not available yet.
+**Setting up and running a homelab**
 
-- [Getting started](getting-started.md): the one supported off-host check.
-- [Architecture](architecture/overview.md): modules, workers, and extension boundary.
-- [Configuration](configuration.md): public environment contract.
-- [Development](development.md): tests and adding an action or extension.
-- [Operations](operations.md): CI today and release/controller plans.
-- [Network access](network-access.md) and [ingress](ingress.md): current public
-  routing boundaries, without site-specific topology.
-- [Secrets](secrets-management.md): synthetic validation versus private runtime secrets.
-- [Troubleshooting](service-troubleshooting.md): public checks and limits.
+1. [Architecture](architecture/overview.md): how the pieces fit together.
+2. [Accounts and external services](accounts.md): what to sign up for and why.
+3. [Getting started](getting-started.md): try it off-host, then set up a real host.
+4. [Configuration](configuration.md): the site repo, `site.yaml`, `site.env`, secrets.
+5. [Ingress](ingress.md): LAN, Tailscale, Cloudflare Tunnel, port forwards, Caddy routes.
+6. [Security](security.md): threat model, exposure policy, checklist.
+7. [Operations](operations.md): day-to-day commands, updates, backups, alerts.
+8. [Troubleshooting](troubleshooting.md): by symptom.
 
-The remaining short reference pages are retained for stable links and point to
-the relevant current contract: [Caddy](caddy-guide.md), [Prowlarr routing](prowlarr-caddy-routing.md),
-[hardware](hardware.md), and [architecture notes](architecture.md).
+**Extending it**
+
+- [Modules](modules.md): the five rules for a service file.
+- [Plugins](plugins.md): your own services, with or without code.
+- [Development](development.md): the gate, the test suites, what makes a useful test.
+- [Releases](releases.md): the release record and feed in detail.
+
+**Why it is the way it is**
+
+- [Decision records](decisions/README.md)
+- [Notes for coding agents](../AGENTS.md)

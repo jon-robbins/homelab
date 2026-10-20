@@ -1,6 +1,6 @@
 [Unit]
 Description=Homelab Infisical Agent
-Documentation=file:///homelab/docs/secrets-management.md
+Documentation=https://github.com/jon-robbins/homelab/blob/main/docs/configuration.md#secrets
 After=network-online.target
 Wants=network-online.target
 

@@ -1,18 +1,69 @@
-# Configuration
+# Configuration: the site contract
 
-**Status: Current.** This page documents the public environment contract, not
-a site deployment.
+A site is a private repo holding values only. Nothing in it runs, and nothing in it is generated.
+[`examples/site/`](../examples/site/) is a complete, synthetic example.
 
-Modules interpolate only variables declared by the site contract. The catalog
-test uses synthetic values from `tests/modules/site/site.env`. Managed secret
-names remain blank in the example; runtime values belong to a private secret
-manager.
+## `site.yaml`
 
-Common non-secret inputs include `PUID`, `PGID`, `TZ`, `BASE_DOMAIN`,
-`APP_DATA_DIR`, media example paths, and feature flags. Keep paths relative to
-the checkout for off-host validation. The public Caddy configuration uses
-`example.homelab.local`; it is a template, not an assigned hostname.
+```yaml
+contract: 1
+site_id: home                          # must match site_id in the host's trust/policy.json
+bind_roots: [APP_DATA_DIR, MEDIA_HDD_PATH, MEDIA_NVME_PATH]   # site.env keys; binds must sit under these
+marker_roots: [MEDIA_HDD_PATH, MEDIA_NVME_PATH]               # disks that carry .homelab-mounted
+plugins:
+  my-plugin: {repository: <owner>/<repo>}   # a plugin with code, in its own repo
+  extras: {path: plugins/extras}            # a code-free plugin in this repo
+services:
+  sonarr: {}
+  autobrr: {state: stopped}            # created by the controller, never started
+  my-service: {from: my-plugin}
+  caddy: {}                            # the tier comes from the module's directory
+managed: [sonarr, autobrr, my-service] # what the controller may change
+```
 
-For service access see [network access](network-access.md). For route syntax see
-[Caddy guide](caddy-guide.md). A host controller and signed runtime
-configuration are **Planned**, not configuration features today.
+- `services` decides what is in a release. `managed` decides what the controller applies; services not in it are
+  only reported.
+- `state: stopped` means "keep this created and stopped". The controller never starts a service the owner
+  stopped, whatever `site.yaml` says.
+
+## `site.env`
+
+Non-secret values only. Modules may interpolate only keys defined here.
+
+| Key | Meaning |
+|---|---|
+| `APP_DATA_DIR` | app data root, normally `/srv/homelab/data` |
+| `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH` | media disk mount points |
+| `MOVIES_DIR`, `TV_DIR`, `DOWNLOADS_DIR` | media role paths, each below a bind root (linuxserver convention: `/movies`, `/tv`, `/downloads` in containers) |
+| `MEDIA_PLEX_PATH` | optional extra media tree for Plex |
+| `PUID`, `PGID` | the user and group the services run as |
+| `TZ` | time zone |
+| `HOMELAB_SECRET_DIR` | where the Infisical agent writes secret files |
+| `BASE_DOMAIN` | the domain Caddy serves |
+| `TAILSCALE_IP` | the host's Tailscale address; Caddy binds 443 there |
+| `QBT_PEER_PORT` | qBittorrent's peer port |
+
+`.env.example` lists every key the catalog uses, with synthetic values.
+
+## `overrides/<service>.yml`
+
+A Compose fragment merged over one module, for things that are specific to one site (an extra media path, a GPU
+device). Policy runs after the merge, so an override cannot add anything a module couldn't.
+
+## `files/` and `edge/`
+
+Config files that modules mount (`files/workers.yaml`, `edge/Caddyfile`, `edge/config.yml` for cloudflared).
+Modules refer to them as Compose `configs` with `file: site:<path>`; the renderer inlines their content into the
+release.
+
+## Secrets
+
+Secret values never go in the site repo. Each module lists the secret names it needs under `secrets:`, and the
+top-level entry is always `NAME: {file: ${HOMELAB_SECRET_DIR}/NAME}`. On the host, the Infisical agent renders
+one file per name into `HOMELAB_SECRET_DIR` from the templates in `config/infisical/templates/`.
+
+Current names: `TMDB_API_KEY`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, `SONARR_API_KEY`,
+`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `AUTOBRR_API_KEY`, `PLEX_TOKEN`, `CLOUDFLARE_TOKEN`.
+
+After rotating a secret, force-recreate the services that mount it
+([operations](operations.md#rotate-a-secret)). See [0010](decisions/0010-secrets.md).

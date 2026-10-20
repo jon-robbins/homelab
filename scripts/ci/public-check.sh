@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
 echo "==> Documentation checks"
-bash tests/docs/run_tests.sh
+python3 -m pytest -q -p no:cacheprovider tests/docs
 
 echo "==> Boundary, CI, and release tests"
 python3 -m pytest -q -p no:cacheprovider tests/boundary tests/ci tests/release

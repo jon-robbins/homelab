@@ -7,7 +7,7 @@ from homelab_workers.shared.arr import ArrClient
 
 SYNC_HINT = (
     "Radarr or Sonarr reports zero enabled indexers. Check Prowlarr indexer sync and "
-    "Caddy /prowlarr routing (docs/prowlarr-caddy-routing.md)."
+    "Caddy /prowlarr routing (docs/ingress.md)."
 )
 
 
