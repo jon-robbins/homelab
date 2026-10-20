@@ -109,6 +109,15 @@ def test_config_is_inlined_with_the_source_files_mode(tmp_path, entry):
     assert demo(result)["configs"][0]["mode"] == 0o640
 
 
+def test_inline_config_short_syntax_gets_a_digest_default_mode(tmp_path):
+    path = module(tmp_path / "platform", configs=["settings"])
+    document = yaml.safe_load(path.read_text())
+    document["configs"]["settings"] = {"content": "inline\n"}
+    path.write_text(yaml.safe_dump(document))
+    result = render(tmp_path / "platform", site(tmp_path), {})
+    assert "homelab.config-digest" in demo(result)["labels"]
+
+
 def test_config_digest_changes_only_for_config_service(tmp_path):
     platform = tmp_path / "platform"
     module(platform, configs=[{"source": "settings", "target": "/etc/settings"}])

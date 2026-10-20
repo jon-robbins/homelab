@@ -107,7 +107,11 @@ def _add_config_digests(model: dict[str, Any]) -> None:
         configs = model.get("configs") or {}
         values = sorted(
             (
-                [entry.get("target", f"/{entry['source']}"), entry["mode"], configs[entry["source"]]["content"]]
+                [
+                    entry.get("target", f"/{entry['source']}"),
+                    entry.get("mode", 0o444),
+                    configs[entry["source"]]["content"],
+                ]
                 for entry in entries
             ),
             key=lambda value: value[0],
