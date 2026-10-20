@@ -11,6 +11,8 @@ updates:
     directories: ["/modules/app", "/modules/edge"]
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       stateless:
         patterns:

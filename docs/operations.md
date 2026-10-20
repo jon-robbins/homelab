@@ -3,6 +3,8 @@
 Run these commands on the controller host. The controller runs `homelabctl reconcile` every 5 minutes from
 its systemd timer; state lives in `/srv/homelab/state`, releases in `/srv/homelab/releases`.
 
+App-tier patch/minor Dependabot bumps merge + deploy on their own (≤ ~1 h 20 min); majors and edge wait for the owner; pause = `gh workflow disable dependabot-automerge.yml`, or `sudo touch /srv/homelab/state/observe-only`.
+
 ```bash
 homelabctl status                     # DEGRADED or ok, release pointers, what the next apply would change
 homelabctl ack --reason "<reason>"    # clear DEGRADED after you have checked

@@ -2,13 +2,14 @@ name: Release reconciler
 
 on:
   # Event-driven (D11): runs after the post-merge image build on main succeeds, and when homelab-site or a plugin
-  # repo dispatches it on merge. The daily schedule is only a backstop.
+  # repo dispatches it on merge. Auto-merged commits reach a release via this cron; a GITHUB_TOKEN merge starts no
+  # push workflows. The hourly schedule is only a backstop.
   workflow_run:  # zizmor: ignore[dangerous-triggers] same-repo push-to-main build only; artifacts are attestation-verified
     workflows: ["Post-merge credential-free builds"]
     types: [completed]
     branches: [main]
   schedule:
-    - cron: '17 4 * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       mode:
