@@ -109,6 +109,36 @@ def test_config_is_inlined_with_the_source_files_mode(tmp_path, entry):
     assert demo(result)["configs"][0]["mode"] == 0o640
 
 
+def test_config_digest_changes_only_for_config_service(tmp_path):
+    platform = tmp_path / "platform"
+    module(platform, configs=[{"source": "settings", "target": "/etc/settings"}])
+    module(platform, name="other")
+    folder = site(tmp_path, services={"demo": {}, "other": {}})
+    first = render(platform, folder, {})
+    assert "homelab.config-digest" in demo(first)["labels"]
+    assert "homelab.config-digest" not in first.app["services"]["other"]["labels"]
+    other = first.app["services"]["other"]
+    (folder / "settings.ini").write_text("changed\n")
+    second = render(platform, folder, {})
+    assert demo(first)["labels"]["homelab.config-digest"] != demo(second)["labels"]["homelab.config-digest"]
+    assert second.app["services"]["other"] == other
+
+
+def test_config_digest_is_deterministic_and_includes_mode_and_target(tmp_path):
+    platform = tmp_path / "platform"
+    module(platform, configs=[{"source": "settings", "target": "/etc/settings", "mode": 0o600}])
+    folder = site(tmp_path)
+    first = render(platform, folder, {})
+    second = render(platform, folder, {})
+    assert first == second
+    module(platform, configs=[{"source": "settings", "target": "/etc/other", "mode": 0o600}])
+    target_changed = render(platform, folder, {})
+    assert demo(first)["labels"]["homelab.config-digest"] != demo(target_changed)["labels"]["homelab.config-digest"]
+    module(platform, configs=[{"source": "settings", "target": "/etc/other", "mode": 0o640}])
+    mode_changed = render(platform, folder, {})
+    assert demo(target_changed)["labels"]["homelab.config-digest"] != demo(mode_changed)["labels"]["homelab.config-digest"]
+
+
 def test_site_override_is_merged_by_compose_and_gets_a_marker(tmp_path):
     module(tmp_path / "platform", volumes=["${APP_DATA_DIR}/demo:/config"])
     folder = site(tmp_path)
