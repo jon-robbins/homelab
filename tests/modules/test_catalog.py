@@ -23,7 +23,7 @@ EXPECTED = {  # tag@digest = what production runs today (verified against each r
     "homelab-seerr-request-reconciler": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:6b5fa615d3fdfcf2f49404ac5683b8d683cabdb442787fc63c2d800bfeefa823",
     "jellyfin": "lscr.io/linuxserver/jellyfin:10.11.8ubu2404-ls29@sha256:ae1ac3d89b8598f31f5e1dc5aff898e13eab617303db58f84956e26f7b78c198",
     "overseerr": "ghcr.io/seerr-team/seerr:v3.2.0@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad",
-    "plex": "lscr.io/linuxserver/plex:1.43.3.10828-00f62d37d-ls316@sha256:507713a14f9586f827d00c81381ecdcd438009172342b322b62a0e2b65081fdf",
+    "plex": "lscr.io/linuxserver/plex:1.43.4.10903-e5521bd8c-ls328@sha256:fc852e4c21359252896227aaafd48d7f052c0142cbe8e1ac3068d060faeb6d56",
     "prowlarr": "lscr.io/linuxserver/prowlarr:2.3.5.5327-ls143@sha256:c5de2a8758a05594319263e7691c1dce56899442ed1720d6eca216c0958f4caf",
     "qbittorrent": "lscr.io/linuxserver/qbittorrent:5.1.4-r3-ls451@sha256:8f7a1da9644340c737e3211ecc910a416d4295076e6b2824a4afcd1f4e3576e2",
     "radarr": "lscr.io/linuxserver/radarr:6.1.1.10360-ls300@sha256:b01097ad2d948c9f5eca39eb60bb529e2e55b0738c4bf7db09383bef0abab59d",
