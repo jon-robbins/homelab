@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab" "prod" "/arr" -}}
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/arr" -}}
 {{- range . -}}
 {{- if eq .Key "AUTOBRR_API_KEY" -}}{{ .Value }}{{ end -}}
 {{- end -}}

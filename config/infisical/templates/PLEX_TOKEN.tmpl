@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/media" -}}
+{{- range . -}}
+{{- if eq .Key "PLEX_TOKEN" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

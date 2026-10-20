@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab" "prod" "/llm" -}}
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/llm" -}}
 {{- range . -}}
 {{- if eq .Key "GEMINI_API_KEY" -}}{{ .Value }}{{ end -}}
 {{- end -}}

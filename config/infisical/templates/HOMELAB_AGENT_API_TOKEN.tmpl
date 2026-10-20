@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab" "prod" "/llm" -}}
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/llm" -}}
 {{- range . -}}
 {{- if eq .Key "HOMELAB_AGENT_API_TOKEN" -}}{{ .Value }}{{ end -}}
 {{- end -}}
