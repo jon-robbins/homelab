@@ -126,7 +126,7 @@ class WorkflowSecurityTests(unittest.TestCase):
 
     def assert_no_legacy_authority(
         self, workflow: dict[str, Any], *, allow_package_write: bool = False,
-        allow_attestation: bool = False
+        allow_attestation: bool = False, allow_automerge: bool = False
     ) -> None:
         triggers = workflow.get("on")
         self.assertIsInstance(triggers, dict)
@@ -158,6 +158,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                     self.assertEqual(job["permissions"], {"contents": "read", "actions": "read", "packages": "write"})
                     self.assertEqual(job.get("environment"), "production-release")
                     self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
+                elif allow_automerge and job_name == "automerge":
+                    self.assertEqual(job["permissions"], {"contents": "write", "pull-requests": "write"})
                 else:
                     self.assert_read_only_permissions(job["permissions"])
 
@@ -192,7 +194,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                     "types": ["completed"],
                     "branches": ["main"],
                 },
-                "schedule": [{"cron": "17 4 * * *"}],
+                "schedule": [{"cron": "17 * * * *"}],
                 "workflow_dispatch": {
                     "inputs": {
                         "mode": {
@@ -587,6 +589,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                         workflow,
                         allow_package_write=path.name == "reusable-publish.yml",
                         allow_attestation=path.name == "post-merge-build.yml",
+                        allow_automerge=path.name == "dependabot-automerge.yml",
                     )
 
     def test_post_merge_reusable_workflows_are_pinned(self) -> None:
