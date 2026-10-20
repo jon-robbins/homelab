@@ -53,7 +53,7 @@ def _services(release: Path) -> dict[str, dict[str, Any]]:
 
 
 def _data_dir(services: dict[str, dict[str, Any]], service: str) -> str:
-    root = Path("/srv/homelab/data")
+    root = Path(os.environ.get("HOMELAB_DATA_ROOT", "/srv/homelab/data"))
     dirs = {
         Path(source).relative_to(root).parts[0]
         for volume in services.get(service, {}).get("volumes", ())

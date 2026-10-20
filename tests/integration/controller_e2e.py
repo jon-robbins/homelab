@@ -100,6 +100,7 @@ fi
         self.env["PATH"] = f"{verifier.parent}:{self.env['PATH']}"
         self.env["FAKE_VERIFIER_LOG"] = str(self.verifier_log)
         self.env["E2E_DATA_ROOT"] = str(self.data)
+        self.env["HOMELAB_DATA_ROOT"] = str(self.data.parent)
         self.env["E2E_BACKUP_ROOT"] = str(root / "backups")
         self.env["E2E_RESTORE_LOG"] = str(root / "restore.log")
         self.feed_git = ["git", "-C", str(self.feed)]
