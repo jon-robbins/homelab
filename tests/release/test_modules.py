@@ -64,7 +64,7 @@ def test_module_returns_its_tier(tmp_path):
     [
         ("modules/app/whoami.yml", None, "modules/app/whoami.compose.yml"),
         ("modules/app/whoami.yaml", None, "modules/app/whoami.compose.yml"),
-        ("modules/other/whoami.compose.yml", None, "modules/other/whoami.compose.yml"),
+        ("modules/other/whoami.compose.yml", None, "modules/<app\\|edge>/<svc>\\.compose\\.yml"),
         ("modules/app/whoami.compose.yml", {"services": {"a": {}, "b": {}}}, "exactly one service"),
         ("modules/app/whoami.compose.yml", {"services": {"other": {}}}, "named whoami"),
     ],
@@ -154,6 +154,16 @@ def test_plugin_must_ship_a_module(tmp_path):
 def test_examples_are_valid():
     site = load_site(ROOT / "examples/site", ROOT)
     assert site.config["site_id"] == "example" and set(site.plugins) == {"plugin-hello"}
+
+
+@pytest.mark.parametrize("tier", ["app", "edge"])
+def test_site_rejects_platform_legacy_module_without_selected_services(tmp_path, tier):
+    site = write_site(tmp_path)
+    legacy = tmp_path / "modules" / tier / "whoami.yml"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("services: {}\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match=f"modules/{tier}/whoami\\.compose\\.yml"):
+        load_site(site, tmp_path)
 
 
 @pytest.mark.parametrize(

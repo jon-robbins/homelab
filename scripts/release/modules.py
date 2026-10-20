@@ -116,7 +116,11 @@ def check_module(path: Path, env: Mapping[str, str]) -> str:
         path.name.endswith(_MODULE_SUFFIX) and path.parent.name in TIERS and path.parent.parent.name == "modules"
     )
     if not valid_path:
-        expected = path.with_name(f"{path.stem}{_MODULE_SUFFIX}")
+        expected = (
+            path.with_name(f"{path.stem}{_MODULE_SUFFIX}")
+            if path.parent.name in TIERS and path.parent.parent.name == "modules"
+            else "modules/<app|edge>/<svc>.compose.yml"
+        )
         errors.append(ValidationError(str(path), f"module must be {expected}"))
     service = _module_name(path) if path.name.endswith(_MODULE_SUFFIX) else path.stem
     services = (load_yaml(path) or {}).get("services")
@@ -201,6 +205,7 @@ def load_site(root: Path, platform: Path, plugin_dirs: Mapping[str, Path] | None
     plugin_dirs (the release fetches it at its verified SHA). A plugin that can't be found is an error.
     """
     root = Path(root).resolve()
+    _check_legacy_modules(Path(platform))
     config, env = load_yaml(root / "site.yaml"), read_env(root / "site.env")
     errors = _check_site_config(config, env)
     if errors:
