@@ -32,7 +32,7 @@ def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
     _docker("pull", "traefik:v3.0")
     image = json.loads(_docker("image", "inspect", "traefik:v3.0").stdout)[0]["RepoDigests"][0]
     platform = tmp_path / "platform"
-    module = platform / "modules/app/demo.yml"
+    module = platform / "modules/app/demo.compose.yml"
     module.parent.mkdir(parents=True)
     module.write_text(yaml.safe_dump({"services": {"demo": {
         "image": image, "command": ["sleep", "300"],

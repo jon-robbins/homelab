@@ -32,19 +32,23 @@ EXPECTED = {  # tag@digest = what production runs today (verified against each r
 
 
 def _modules():
-    return sorted(ROOT.glob("modules/*/*.yml"))
+    return sorted(ROOT.glob("modules/*/*.compose.yml"))
+
+
+def _service(path):
+    return path.name.removesuffix(".compose.yml")
 
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda path: path.stem)
 def test_catalog_modules_validate_and_match_inventory(path):
     check_module(path, ENV)
-    assert re.search(r"(?m)^\s*image:\s*(\S+)$", path.read_text()).group(1) == EXPECTED[path.stem]
+    assert re.search(r"(?m)^\s*image:\s*(\S+)$", path.read_text()).group(1) == EXPECTED[_service(path)]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI with Compose")
 def test_catalog_site_renders_every_module():
     result = render(ROOT, SITE, {})
-    assert set(result.app["services"]) == {path.stem for path in ROOT.glob("modules/app/*.yml")}
+    assert set(result.app["services"]) == {_service(path) for path in ROOT.glob("modules/app/*.compose.yml")}
     assert set(result.edge["services"]) == {"caddy", "cloudflared"}
 
 

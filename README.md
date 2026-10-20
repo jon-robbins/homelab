@@ -64,7 +64,7 @@ real credentials or be committed.
 
 ```text
 apps/                 worker source and tests
-modules/              one Compose module per public service
+modules/              one Compose module per public service (`<service>.compose.yml`)
 config/               public service configuration
 docs/                 current/planned public documentation
 scripts/ci/           reproducible validation helpers

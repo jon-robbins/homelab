@@ -33,7 +33,7 @@ def module(root: Path, name="demo", tier="app", **service) -> Path:
         document["configs"] = {"settings": {"file": "site:settings.ini"}}
     if "secrets" in service:
         document["secrets"] = {"TOKEN": {"file": "${HOMELAB_SECRET_DIR}/TOKEN"}}
-    path = root / "modules" / tier / f"{name}.yml"
+    path = root / "modules" / tier / f"{name}.compose.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path

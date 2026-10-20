@@ -17,7 +17,7 @@ ENV = {"APP_DATA_DIR": "/srv/homelab/data", "MEDIA_HDD_PATH": "/mnt/media-hdd"}
 
 
 def write_module(root: Path, service="whoami", tier="app", body=None) -> Path:
-    path = root / "modules" / tier / f"{service}.yml"
+    path = root / "modules" / tier / f"{service}.compose.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     document = (
         body if body is not None else {"services": {service: {"image": "x", "volumes": ["${APP_DATA_DIR}/w:/w"]}}}
@@ -62,10 +62,11 @@ def test_module_returns_its_tier(tmp_path):
 @pytest.mark.parametrize(
     "path, body, message",
     [
-        ("modules/app/whoami.yaml", None, "modules/<app|edge>/<service>.yml"),
-        ("modules/other/whoami.yml", None, "modules/<app|edge>/<service>.yml"),
-        ("modules/app/whoami.yml", {"services": {"a": {}, "b": {}}}, "exactly one service"),
-        ("modules/app/whoami.yml", {"services": {"other": {}}}, "named whoami"),
+        ("modules/app/whoami.yml", None, "modules/app/whoami.compose.yml"),
+        ("modules/app/whoami.yaml", None, "modules/app/whoami.compose.yml"),
+        ("modules/other/whoami.compose.yml", None, "modules/other/whoami.compose.yml"),
+        ("modules/app/whoami.compose.yml", {"services": {"a": {}, "b": {}}}, "exactly one service"),
+        ("modules/app/whoami.compose.yml", {"services": {"other": {}}}, "named whoami"),
     ],
 )
 def test_module_layout_is_enforced(tmp_path, path, body, message):
@@ -142,7 +143,7 @@ def test_plugin_cannot_reuse_a_platform_module_name(tmp_path):
 
 def test_plugin_must_ship_a_module(tmp_path):
     plugin = write_plugin(tmp_path)
-    (plugin / "modules/app/whoami.yml").unlink()
+    (plugin / "modules/app/whoami.compose.yml").unlink()
     with pytest.raises(ValidationError, match="must ship a module"):
         load_plugin("plugin", plugin, ENV, tmp_path / "platform")
 

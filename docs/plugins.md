@@ -5,7 +5,7 @@ A plugin packages services specific to one homelab. Its directory contains:
 ```text
 homelab-plugin.yaml  # contract: 1, name and description; image_namespace for code repos
 README.md            # services, site.env keys and how to run them
-modules/app/*.yml    # or modules/edge/*.yml
+modules/app/*.compose.yml    # or modules/edge/*.compose.yml
 ```
 
 Code-free plugins live under the site as `plugins/<name>/` and are enabled
