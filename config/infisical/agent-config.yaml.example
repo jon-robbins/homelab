@@ -11,6 +11,11 @@ templates:
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key TMDB_API_KEY
+  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/PLEX_TOKEN.tmpl
+    destination-path: ${HOME}/.config/homelab/secrets/PLEX_TOKEN
+    polling-interval: 60s
+    commands:
+      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key PLEX_TOKEN
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/SONARR_API_KEY.tmpl
     destination-path: ${HOME}/.config/homelab/secrets/SONARR_API_KEY
     polling-interval: 60s
@@ -46,38 +51,3 @@ templates:
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key QBITTORRENT_PASSWORD
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/GEMINI_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/GEMINI_API_KEY
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key GEMINI_API_KEY
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/MCP_API_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/MCP_API_TOKEN
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key MCP_API_TOKEN
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/MEDIA_AGENT_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/MEDIA_AGENT_TOKEN
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key MEDIA_AGENT_TOKEN
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/HOMELAB_AGENT_API_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/HOMELAB_AGENT_API_TOKEN
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key HOMELAB_AGENT_API_TOKEN
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/VLLM_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/VLLM_API_KEY
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key VLLM_API_KEY
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/TELEGRAM_BOT_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/TELEGRAM_BOT_TOKEN
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key TELEGRAM_BOT_TOKEN
-  - source-path: ${HOMELAB_ROOT}/config/infisical/templates/TELEGRAM_MCP_API_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/TELEGRAM_MCP_API_TOKEN
-    polling-interval: 60s
-    commands:
-      - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key TELEGRAM_MCP_API_TOKEN
