@@ -20,7 +20,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - name: Enable automerge
-        if: steps.metadata.outputs.package-ecosystem == 'docker-compose' && steps.metadata.outputs.directory == '/modules/app' && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        if: steps.metadata.outputs.package-ecosystem == 'docker_compose' && steps.metadata.outputs.directory == '/modules/app' && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor')
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
