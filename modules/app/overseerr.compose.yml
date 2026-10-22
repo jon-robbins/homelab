@@ -1,7 +1,9 @@
 services:
   overseerr:
     image: ghcr.io/seerr-team/seerr:v3.5.0@sha256:27602401178d54f1964442287b9f23f67a3fa2252645ee8065839ea1c3f69e45
-    user: "${PUID}:${PGID}"
+    # The image's own user (node, 1000), not PUID: the entrypoint patches files under /app/dist that only it can
+    # write. PGID still gives it the data directory and the secret.
+    user: "1000:${PGID}"
     pids_limit: 500
     init: true
     entrypoint: ["/custom-entrypoint.sh"]
