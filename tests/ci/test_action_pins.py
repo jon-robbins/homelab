@@ -20,6 +20,7 @@ ALLOWED_ACTIONS = {
     "actions/download-artifact",
     "actions/upload-artifact",
     "actions/attest-build-provenance",
+    "actions/create-github-app-token",
     "dorny/paths-filter",
     "docker/setup-buildx-action",
     "sigstore/cosign-installer",
