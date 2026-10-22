@@ -146,6 +146,17 @@ def test_service_prints_snapshot_id_last_and_uses_both_tags(tmp_path: Path):
     assert len(calls(log)) == 1
 
 
+def test_service_without_its_data_dir_fails_before_calling_restic(tmp_path: Path):
+    service_root = tmp_path / "data"
+    service_root.mkdir()
+    log, env = tools(tmp_path)
+    env.update(SERVICE_ROOT=str(service_root), STAGE=str(tmp_path / "stage"))
+    result = run(script_for(tmp_path), env, "--service", "plex", "--tag", "weekly")
+    assert result.returncode == 1
+    assert f"homelab-backup: no data dir {service_root / 'plex'}" in result.stderr
+    assert not log.exists()  # restic never ran
+
+
 def test_restore_moves_old_service_and_restores_staged_database(tmp_path: Path):
     service_root = tmp_path / "data"
     old = service_root / "plex"

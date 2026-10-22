@@ -18,7 +18,9 @@ The rules:
 4. The service has an enabled `healthcheck`, or, for images without a shell, a `homelab.probe` label such as
    `http://:8080/health` that documents the check.
 5. `homelab.state` is exactly `stateful` or `stateless`. Stateful binds are snapshotted before changes and never
-   restored automatically.
+   restored automatically. `homelab-backup` snapshots a stateful service as `${APP_DATA_DIR}/<service>`, so a
+   stateful service's binds under `APP_DATA_DIR` must sit under that directory (e.g.
+   `${APP_DATA_DIR}/qbittorrent/config`).
 
 Variables are only `${NAME}`, with `NAME` defined in the site's `site.env` (no `${NAME:-default}`, no `$NAME`).
 

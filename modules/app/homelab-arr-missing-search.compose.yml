@@ -11,7 +11,7 @@ services:
     environment: ["TZ=${TZ}", "ARR_MISSING_SEARCH_ENABLED=0"]
     volumes:
       - type: bind
-        source: ${APP_DATA_DIR}/arr-missing-search
+        source: ${APP_DATA_DIR}/homelab-arr-missing-search
         target: /state
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}

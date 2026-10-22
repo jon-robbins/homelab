@@ -12,7 +12,7 @@ services:
     environment: ["TZ=${TZ}", "QBITTORRENT_INTERNAL_URL=http://qbittorrent:8080", "QBT_EVENTS_SESSION_PATH=/state/session.json", "QBT_EVENTS_STATUS_PATH=/state/status.json", "QBT_EVENTS_REENFORCE_SECONDS=45"]
     volumes:
       - type: bind
-        source: ${APP_DATA_DIR}/qbt-events
+        source: ${APP_DATA_DIR}/homelab-qbt-events
         target: /state
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}
