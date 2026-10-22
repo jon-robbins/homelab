@@ -36,7 +36,11 @@ printf '%s\n' \
   '[Timer]' \
   'OnCalendar=*-*-* 04:15:00' 'Persistent=true' 'RandomizedDelaySec=10m' '' \
   '[Install]' 'WantedBy=timers.target' >"$tmp/backup.timer"
-printf '%s\n' '[Unit]' 'After=tailscaled.service' >"$tmp/dropin"
+# Containers mount secret files the Infisical agent renders into tmpfs, so Docker starts after the agent has.
+printf '%s\n' '[Unit]' 'After=tailscaled.service homelab-infisical-agent.service' >"$tmp/dropin"
+printf '%s\n' \
+  '[Service]' 'RuntimeDirectory=homelab-secrets' 'RuntimeDirectoryMode=0700' 'RuntimeDirectoryPreserve=yes' \
+  'ExecStartPost=/srv/homelab/tooling/current/host/wait-for-secrets' 'TimeoutStartSec=120' >"$tmp/agent-dropin"
 printf '%s\n' 'net.ipv4.ip_nonlocal_bind=1' >"$tmp/sysctl"
 printf '%s\n' \
   /etc/systemd/system/docker.service.d/10-homelab.conf \
@@ -44,6 +48,7 @@ printf '%s\n' \
   /etc/systemd/system/homelab-backup.timer \
   /etc/systemd/system/homelab-controller.service \
   /etc/systemd/system/homelab-controller.timer \
+  /etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf \
   /etc/sysctl.d/90-homelab.conf \
   /var/lib/tailscale >"$tmp/HOST-FILES"
 # Keep the lines cutover.sh appended (files it installed); install only owns its own.
@@ -58,6 +63,7 @@ files=(
   "$d/etc/systemd/system/homelab-backup.service:$tmp/backup.service"
   "$d/etc/systemd/system/homelab-backup.timer:$tmp/backup.timer"
   "$d/etc/systemd/system/docker.service.d/10-homelab.conf:$tmp/dropin"
+  "$d/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf:$tmp/agent-dropin"
   "$d/etc/sysctl.d/90-homelab.conf:$tmp/sysctl"
   "$h/HOST-FILES:$tmp/HOST-FILES"
 )

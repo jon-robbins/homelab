@@ -24,3 +24,13 @@ The required filenames are the secret names declared by the modules, such as
 `TMDB_API_KEY`, `QBITTORRENT_PASSWORD`, and `SONARR_API_KEY`. A private secret
 manager may render or refresh those files; the public repository does not
 prescribe its credentials, agent configuration, or host integration.
+
+## Host secret directory
+
+**Status: Current.** On the host the Infisical agent renders the files into
+`/run/homelab-secrets` (tmpfs, `0700`, owned by the agent's user), so secret
+values never reach disk and are gone after a reboot until the agent renders
+them again. `host/install.sh` installs the agent drop-in that creates the
+directory and waits for every rendered file (`host/wait-for-secrets`), and
+orders Docker after the agent so containers never start without them. The
+site sets `HOMELAB_SECRET_DIR=/run/homelab-secrets`.

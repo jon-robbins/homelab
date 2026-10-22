@@ -2,52 +2,52 @@
 # This checked-in example intentionally contains no client credentials, project ID, or secret values.
 templates:
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/CLOUDFLARE_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/CLOUDFLARE_TOKEN
+    destination-path: /run/homelab-secrets/CLOUDFLARE_TOKEN
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key CLOUDFLARE_TOKEN
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/TMDB_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/TMDB_API_KEY
+    destination-path: /run/homelab-secrets/TMDB_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key TMDB_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/PLEX_TOKEN.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/PLEX_TOKEN
+    destination-path: /run/homelab-secrets/PLEX_TOKEN
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key PLEX_TOKEN
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/SONARR_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/SONARR_API_KEY
+    destination-path: /run/homelab-secrets/SONARR_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key SONARR_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/RADARR_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/RADARR_API_KEY
+    destination-path: /run/homelab-secrets/RADARR_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key RADARR_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/PROWLARR_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/PROWLARR_API_KEY
+    destination-path: /run/homelab-secrets/PROWLARR_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key PROWLARR_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/OVERSEERR_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/OVERSEERR_API_KEY
+    destination-path: /run/homelab-secrets/OVERSEERR_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key OVERSEERR_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/AUTOBRR_API_KEY.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/AUTOBRR_API_KEY
+    destination-path: /run/homelab-secrets/AUTOBRR_API_KEY
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key AUTOBRR_API_KEY
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/QBITTORRENT_USERNAME.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/QBITTORRENT_USERNAME
+    destination-path: /run/homelab-secrets/QBITTORRENT_USERNAME
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key QBITTORRENT_USERNAME
   - source-path: ${HOMELAB_ROOT}/config/infisical/templates/QBITTORRENT_PASSWORD.tmpl
-    destination-path: ${HOME}/.config/homelab/secrets/QBITTORRENT_PASSWORD
+    destination-path: /run/homelab-secrets/QBITTORRENT_PASSWORD
     polling-interval: 60s
     commands:
       - command: ${HOMELAB_ROOT}/scripts/ops/infisical-agent-reload.py --key QBITTORRENT_PASSWORD
