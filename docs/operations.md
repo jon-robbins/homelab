@@ -25,6 +25,14 @@ docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d 
 `host/install.sh` installs the controller, backup and the agent's tmpfs drop-in. Root's git refuses a checkout it
 doesn't own, so run it from a clone owned by root, checked out at the release tooling SHA:
 
+First create the service users, using the site's `PUID` and `PGID`:
+
+```bash
+sudo groupadd --system --gid <PGID> homelab
+sudo useradd --system --uid <PUID> --gid homelab --no-create-home --shell /usr/sbin/nologin homelab
+sudo useradd --system --gid homelab --no-create-home --shell /usr/sbin/nologin homelab-secrets
+```
+
 ```bash
 sudo git clone https://github.com/jon-robbins/homelab /tmp/homelab-install && sudo git -C /tmp/homelab-install checkout <sha>
 sudo /tmp/homelab-install/host/install.sh --sha <sha> && sudo rm -rf /tmp/homelab-install

@@ -7,6 +7,8 @@ services:
     networks: [homelab_net]
     ports: ["32400:32400/tcp"]
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
     environment: ["PUID=${PUID}", "PGID=${PGID}", "TZ=${TZ}", "VERSION=docker"]
     gpus: all
     volumes:

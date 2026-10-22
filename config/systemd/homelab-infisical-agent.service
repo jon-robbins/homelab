@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=jon
-Group=jon
+User=homelab-secrets
+Group=homelab
 WorkingDirectory=/srv/homelab
 ExecStart=/usr/bin/infisical agent --config /etc/infisical-agent/config.yaml
 Restart=on-failure
