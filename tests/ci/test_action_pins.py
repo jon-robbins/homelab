@@ -20,6 +20,8 @@ ALLOWED_ACTIONS = {
     "actions/download-artifact",
     "actions/upload-artifact",
     "actions/attest-build-provenance",
+    "actions/create-github-app-token",
+    "dependabot/fetch-metadata",
     "dorny/paths-filter",
     "docker/setup-buildx-action",
     "sigstore/cosign-installer",
@@ -73,7 +75,8 @@ def test_workflow_actions_have_pin_comments() -> None:
 
 def test_workflow_permissions_are_read_only() -> None:
     for path, document in _workflow_documents():
-        assert document["permissions"] == {"contents": "read"}, path
+        # An empty block grants nothing, which is stricter than contents: read.
+        assert document["permissions"] in ({"contents": "read"}, {}), path
         for job in document["jobs"].values():
             if isinstance(job, dict) and "permissions" in job:
                 assert all(

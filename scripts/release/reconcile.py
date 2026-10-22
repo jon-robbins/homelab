@@ -23,6 +23,15 @@ from .sign import COSIGN_VERSION, record_bytes, sign_record
 from .verify import VerificationError, VerificationResult, verify_release
 SITE_REPOSITORY = os.environ.get("SITE_REPOSITORY", "jon-robbins/homelab-site")
 BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
+# Paths whose change makes the build workflow build an image; test_workflow keeps them in step with its filters.
+BUILD_INPUT_PREFIXES = (
+    ".github/workflows/post-merge-build.yml",
+    "config/release/approved-ghcr-destinations.json",
+    "apps/homelab-workers/",
+    "config/caddy/",
+)
+# The commit API lists at most this many files per page; a full page may be truncated.
+COMMIT_FILES_LIMIT = 300
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
 _DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$")
 _DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
@@ -210,6 +219,26 @@ def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str]) ->
     )
 
 
+def _changes_no_build_input(client: Any, repository: str, sha: str) -> bool:
+    """Return whether *sha* provably changes nothing the build workflow builds from.
+
+    A GITHUB_TOKEN merge (Dependabot automerge) starts no push run; such a commit
+    has no images to wait for, and waiting would block every later release.
+    """
+    read_commit = getattr(client, "read_commit", None)
+    commit = read_commit(repository, sha) if callable(read_commit) else None
+    if not isinstance(commit, Mapping):
+        return False
+    files, parents = commit.get("files"), commit.get("parents")
+    if not isinstance(files, list) or len(files) >= COMMIT_FILES_LIMIT or not isinstance(parents, list) or len(parents) != 1:
+        return False
+    if not all(isinstance(item, Mapping) for item in files):
+        return False
+    # A rename out of a build path still changes that path.
+    names = [item.get("filename") for item in files] + [item["previous_filename"] for item in files if "previous_filename" in item]
+    return all(isinstance(name, str) and not name.startswith(BUILD_INPUT_PREFIXES) for name in names)
+
+
 def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[str, Any]]:
     """Download OCI artifacts and make their native attestations authoritative."""
     runs_method = getattr(client, "workflow_runs", None)
@@ -226,6 +255,8 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
             and run.get("path", BUILD_WORKFLOW) == BUILD_WORKFLOW
         ]
         if not exact_runs:
+            if _changes_no_build_input(client, repository, sha):
+                return {}
             raise VerificationError(f"post-merge build for {sha} is not visible yet; waiting")
         successful_run = next(
             (

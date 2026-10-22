@@ -19,9 +19,21 @@ jobs:
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ github.token }}
-      - name: Enable automerge
+      # A GITHUB_TOKEN merge starts no push workflows, so post-merge builds and the
+      # release would never run. The app token's merge is a real push.
+      - name: Create automerge app token
+        id: app-token
         if: steps.metadata.outputs.package-ecosystem == 'docker_compose' && steps.metadata.outputs.directory == '/modules/app' && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # Dependabot-triggered runs read only Dependabot secrets.
+          client-id: ${{ secrets.AUTOMERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Enable automerge
+        if: steps.app-token.outcome == 'success'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
