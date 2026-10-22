@@ -5,6 +5,9 @@
   "movies-radarr": {
     "save_path": "movies"
   },
+  "music-lidarr": {
+    "save_path": "music"
+  },
   "seed-staging": {
     "save_path": "/downloads/seed-staging"
   },

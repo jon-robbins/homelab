@@ -20,7 +20,7 @@ TIERS = ("app", "edge")
 # Keys a site.env may define. The first four are the only ones a site may declare as bind roots.
 ROOT_KEYS = ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH", "MEDIA_PLEX_PATH")
 # Media roles: where this site keeps movies, TV and downloads. Each must sit under a declared bind root.
-MEDIA_ROLE_KEYS = ("MOVIES_DIR", "TV_DIR", "DOWNLOADS_DIR")
+MEDIA_ROLE_KEYS = ("MOVIES_DIR", "TV_DIR", "DOWNLOADS_DIR", "MUSIC_DIR")
 SITE_ENV_KEYS = frozenset(
     {*ROOT_KEYS, *MEDIA_ROLE_KEYS, "PUID", "PGID", "TZ", "HOMELAB_SECRET_DIR", "BASE_DOMAIN", "TAILSCALE_IP"}
 )

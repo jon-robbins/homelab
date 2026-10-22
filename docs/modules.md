@@ -23,10 +23,11 @@ The rules:
 Variables are only `${NAME}`, with `NAME` defined in the site's `site.env` (no `${NAME:-default}`, no `$NAME`).
 
 Modules are a template for any homelab, so they never encode one site's disk layout. Media binds use role keys,
-the linuxserver convention: `${MOVIES_DIR}:/movies`, `${TV_DIR}:/tv`, `${DOWNLOADS_DIR}:/downloads`. Each site maps
-them in `site.env` (e.g. movies and TV on a large HDD, downloads staged on an NVMe disk), and each must sit under a
-declared bind root, so disk markers still follow the disk. Anything specific to one site's workflow (a seeding
-folder, Plex's symlink tree, a two-disk post-import mapping) belongs in that site's `overrides/<service>.yml`.
+the linuxserver convention: `${MOVIES_DIR}:/movies`, `${TV_DIR}:/tv`, `${MUSIC_DIR}:/music`,
+`${DOWNLOADS_DIR}:/downloads`. Each site maps them in `site.env` (e.g. movies, TV and music on a large HDD,
+downloads staged on an NVMe disk), and each must sit under a declared bind root, so disk markers still follow the
+disk. Anything specific to one site's workflow (a seeding folder, Plex's symlink tree, a two-disk post-import
+mapping) belongs in that site's `overrides/<service>.yml`.
 
 Where each rule runs: `scripts/release/modules.py` checks the file layout and variables (what Compose would
 erase); `scripts/release/compose_policy.py` checks everything else on the rendered model, after
