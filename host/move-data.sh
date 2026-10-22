@@ -19,6 +19,7 @@ done
 
 sources=()
 destinations=()
+stopped=()
 total=0
 for spec in "${specs[@]}"; do
   svc=${spec%%=*}
@@ -58,7 +59,12 @@ for i in "${!specs[@]}"; do
     mapfile -t ids < <(docker ps -q \
       --filter label=com.docker.compose.project=homelab \
       --filter "label=com.docker.compose.service=$svc")
-    ((${#ids[@]} == 0)) || docker stop "${ids[@]}"
+    ((${#ids[@]} == 0)) || { docker stop "${ids[@]}"; stopped+=("$svc"); }
     if [[ -d $src ]]; then cp -a "$src" "$dst"; else mkdir "$dst"; cp -a "$src" "$dst/"; fi
   fi
 done
+if ((${#stopped[@]})); then
+  # The controller leaves an exited container alone ("stopped by owner"), so nothing restarts these by itself.
+  echo "stopped: ${stopped[*]}. They stay stopped until you start them from the release that mounts the new data dir:"
+  echo "  docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps ${stopped[*]}"
+fi
