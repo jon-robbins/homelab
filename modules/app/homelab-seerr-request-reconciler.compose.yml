@@ -10,7 +10,7 @@ services:
     environment: ["TZ=${TZ}", "SEERR_RECONCILER_ENABLED=0"]
     volumes:
       - type: bind
-        source: ${APP_DATA_DIR}/seerr-request-reconciler
+        source: ${APP_DATA_DIR}/homelab-seerr-request-reconciler
         target: /state
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}

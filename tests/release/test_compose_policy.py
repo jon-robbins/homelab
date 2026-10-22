@@ -85,6 +85,11 @@ def test_production_shapes_pass():
         ),
         pytest.param(service(volumes=[bind("/etc/passwd")]), "outside the declared site roots", id="bind-outside"),
         pytest.param(service(volumes=[bind("relative/dir")]), "outside the declared site roots", id="bind-relative"),
+        pytest.param(
+            service(volumes=[bind(f"{ENV['APP_DATA_DIR']}/other", "/config")]),
+            "must sit under",
+            id="stateful-data-dir-not-named-after-service",
+        ),
         pytest.param(service(image="lscr.io/linuxserver/sonarr:latest"), "pinned by digest", id="unpinned"),
         pytest.param(service(image="evil.example/sonarr" + DIGEST), "namespace is not permitted", id="namespace"),
         pytest.param(service(healthcheck=None), "needs a healthcheck", id="no-health"),
@@ -106,6 +111,10 @@ def test_production_shapes_pass():
 def test_each_rule_rejects_its_violation(svc, message):
     with pytest.raises(ValidationError, match=message):
         check({"svc": svc})
+
+
+def test_stateless_services_may_bind_any_data_dir():
+    check({"svc": service(labels={"homelab.state": "stateless"}, volumes=[bind(f"{ENV['APP_DATA_DIR']}/other")])})
 
 
 def test_missing_tier_is_rejected():
