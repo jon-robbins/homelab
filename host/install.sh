@@ -10,11 +10,15 @@ while (($#)); do
     *) echo "usage: $0 --sha SHA [--replace UNIT]..." >&2; exit 2 ;;
   esac
 done
+d=${DESTDIR:-}
+if [[ -z $d ]] && ! getent passwd homelab-secrets >/dev/null; then
+  echo "homelab-secrets user missing: create it first (docs/operations.md)" >&2
+  exit 1
+fi
 [[ -n $sha ]] || { echo "usage: $0 --sha SHA [--replace UNIT]..." >&2; exit 2; }
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 [[ "$(git -C "$repo" rev-parse HEAD)" == "$sha" ]] || { echo "SHA does not match HEAD" >&2; exit 1; }
-d=${DESTDIR:-}
 h=$d/srv/homelab
 t=$h/tooling/$sha
 tmp=$(mktemp -d)
@@ -40,6 +44,7 @@ printf '%s\n' \
 printf '%s\n' '[Unit]' 'After=tailscaled.service homelab-infisical-agent.service' >"$tmp/dropin"
 printf '%s\n' \
   '[Service]' 'RuntimeDirectory=homelab-secrets' 'RuntimeDirectoryMode=0700' 'RuntimeDirectoryPreserve=yes' \
+  'User=homelab-secrets' 'Group=homelab' 'UMask=0027' 'WorkingDirectory=/srv/homelab' \
   'ExecStartPost=/srv/homelab/tooling/current/host/wait-for-secrets' 'TimeoutStartSec=120' >"$tmp/agent-dropin"
 printf '%s\n' 'net.ipv4.ip_nonlocal_bind=1' >"$tmp/sysctl"
 printf '%s\n' \

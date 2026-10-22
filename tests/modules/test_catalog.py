@@ -45,6 +45,13 @@ def test_catalog_site_renders_every_module():
 
 def test_catalog_render_has_production_limits_and_service_settings():
     services = render(ROOT, SITE, {}).app["services"]
+    edge = render(ROOT, SITE, {}).edge["services"]
+    assert edge["caddy"]["user"] == "1000:1000"
+    assert services["overseerr"]["user"] == "1000:1000"
+    for name in ("sonarr", "radarr", "lidarr", "bazarr", "qbittorrent"):
+        assert services[name]["environment"]["UMASK"] == "002"
+    assert services["plex"]["cap_drop"] == ["ALL"]
+    assert services["plex"]["cap_add"] == ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"]
     assert {name: (service["mem_limit"], service["memswap_limit"]) for name, service in services.items()
             if "mem_limit" in service} == {
         "autobrr": ("536870912", "1073741824"),

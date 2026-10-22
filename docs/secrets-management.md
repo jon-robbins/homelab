@@ -28,8 +28,8 @@ prescribe its credentials, agent configuration, or host integration.
 ## Host secret directory
 
 **Status: Current.** On the host the Infisical agent renders the files into
-`/run/homelab-secrets` (tmpfs, `0700`, owned by the agent's user), so secret
-values never reach disk and are gone after a reboot until the agent renders
+`/run/homelab-secrets` (tmpfs, with files `0640 homelab-secrets:homelab`), so
+secret values never reach disk and are gone after a reboot until the agent renders
 them again. `host/install.sh` installs the agent drop-in that creates the
 directory and waits for every rendered file (`host/wait-for-secrets`), and
 orders Docker after the agent so containers never start without them. The
