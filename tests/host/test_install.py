@@ -120,14 +120,14 @@ def test_host_files_dropin_and_no_infisical_unit(tmp_path: Path):
         "/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf\n"
         "/etc/sysctl.d/90-homelab.conf\n/var/lib/tailscale\n"
     )
-    # Install owns only the agent's tmpfs drop-in; the agent unit itself stays the cutover's.
+    # Install owns only the agent's tmpfs drop-in; the agent unit itself is installed by hand (docs/operations.md).
     assert not list((tmp_path / "etc").rglob("homelab-infisical-agent.service"))
     agent = (tmp_path / "etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf").read_text()
     assert "RuntimeDirectory=homelab-secrets\nRuntimeDirectoryMode=0700\nRuntimeDirectoryPreserve=yes\n" in agent
     assert "ExecStartPost=/srv/homelab/tooling/current/host/wait-for-secrets\n" in agent
 
 
-def test_keeps_host_files_lines_added_by_cutover(tmp_path: Path):
+def test_keeps_host_files_lines_added_by_other_tools(tmp_path: Path):
     assert run(tmp_path).returncode == 0
     host_files = tmp_path / "srv/homelab/HOST-FILES"
     dropin = "/etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf\n"
