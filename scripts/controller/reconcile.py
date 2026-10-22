@@ -237,7 +237,11 @@ class SubprocessOps:
             time.sleep(max(0, min(1, deadline - time.monotonic())))
 
     def snapshot(self, service, tag):
-        return _out("homelab-backup", "--service", service, "--tag", tag).splitlines()[-1]
+        argv = ["homelab-backup", "--service", service, "--tag", tag]
+        result = subprocess.run(argv, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"{' '.join(argv)} failed: {result.stderr.strip() or f'exit {result.returncode}'}")
+        return result.stdout.splitlines()[-1]
 
     def restore(self, service, tag):
         self.run(["homelab-backup", "--restore", service, "--tag", tag])

@@ -47,6 +47,20 @@ def _marker_paths(model: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(sorted(s for s in sources if isinstance(s, str) and s.endswith("/.homelab-mounted")))
 
 
+def _missing_data_dirs(model: Mapping[str, object], managed: set[str], adapter: DockerAdapter) -> list[str]:
+    # A stateful service is snapshotted from its data dir before every recreate, so that dir must already exist.
+    return [
+        f"data dir missing: {name}: {volume['source']}"
+        for name, service in sorted(model.get("services", {}).items())
+        if name in managed and (service.get("labels") or {}).get("homelab.state") == "stateful"
+        for volume in service.get("volumes", ())
+        if isinstance(volume, Mapping)
+        and volume.get("type") == "bind"
+        and not str(volume.get("source", "")).endswith("/.homelab-mounted")
+        and not adapter.path_exists(volume["source"])
+    ]
+
+
 def plan(release_dir: Path | str, adapter: DockerAdapter) -> Plan:
     root = Path(release_dir)
     app, edge, site = (_document(root / name) for name in ("app.json", "edge.json", "site.yaml"))
@@ -54,6 +68,7 @@ def plan(release_dir: Path | str, adapter: DockerAdapter) -> Plan:
     site_services = site.get("services", {})
 
     failures = [f"media disk missing: {path}" for path in _marker_paths(app) if not adapter.path_exists(path)]
+    failures += _missing_data_dirs(app, managed, adapter)
     recreate: list[str] = []
     create_stopped: list[str] = []
     notices: list[str] = []

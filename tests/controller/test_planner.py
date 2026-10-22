@@ -91,6 +91,28 @@ def release(tmp_path: Path, app, edge, site):
             Plan((), (), (), ("media disk missing: /media/.homelab-mounted",)),
             id="missing-marker-is-a-failure",
         ),
+        pytest.param(
+            {
+                "keeper": {
+                    "labels": {"homelab.state": "stateful"},
+                    "volumes": [
+                        {"type": "bind", "source": "/data/keeper"},
+                        {"type": "bind", "source": "/media/.homelab-mounted"},
+                    ],
+                },
+                "loose": {"labels": {"homelab.state": "stateless"}, "volumes": [{"type": "bind", "source": "/data/x"}]},
+            },
+            {},
+            "managed: [keeper, loose]\nservices: {}\n",
+            {("homelab", "keeper"): "same", ("homelab", "loose"): "same"},
+            {
+                ("homelab", "keeper"): ContainerView("same", "running", ""),
+                ("homelab", "loose"): ContainerView("same", "running", ""),
+            },
+            ("/media/.homelab-mounted",),
+            Plan((), (), (), ("data dir missing: keeper: /data/keeper",)),
+            id="stateful-service-with-missing-data-dir-is-a-failure",
+        ),
     ],
 )
 def test_planning_rules(tmp_path, app, edge, site, hashes, containers, exists, expected):

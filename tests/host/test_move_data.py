@@ -43,6 +43,8 @@ def test_copy_keeps_source_and_stops_compose_containers(tmp_path):
     assert "label=com.docker.compose.project=homelab" in log
     assert "label=com.docker.compose.service=svc" in log
     assert "stop a b" in log
+    assert "stopped: svc other. They stay stopped" in result.stdout
+    assert "docker compose -p homelab -f /srv/homelab/releases/current/app.json up -d --no-deps svc other" in result.stdout
 
 
 def test_destination_and_space_fail_before_copy(tmp_path):
