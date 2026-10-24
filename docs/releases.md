@@ -14,7 +14,7 @@ check on `main`:
 gh workflow run release.yml -f mode=check
 ```
 
-The check runs one protected job per credential. It reads the site and tracker
+The check runs one protected job per credential. It reads the site and plugin
 heads and available build artifacts; checks the pinned cosign binary and a
 Sigstore-audience GitHub OIDC token without creating a transparency-log entry;
 and checks feed read and push access.
@@ -29,7 +29,7 @@ targets `main`, requires pull requests, blocks force-push and branch deletion,
 and has no bypass actors. The plan does not use an owner-merged-PR API check
 for this public repository.
 
-`jon-robbins/homelab-site` and `jon-robbins/tracker-integrations` are private
+The site repository and any plugin repositories are private
 repositories on GitHub Free, so they have no rulesets. Their `main` heads must
 still be merge commits from pull requests merged into `main` by a configured
 release owner. A non-owner merge, wrong base, direct commit, or mismatched merge
@@ -50,8 +50,8 @@ gh attestation verify <archive> --repo jon-robbins/homelab \
 Thus the signed artifact, signer workflow, and source commit must all match
 the release before its manifest digest is admitted.
 
-The plan compares the current heads of `homelab`, `homelab-site`, and
-`tracker-integrations` with the previous record. Any source-head change creates
+The plan compares the current heads of `homelab`, `homelab-site`, and each
+plugin repository with the previous record. Any source-head change creates
 a release because the bundle may have changed, even when no image needs to be
 published. OCI artifacts are selected only when their native attestation
 matches the current homelab head. The first release requires one verified
@@ -96,8 +96,8 @@ consumers verify that exact identity and issuer
 in Sigstore's public Rekor transparency log. `bundle.tar` is the exact compiled
 bundle referenced by `record.json` through `bundle_sha256`.
 
-The `sources` object uses the exact GitHub repository names: `homelab`,
-`homelab-site`, and optional `tracker-integrations`.
+The `sources` object has one entry per source: `homelab`, `homelab-site`, and
+one per repository plugin, keyed by its name in `site.yaml`.
 
 Publication observes the current `releases` ref and commits the next sequence
 with compare-and-swap semantics. A ref race is retried; the workflow never
@@ -105,7 +105,7 @@ force-pushes or overwrites an existing sequence. Consumers must verify the
 record schema, signature, and bundle digest before using a release.
 
 Before enabling the workflow, the owner creates `PRIVATE_INPUT_READ_TOKEN`
-(contents/actions read on `homelab-site` and `tracker-integrations`, plus
+(contents/actions read on `homelab-site` and each plugin repository, plus
 administration read on `homelab` so the release job can see the `main`
 ruleset's bypass actors; without it the plan fails closed) and
 `SITE_FEED_TOKEN` (contents write on `homelab-site`) in the `production-release`
