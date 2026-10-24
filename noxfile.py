@@ -1,6 +1,8 @@
 """Test sessions used by local development and hosted CI."""
 
+import json
 import os
+import subprocess
 from pathlib import Path
 
 import nox
@@ -42,10 +44,20 @@ def controller(session: nox.Session) -> None:
     session.run("pytest", "-q", "tests/controller")
 
 
+def _homelab_project_exists() -> bool:
+    containers = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=homelab"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    return bool(containers.strip())
+
+
 @nox.session(python=PYTHON, tags=["docker"])
 def controller_e2e(session: nox.Session) -> None:
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        session.skip("controller_e2e runs in hosted CI only")
+    # The test brings up and tears down (down -v --remove-orphans) the "homelab" Compose
+    # project, so it must never run against a Docker daemon that already has one.
+    if os.environ.get("GITHUB_ACTIONS") != "true" and _homelab_project_exists():
+        session.error("a 'homelab' Compose project exists on this Docker daemon; refusing to run")
     install(session, "pytest", "PyYAML")
     session.env["PYTHONPATH"] = str(ROOT)
     session.run("pytest", "-q", "tests/integration/controller_e2e.py")
@@ -56,6 +68,27 @@ def render_docker(session: nox.Session) -> None:
     session.install("--require-hashes", "-r", "config/release/requirements.txt")
     session.install("pytest")
     session.run("pytest", "-q", "tests/release/test_render_docker.py")
+
+
+@nox.session(python=PYTHON, tags=["docker"])
+def images(session: nox.Session) -> None:
+    """Build every first-party image locally, from the same list as CI's image-builds job."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        session.skip("hosted CI builds images in the image-builds job")
+    session.install("--require-hashes", "-r", "config/release/requirements.txt")
+    builds = session.run(
+        "python", "-c",
+        "import json, yaml; jobs = yaml.safe_load(open('.github/workflows/ci.yml'))['jobs']; "
+        "print(json.dumps(jobs['image-builds']['strategy']['matrix']['include']))",
+        silent=True,
+    )
+    for index, build in enumerate(json.loads(builds)):
+        tag = f"homelab-gate-image-{index}"
+        session.run("docker", "build", "-q", "--file", build["dockerfile"], "--tag", tag,
+                    build["context"], external=True)
+        if build["cap_drop_check"] is True:
+            session.run("docker", "run", "--rm", "--cap-drop", "ALL", "--security-opt",
+                        "no-new-privileges:true", tag, "version", external=True)
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])

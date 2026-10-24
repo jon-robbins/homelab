@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# Run the local gate the way hosted CI does: pre-commit, then the no-docker
-# nox sessions. On Linux it runs directly; elsewhere (macOS) it runs inside a
-# pinned Linux container so results match CI. Extra arguments go to nox,
-# e.g. `scripts/dev/gate -s release`.
+# Run the local gate the way hosted CI does: pre-commit, then every nox session,
+# including the Docker ones and the first-party image builds. `--fast` keeps to
+# the no-docker sessions. On Linux it runs directly; elsewhere (macOS) it runs
+# inside a pinned Linux container that drives the host's Docker daemon. Extra
+# arguments go to nox, e.g. `scripts/dev/gate -s release`.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-gate='uvx pre-commit run --all-files && uvx nox -t no-docker "$@"'
+sessions=()
+if [[ "${1:-}" == "--fast" ]]; then
+  shift
+  sessions=(-t no-docker)
+elif ! docker info >/dev/null 2>&1; then
+  echo "gate: Docker is not running; start it or use scripts/dev/gate --fast" >&2
+  exit 1
+fi
+gate='uvx pre-commit run --all-files && uvx nox "$@"'
 
 if [[ "$(uname -s)" == "Linux" ]]; then
   cd "$root"
-  exec bash -c "$gate" gate "$@"
+  exec bash -c "$gate" gate ${sessions[@]+"${sessions[@]}"} "$@"
 fi
 
 image="homelab-gate:$(shasum -a 256 "$root/scripts/dev/gate.Dockerfile" | cut -c1-12)"
@@ -18,10 +27,20 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   docker build -q -t "$image" -f "$root/scripts/dev/gate.Dockerfile" "$root/scripts/dev" >/dev/null
 fi
 
+# The repository, its git directory (worktrees point outside themselves) and a
+# temporary directory are mounted at their host paths, so paths the tests hand
+# to `docker run -v` or `docker compose` mean the same thing to the daemon.
 # Caches persist across runs; nox environments stay inside the container
 # (.nox is anonymous-volume-masked) so they never mix with macOS ones.
-exec docker run --rm \
-  -v "$root:/src" -w /src \
-  -v /src/.nox \
+common="$(cd "$root" && cd "$(git rev-parse --git-common-dir)" && pwd)"
+tmp="$(mktemp -d)"
+trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp" || true' EXIT
+mounts=(-v "$root:$root" -v "$tmp:$tmp")
+[[ "$common" == "$root"/* ]] || mounts+=(-v "$common:$common")
+docker run --rm \
+  "${mounts[@]}" -w "$root" \
+  -v "$root/.nox" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e TMPDIR="$tmp" \
   -v homelab-gate-cache:/cache \
-  "$image" bash -c "$gate" gate "$@"
+  "$image" bash -c "$gate" gate ${sessions[@]+"${sessions[@]}"} "$@"

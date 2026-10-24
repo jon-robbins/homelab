@@ -2,15 +2,22 @@
 
 ## The gate
 
-Run the fast checks and all non-Docker suites from the repository root:
+Run everything CI runs, from the repository root, before opening a pull request:
 
 ```bash
-scripts/dev/gate
+scripts/dev/gate          # pre-commit and every nox session, Docker included (needs Docker running)
+scripts/dev/gate --fast   # pre-commit and the no-docker sessions only
 ```
 
-It runs `pre-commit run --all-files` and `nox -t no-docker`: directly on Linux, and in a pinned Linux container
-(`scripts/dev/gate.Dockerfile`) on macOS, so results match CI. Extra arguments go to nox, for example
-`scripts/dev/gate -s release`. CI calls the same entry points.
+It runs `pre-commit run --all-files` and `nox`: directly on Linux, and in a pinned Linux container
+(`scripts/dev/gate.Dockerfile`) on macOS, so results match CI. On macOS the container drives the host's Docker
+daemon through its socket, with the repository and a temporary directory mounted at their host paths so paths
+the tests pass to Docker resolve. The Docker sessions are `controller_e2e`, `render_docker` and `images`, which
+builds every image in CI's `image-builds` job. Extra arguments go to nox, for example `scripts/dev/gate -s release`.
+CI calls the same entry points.
+
+`controller_e2e` creates and removes a Compose project named `homelab`, so outside hosted CI it refuses to run
+when that project already exists on the daemon. That keeps it from touching a real host.
 
 ## Tests
 
@@ -19,7 +26,7 @@ It runs `pre-commit run --all-files` and `nox -t no-docker`: directly on Linux, 
 | `tests/release/` | renderer, module rules, Compose policy, bundle, record, signing, feed, release reconciler, workflow wiring | `release` |
 | `tests/modules/` | the module catalog renders against a synthetic site | `release` |
 | `tests/controller/` | `homelabctl`: planning, reconcile loop, verification, state files | `controller` |
-| `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` (hosted CI only) |
+| `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` |
 | `tests/host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` with `DESTDIR` and fakes | — |
 | `apps/homelab-workers/src/homelab_workers/tests/` | the worker package | `workers` |
 | `tests/boundary/`, `tests/docs/`, `scripts/ci/public-readiness.py` | no private values in tracked files; doc links resolve | `scripts/ci/public-check.sh` |
