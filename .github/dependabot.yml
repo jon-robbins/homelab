@@ -25,6 +25,13 @@ updates:
       docker:
         patterns: ["*"]
   - package-ecosystem: docker
+    directory: /apps/homelab-mcp
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns: ["*"]
+  - package-ecosystem: docker
     directory: /config/caddy
     schedule:
       interval: weekly

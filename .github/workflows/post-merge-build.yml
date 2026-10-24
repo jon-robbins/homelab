@@ -32,6 +32,9 @@ jobs:
             homelab-workers:
               - 'apps/homelab-workers/**'
               - 'apps/homelab-workers/Dockerfile'
+            homelab-mcp:
+              - 'apps/homelab-mcp/**'
+              - 'apps/homelab-workers/**'
             caddy:
               - 'config/caddy/**'
               - 'config/caddy/Dockerfile'
@@ -39,11 +42,13 @@ jobs:
         id: matrix
         env:
           FILTER_HOMELAB_WORKERS: ${{ steps.filter.outputs.homelab-workers }}
+          FILTER_HOMELAB_MCP: ${{ steps.filter.outputs.homelab-mcp }}
           FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
           FILTER_RECIPE: ${{ steps.filter.outputs.recipe }}
         run: |
           matrix=$(jq -cn '[
             {"dockerfile":"apps/homelab-workers/Dockerfile","context":"apps/homelab-workers","image":"homelab-workers","changed":env.FILTER_HOMELAB_WORKERS},
+            {"dockerfile":"apps/homelab-mcp/Dockerfile","context":"apps","image":"homelab-mcp","changed":env.FILTER_HOMELAB_MCP},
             {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY}
           ] | map(select(.changed == "true" or env.FILTER_RECIPE == "true") | del(.changed)) | {include:.}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"

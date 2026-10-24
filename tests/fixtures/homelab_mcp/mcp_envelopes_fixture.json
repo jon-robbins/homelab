@@ -1,0 +1,170 @@
+{
+  "read": {
+    "qbt_torrents_summary": {
+      "ok": true,
+      "tool": "qbt_torrents_summary",
+      "data": {
+        "total": 12,
+        "complete": 8,
+        "incomplete": 4,
+        "downloading": 2,
+        "seeding": 8,
+        "paused": 2,
+        "active": 2
+      },
+      "evidence": [
+        {
+          "source": "qbt_torrents_summary",
+          "status": "confirmed",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {
+            "field_count": 7,
+            "fields": ["active", "complete", "downloading", "incomplete", "paused", "seeding", "total"]
+          }
+        }
+      ],
+      "meta": {
+        "duration_ms": 15,
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    },
+    "prowlarr_indexer_health": {
+      "ok": true,
+      "tool": "prowlarr_indexer_health",
+      "data": {
+        "total": 3,
+        "enabled_count": 3,
+        "healthy_count": 3,
+        "indexers": [
+          {"id": 2, "name": "The Pirate Bay", "enabled": true, "healthy": true}
+        ]
+      },
+      "evidence": [
+        {
+          "source": "prowlarr_indexer_health",
+          "status": "confirmed",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {
+            "field_count": 4,
+            "fields": ["enabled_count", "healthy_count", "indexers", "total"]
+          }
+        }
+      ],
+      "meta": {
+        "duration_ms": 22,
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    }
+  },
+  "search": {
+    "prowlarr_indexer_search": {
+      "ok": true,
+      "tool": "prowlarr_indexer_search",
+      "data": {
+        "options": [
+          {
+            "title": "Night of the Living Dead (1968)",
+            "indexer": "The Pirate Bay",
+            "indexer_id": 2,
+            "guid": "https://thepiratebay.org/description.php?id=999999",
+            "size_bytes": 1420000000
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "source": "prowlarr_indexer_search",
+          "status": "confirmed",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {
+            "field_count": 1,
+            "fields": ["options"]
+          }
+        }
+      ],
+      "meta": {
+        "duration_ms": 35,
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    }
+  },
+  "mutation": {
+    "radarr_release_grab": {
+      "ok": true,
+      "tool": "radarr_release_grab",
+      "data": {
+        "mutation": true,
+        "action": "grab",
+        "target": "radarr:movie:101:https://thepiratebay.org/description.php?id=999999",
+        "applied": {"id": 42, "name": "DownloadedMovieScan"}
+      },
+      "evidence": [
+        {
+          "source": "radarr_release_grab",
+          "status": "confirmed",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {
+            "field_count": 4,
+            "fields": ["action", "applied", "mutation", "target"],
+            "mutation": true,
+            "action": "grab",
+            "target": "radarr:movie:101:https://thepiratebay.org/description.php?id=999999"
+          }
+        }
+      ],
+      "meta": {
+        "duration_ms": 50,
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    },
+    "arr_queue_remove": {
+      "ok": true,
+      "tool": "arr_queue_remove",
+      "data": {
+        "mutation": true,
+        "action": "remove",
+        "target": "queue:42",
+        "removed": true
+      },
+      "evidence": [
+        {
+          "source": "arr_queue_remove",
+          "status": "confirmed",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {
+            "field_count": 4,
+            "fields": ["action", "mutation", "removed", "target"],
+            "mutation": true,
+            "action": "remove",
+            "target": "queue:42"
+          }
+        }
+      ],
+      "meta": {
+        "duration_ms": 45,
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    }
+  },
+  "error": {
+    "forbidden_indexer": {
+      "ok": false,
+      "tool": "radarr_release_grab",
+      "error": {
+        "code": "FORBIDDEN_INDEXER",
+        "message": "ExampleTracker is forbidden; only The Pirate Bay is approved"
+      },
+      "evidence": [
+        {
+          "source": "radarr_release_grab",
+          "status": "unavailable",
+          "checked_at": "2026-08-30T12:00:00Z",
+          "facts": {"error_code": "FORBIDDEN_INDEXER"}
+        }
+      ],
+      "meta": {
+        "generated_at": "2026-08-30T12:00:00Z"
+      }
+    }
+  }
+}

@@ -142,6 +142,7 @@ jobs:
       matrix:
         include:
           - {dockerfile: apps/homelab-workers/Dockerfile, context: apps/homelab-workers, cap_drop_check: false}
+          - {dockerfile: apps/homelab-mcp/Dockerfile, context: apps, cap_drop_check: false}
           - {dockerfile: config/caddy/Dockerfile, context: config/caddy, cap_drop_check: true}
     steps:
       - name: Checkout

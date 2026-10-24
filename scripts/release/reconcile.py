@@ -27,6 +27,7 @@ BUILD_WORKFLOW = ".github/workflows/post-merge-build.yml"
 BUILD_INPUT_PREFIXES = (
     ".github/workflows/post-merge-build.yml",
     "config/release/approved-ghcr-destinations.json",
+    "apps/homelab-mcp/",
     "apps/homelab-workers/",
     "config/caddy/",
 )

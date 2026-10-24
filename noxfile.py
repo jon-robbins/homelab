@@ -29,6 +29,14 @@ def workers(session: nox.Session) -> None:
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
+def mcp(session: nox.Session) -> None:
+    install(session, f"{WORKERS}", f"{ROOT / 'apps/homelab-mcp'}[dev]", "pytest-asyncio", "respx")
+    session.chdir("apps/homelab-mcp")
+    session.run("pytest", "-q")
+    session.run("ruff", "check", "src")
+
+
+@nox.session(python=PYTHON, tags=["no-docker"])
 def release(session: nox.Session) -> None:
     session.install("--require-hashes", "-r", "config/release/requirements.txt")
     session.install("pytest")
