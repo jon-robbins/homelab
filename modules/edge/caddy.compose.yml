@@ -11,7 +11,8 @@ services:
     ports:
       - "80:80"
       - "8443:443"
-      - "${TAILSCALE_IP}:443:443"
+      # Tailnet HTTPS lands on its own container port, so the Caddyfile can serve tailnet-only sites on :4443.
+      - "${TAILSCALE_IP}:443:4443"
     volumes:
       - type: bind
         source: ${APP_DATA_DIR}/caddy/data
