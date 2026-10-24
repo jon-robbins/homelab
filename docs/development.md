@@ -22,6 +22,7 @@ It runs `pre-commit run --all-files` and `nox -t no-docker`: directly on Linux, 
 | `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` (hosted CI only) |
 | `tests/host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` with `DESTDIR` and fakes | — |
 | `apps/homelab-workers/src/homelab_workers/tests/` | the worker package | `workers` |
+| `apps/homelab-mcp/src/homelab_mcp/tests/` | the MCP server; `apps/homelab-mcp/scripts/docker-smoke.sh` runs the image | `mcp` |
 | `tests/boundary/`, `tests/docs/`, `scripts/ci/public-readiness.py` | no private values in tracked files; doc links resolve | `scripts/ci/public-check.sh` |
 
 ## What makes a useful test

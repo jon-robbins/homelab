@@ -15,6 +15,7 @@
 
 - [Modules](modules.md): the five rules for a service file.
 - [Plugins](plugins.md): your own services, with or without code.
+- [homelab-mcp](mcp.md): agent access to files and the media apps, and its extensions.
 - [Development](development.md): the gate, the test suites, what makes a useful test.
 - [Releases](releases.md): the release record and feed in detail.
 
