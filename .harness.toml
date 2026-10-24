@@ -3,6 +3,7 @@
 [harness]
 tracker = "../homelab-plans"   # Beads tracker (hp-*)
 base_branch = "main"
+worktrees = ".worktrees"       # task worktrees live inside the repo (gitignored)
 wait_for_ci = true             # after pushing an accepted bead, wait for hosted CI; red reopens the bead (M1.7)
 test_command = "python3 -m pytest -q -p no:cacheprovider tests/boundary tests/ci"  # run by the harness on each commit
 
