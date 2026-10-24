@@ -1,14 +1,14 @@
 [Unit]
 Description=Homelab Infisical Agent
-Documentation=https://github.com/jon-robbins/homelab/blob/main/docs/secrets-management.md
+Documentation=https://github.com/jon-robbins/homelab/blob/main/docs/configuration.md#secrets
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=homelab-secrets
-Group=homelab
-WorkingDirectory=/srv/homelab
+User=jon
+Group=jon
+WorkingDirectory=/homelab
 ExecStart=/usr/bin/infisical agent --config /etc/infisical-agent/config.yaml
 Restart=on-failure
 RestartSec=5

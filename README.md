@@ -1,88 +1,68 @@
-# Homelab Docker Template
+# Homelab
 
-This is a public, generic Docker Compose platform for self-hosted services and
-workers. It is safe to inspect and validate off-host with
-fictional values; it is not a ready-made deployment for a particular site.
+A small, auditable platform for running self-hosted services with Docker Compose on one Linux host. You describe
+services as plain Compose files, keep your own values in a private repo, and every merge becomes a signed release
+that a small controller on the host verifies and applies, with a snapshot before each change and an alert when
+something fails.
 
-**Status: Current and planned.** The table below distinguishes shipped
-capabilities from explicitly planned work.
+It ships a media-server catalog (Plex, Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, qBittorrent, Seerr, autobrr,
+FlareSolverr, Caddy, cloudflared, plus a few worker services), but the platform doesn't care what the services are.
 
-## Documentation map
-
-Every page labels claims as **Current** or **Planned**. Start with
-[the docs index](docs/README.md), then use [Getting started](docs/getting-started.md)
-for the public validation path. [Architecture](docs/architecture/overview.md),
-[configuration](docs/configuration.md), and [development](docs/development.md)
-cover the main extension points.
-
-## Current status
-
-| Area | Status | Details |
-| --- | --- | --- |
-| Module catalog | Built | [modules/](modules/app/) contains the public service modules. |
-| Workers | Built | [apps/homelab-workers/](apps/homelab-workers/) contains packaged workers. |
-| CI | Built | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) renders, tests, scans, and builds. |
-| Off-host OCI build lane | Built | CI builds images without deploying them. |
-| Signed release feed (N6) | Built | See [release notes](docs/operations.md). |
-| Host controller (N7–N11) | Planned | No controller or host pull path is shipped. |
-
-## Architecture at a glance
+## How it works
 
 ```mermaid
 flowchart LR
-  C[Module catalog] --> W[Workers]
-  E[Private plugin] -. modules .-> C
-  C --> CI[CI and off-host OCI build]
-  CI -. planned signed feed .-> H[planned host controller]
+  P[this repo: modules, policy, controller] --> R[release.yml: render, policy, sign]
+  S[your private site repo: values] --> R
+  R --> F[(signed feed)]
+  F --> C[homelabctl on your host: verify, snapshot, compose up, health check]
+  C -->|fail| A[alert + exact rollback command]
 ```
 
-The public repository ends at the CI/build boundary. Private site overlays may
-connect extensions at runtime; the host controller remains planned.
+- **Modules:** one Compose file per service, digest-pinned, checked against a security policy
+  ([modules](docs/modules.md)).
+- **Site:** a private repo with `site.yaml`, `site.env` and config files; no code ([configuration](docs/configuration.md)).
+- **Releases:** signed with Sigstore keyless signing by this repo's workflow; the host trusts nothing else.
+- **Controller:** about 550 lines of Python on a systemd timer; state is plain files ([architecture](docs/architecture/overview.md)).
+- **Updates:** Dependabot bumps image digests; patch and minor app updates deploy unattended.
 
-## Quick Start
+## Start here
 
-Prerequisites: Python 3.11+. From a fresh clone, run:
+| I want to… | Read |
+|---|---|
+| understand the design | [Architecture](docs/architecture/overview.md), then [decisions](docs/decisions/README.md) |
+| know what accounts I need | [Accounts and external services](docs/accounts.md) |
+| try it without a server | [Getting started → off-host](docs/getting-started.md#try-it-off-host) |
+| set up a host | [Getting started → real host](docs/getting-started.md#set-up-a-real-host) |
+| expose something safely | [Ingress](docs/ingress.md) and [Security](docs/security.md) |
+| run it day to day | [Operations](docs/operations.md), [Troubleshooting](docs/troubleshooting.md) |
+| add a service or contribute | [Development](docs/development.md) |
+| change it with an LLM | [AGENTS.md](AGENTS.md) |
+
+All docs: [docs/README.md](docs/README.md).
+
+## Quick check
 
 ```bash
 cp .env.example .env.local
 bash scripts/ci/public-check.sh
 ```
 
-The check runs documentation, boundary, CI, release, and public-readiness
-checks. It does not deploy services or start containers.
-
-```text
-161 passed, 7 skipped
-Public check passed.
-```
-
-The exact test count may change as the suite grows; every command must exit 0.
-`.env.local` is only a local copy of the public contract and must not contain
-real credentials or be committed.
+Runs the documentation, boundary, CI and release tests and the public-readiness scan with synthetic values. It
+never starts a container.
 
 ## Repository layout
 
 ```text
-apps/                 worker source and tests
-modules/              one Compose module per public service (`<service>.compose.yml`)
-config/               public service configuration
-docs/                 current/planned public documentation
-scripts/ci/           reproducible validation helpers
-scripts/release/      current build-policy and artifact tooling
-tests/                boundary, CI, module, and release tests
+modules/      one Compose file per service (app and edge tiers)
+scripts/      release tooling (runs in Actions) and the controller (runs on the host)
+host/         install, backup and migration scripts for the host
+apps/         the homelab-workers image
+config/       Caddy image, Infisical templates, release policy allowlists, CI budgets
+examples/     a synthetic site and plugin
+docs/         guides and decision records
+tests/        see docs/development.md
 ```
-
-
-## Private extensions
-
-Private plugins add owner-specific modules through the documented plugin
-layout. The public repository contains no private site values or plugin code.
-
-## Features
-
-- Parameterized Compose modules with synthetic defaults.
-- Packaged worker images used by the catalog.
-- CI validation and an off-host OCI build lane.
 
 ## License
 

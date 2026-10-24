@@ -60,7 +60,8 @@ def render_docker(session: nox.Session) -> None:
 
 @nox.session(python=PYTHON, tags=["no-docker"])
 def docs(session: nox.Session) -> None:
-    session.run("bash", "tests/docs/run_tests.sh", external=True)
+    install(session, "pytest")
+    session.run("pytest", "-q", "tests/docs")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
