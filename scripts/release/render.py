@@ -120,6 +120,22 @@ def _add_config_digests(model: dict[str, Any]) -> None:
         service.setdefault("labels", {})["homelab.config-digest"] = digest
 
 
+def _add_secret_digests(model: dict[str, Any]) -> None:
+    """Compose's config hash names a service's secrets but not their files, so a moved secret dir changed nothing.
+    The label covers each secret's target and file path; values are never in the model, so they can't leak here."""
+    secrets = model.get("secrets") or {}
+    for service in (model.get("services") or {}).values():
+        entries = service.get("secrets") or []
+        if not entries:
+            continue
+        values = sorted(
+            [entry.get("target", f"/run/secrets/{entry['source']}"), secrets.get(entry["source"], {}).get("file")]
+            for entry in entries
+        )
+        digest = hashlib.sha256(json.dumps(values, separators=(",", ":")).encode()).hexdigest()
+        service.setdefault("labels", {})["homelab.secret-digest"] = digest
+
+
 def _add_markers(model: dict[str, Any], site: Site) -> None:
     """D9: a service that binds under a media root also binds that root's marker, so it can't start without the disk."""
     roots = {key: site.env[key] for key in site.config.get("marker_roots", [])}
@@ -174,6 +190,7 @@ def render(platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Rende
         if model:
             _inline_configs(model)
             _add_config_digests(model)
+            _add_secret_digests(model)
             _add_markers(model, site)
             _add_logging_defaults(model)
             check_policy(model, ctx)

@@ -10,11 +10,15 @@ while (($#)); do
     *) echo "usage: $0 --sha SHA [--replace UNIT]..." >&2; exit 2 ;;
   esac
 done
+d=${DESTDIR:-}
+if [[ -z $d ]] && ! getent passwd homelab-secrets >/dev/null; then
+  echo "homelab-secrets user missing: create it first (docs/operations.md)" >&2
+  exit 1
+fi
 [[ -n $sha ]] || { echo "usage: $0 --sha SHA [--replace UNIT]..." >&2; exit 2; }
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 [[ "$(git -C "$repo" rev-parse HEAD)" == "$sha" ]] || { echo "SHA does not match HEAD" >&2; exit 1; }
-d=${DESTDIR:-}
 h=$d/srv/homelab
 t=$h/tooling/$sha
 tmp=$(mktemp -d)
@@ -36,7 +40,12 @@ printf '%s\n' \
   '[Timer]' \
   'OnCalendar=*-*-* 04:15:00' 'Persistent=true' 'RandomizedDelaySec=10m' '' \
   '[Install]' 'WantedBy=timers.target' >"$tmp/backup.timer"
-printf '%s\n' '[Unit]' 'After=tailscaled.service' >"$tmp/dropin"
+# Containers mount secret files the Infisical agent renders into tmpfs, so Docker starts after the agent has.
+printf '%s\n' '[Unit]' 'After=tailscaled.service homelab-infisical-agent.service' >"$tmp/dropin"
+printf '%s\n' \
+  '[Service]' 'RuntimeDirectory=homelab-secrets' 'RuntimeDirectoryMode=0700' 'RuntimeDirectoryPreserve=yes' \
+  'User=homelab-secrets' 'Group=homelab' 'UMask=0027' 'WorkingDirectory=/srv/homelab' \
+  'ExecStartPost=/srv/homelab/tooling/current/host/wait-for-secrets' 'TimeoutStartSec=120' >"$tmp/agent-dropin"
 printf '%s\n' 'net.ipv4.ip_nonlocal_bind=1' >"$tmp/sysctl"
 printf '%s\n' \
   /etc/systemd/system/docker.service.d/10-homelab.conf \
@@ -44,9 +53,10 @@ printf '%s\n' \
   /etc/systemd/system/homelab-backup.timer \
   /etc/systemd/system/homelab-controller.service \
   /etc/systemd/system/homelab-controller.timer \
+  /etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf \
   /etc/sysctl.d/90-homelab.conf \
   /var/lib/tailscale >"$tmp/HOST-FILES"
-# Keep the lines cutover.sh appended (files it installed); install only owns its own.
+# Keep lines another tool appended (files it installed, e.g. the retired one-time cutover); install only owns its own.
 if [[ -f $h/HOST-FILES ]]; then
   grep -Fxvf "$tmp/HOST-FILES" "$h/HOST-FILES" >"$tmp/kept" || true
   cat "$tmp/kept" >>"$tmp/HOST-FILES"
@@ -58,6 +68,7 @@ files=(
   "$d/etc/systemd/system/homelab-backup.service:$tmp/backup.service"
   "$d/etc/systemd/system/homelab-backup.timer:$tmp/backup.timer"
   "$d/etc/systemd/system/docker.service.d/10-homelab.conf:$tmp/dropin"
+  "$d/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf:$tmp/agent-dropin"
   "$d/etc/sysctl.d/90-homelab.conf:$tmp/sysctl"
   "$h/HOST-FILES:$tmp/HOST-FILES"
 )

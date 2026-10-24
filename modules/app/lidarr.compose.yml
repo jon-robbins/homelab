@@ -1,0 +1,39 @@
+services:
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:3.1.0.4875-ls45@sha256:d8549ff9ea29b4015c32257360652c1000c31ea471a2b3f0835ae77292faf35b
+    pids_limit: 500
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - UMASK=002
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/lidarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8686 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true

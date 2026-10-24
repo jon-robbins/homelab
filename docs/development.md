@@ -20,7 +20,7 @@ It runs `pre-commit run --all-files` and `nox -t no-docker`: directly on Linux, 
 | `tests/modules/` | the module catalog renders against a synthetic site | `release` |
 | `tests/controller/` | `homelabctl`: planning, reconcile loop, verification, state files | `controller` |
 | `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` (hosted CI only) |
-| `tests/host/` | `install.sh`, `homelab-backup`, `cutover.sh`, `move-data.sh` with `DESTDIR` and fakes | — |
+| `tests/host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` with `DESTDIR` and fakes | — |
 | `apps/homelab-workers/src/homelab_workers/tests/` | the worker package | `workers` |
 | `tests/boundary/`, `tests/docs/`, `scripts/ci/public-readiness.py` | no private values in tracked files; doc links resolve | `scripts/ci/public-check.sh` |
 

@@ -161,6 +161,29 @@ def test_config_digest_is_deterministic_and_includes_mode_and_target(tmp_path):
     assert demo(target_changed)["labels"]["homelab.config-digest"] != demo(mode_changed)["labels"]["homelab.config-digest"]
 
 
+def test_secret_digest_follows_where_secrets_come_from_never_their_value(tmp_path):
+    # Compose's config hash doesn't cover a secret's file, so without this label moving HOMELAB_SECRET_DIR
+    # never recreated anything.
+    platform = tmp_path / "platform"
+    module(platform, secrets=["TOKEN"])
+    module(platform, name="other")
+    folder = site(tmp_path, services={"demo": {}, "other": {}})
+    first = render(platform, folder, {})
+    assert render(platform, folder, {}) == first
+    assert "homelab.secret-digest" in demo(first)["labels"]
+    assert "homelab.secret-digest" not in first.app["services"]["other"]["labels"]
+    values = tmp_path / "values"
+    values.mkdir()
+    (values / "TOKEN").write_text("one")
+    env = (folder / "site.env").read_text()
+    (folder / "site.env").write_text(env.replace("HOMELAB_SECRET_DIR=/tmp/render-test/secrets", f"HOMELAB_SECRET_DIR={values}"))
+    moved = render(platform, folder, {})
+    assert demo(moved)["labels"]["homelab.secret-digest"] != demo(first)["labels"]["homelab.secret-digest"]
+    assert moved.app["services"]["other"] == first.app["services"]["other"]
+    (values / "TOKEN").write_text("two")
+    assert render(platform, folder, {}) == moved
+
+
 def test_site_override_is_merged_by_compose_and_gets_a_marker(tmp_path):
     module(tmp_path / "platform", volumes=["${APP_DATA_DIR}/demo:/config"])
     folder = site(tmp_path)

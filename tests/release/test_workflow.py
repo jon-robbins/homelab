@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.release.reconcile import RELEASE_INPUTS_DIR_DEFAULT
+from scripts.release.reconcile import BUILD_INPUT_PREFIXES, RELEASE_INPUTS_DIR_DEFAULT
 
 
 ROOT = Path(__file__).parents[2]
@@ -23,3 +23,12 @@ def test_post_merge_build_rebuilds_every_image_on_recipe_change():
     }
     assert steps["matrix"]["env"]["FILTER_RECIPE"] == "${{ steps.filter.outputs.recipe }}"
     assert 'select(.changed == "true" or env.FILTER_RECIPE == "true")' in steps["matrix"]["run"]
+
+
+def test_reconcile_build_inputs_cover_every_post_merge_filter():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/post-merge-build.yml").read_text(encoding="utf-8"))
+    steps = {step.get("id"): step for step in workflow["jobs"]["changed-images"]["steps"]}
+    filters = yaml.safe_load(steps["filter"]["with"]["filters"])
+    patterns = [pattern for paths in filters.values() for pattern in paths]
+    uncovered = [pattern for pattern in patterns if not pattern.removesuffix("**").startswith(BUILD_INPUT_PREFIXES)]
+    assert uncovered == []

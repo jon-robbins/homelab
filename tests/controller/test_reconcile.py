@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -298,6 +299,23 @@ def test_subprocess_ops_uses_compose_container_for_stop_and_start(monkeypatch):
     ops.start("svc")
 
     assert calls == [["docker", "stop", "generated-id"], ["docker", "start", "generated-id"]]
+
+
+def test_subprocess_ops_snapshot_reports_homelab_backup_stderr(monkeypatch):
+    def run(argv, **kwargs):
+        assert argv == ["homelab-backup", "--service", "svc", "--tag", "seq-7"]
+        return subprocess.CompletedProcess(argv, 1, "", "homelab-backup: no data dir /srv/homelab/data/svc\n")
+
+    monkeypatch.setattr(controller.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="no data dir /srv/homelab/data/svc"):
+        controller.SubprocessOps().snapshot("svc", "seq-7")
+
+
+def test_subprocess_ops_snapshot_returns_the_last_line(monkeypatch):
+    monkeypatch.setattr(
+        controller.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "log\nsnap-id\n", "")
+    )
+    assert controller.SubprocessOps().snapshot("svc", "seq-7") == "snap-id"
 
 
 def test_subprocess_ops_restore_uses_homelab_backup_argument_order(monkeypatch):

@@ -62,8 +62,14 @@ Secret values never go in the site repo. Each module lists the secret names it n
 top-level entry is always `NAME: {file: ${HOMELAB_SECRET_DIR}/NAME}`. On the host, the Infisical agent renders
 one file per name into `HOMELAB_SECRET_DIR` from the templates in `config/infisical/templates/`.
 
+On the host that directory is `/run/homelab-secrets`: tmpfs, files `0640 homelab-secrets:homelab`, so secret values
+never reach disk and are gone after a reboot until the agent renders them again. `host/install.sh` installs the
+agent drop-in that creates the directory and waits for every rendered file (`host/wait-for-secrets`), and orders
+Docker after the agent so containers never start without them. The site sets
+`HOMELAB_SECRET_DIR=/run/homelab-secrets`.
+
 Current names: `TMDB_API_KEY`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, `SONARR_API_KEY`,
-`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `AUTOBRR_API_KEY`, `PLEX_TOKEN`, `CLOUDFLARE_TOKEN`.
+`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `CLOUDFLARE_TOKEN`.
 
 After rotating a secret, force-recreate the services that mount it
 ([operations](operations.md#rotate-a-secret)). See [0010](decisions/0010-secrets.md).

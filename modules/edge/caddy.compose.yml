@@ -2,6 +2,7 @@ services:
   caddy:
     # The catalog uses the published upstream image requested by M2.4a; inventory records the old local build.
     image: ghcr.io/jon-robbins/homelab/caddy@sha256:5ec9de2201fe98cbf4bf97e32664a594e419b89aaa7169a5e9aa2efe165ab82f
+    user: "${PUID}:${PGID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

@@ -107,7 +107,7 @@ the services that use it ([0007](../decisions/0007-disk-markers.md)).
 | `modules/app/`, `modules/edge/` | one Compose file per service |
 | `scripts/release/` | render, Compose policy, compile, record, feed, release reconciler (runs in GitHub Actions) |
 | `scripts/controller/` | `homelabctl` and its loop (runs on the host) |
-| `host/` | `install.sh`, `homelab-backup`, `cutover.sh`, `move-data.sh` |
+| `host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` |
 | `apps/homelab-workers/` | the first-party worker image (qBittorrent events, *arr post-import, missing search, Seerr reconciler) |
 | `config/` | Caddy image and example Caddyfile, Infisical templates, release policy allowlists, CI budgets |
 | `examples/` | a synthetic site and plugin used by tests and docs |

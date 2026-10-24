@@ -1,7 +1,7 @@
 # 0007: Disk markers instead of mount ordering
 
 - **Status:** Accepted (2026-10-15)
-- **Code:** `host/cutover.sh`, `scripts/release/render.py` (marker mounts), `scripts/controller/reconcile.py` (step 3)
+- **Code:** `scripts/release/render.py` (marker mounts), `scripts/controller/reconcile.py` (step 3)
 - **Related:** [0003](0003-tiers.md), [troubleshooting](../troubleshooting.md)
 
 ## Context

@@ -108,19 +108,41 @@ def test_replaces_previous_target_after_upgrade(tmp_path: Path):
 
 def test_host_files_dropin_and_no_infisical_unit(tmp_path: Path):
     assert run(tmp_path).returncode == 0
-    assert (tmp_path / "etc/systemd/system/docker.service.d/10-homelab.conf").read_text() == "[Unit]\nAfter=tailscaled.service\n"
+    assert (tmp_path / "etc/systemd/system/docker.service.d/10-homelab.conf").read_text() == (
+        "[Unit]\nAfter=tailscaled.service homelab-infisical-agent.service\n"
+    )
     assert (tmp_path / "srv/homelab/HOST-FILES").read_text() == (
         "/etc/systemd/system/docker.service.d/10-homelab.conf\n"
         "/etc/systemd/system/homelab-backup.service\n"
         "/etc/systemd/system/homelab-backup.timer\n"
         "/etc/systemd/system/homelab-controller.service\n"
         "/etc/systemd/system/homelab-controller.timer\n"
+        "/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf\n"
         "/etc/sysctl.d/90-homelab.conf\n/var/lib/tailscale\n"
     )
-    assert not list((tmp_path / "etc").rglob("homelab-infisical-agent.*"))
+    # Install owns only the agent's tmpfs drop-in; the agent unit itself is installed by hand (docs/operations.md).
+    assert not list((tmp_path / "etc").rglob("homelab-infisical-agent.service"))
+    agent = (tmp_path / "etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf").read_text()
+    assert "User=homelab-secrets\nGroup=homelab\nUMask=0027\nWorkingDirectory=/srv/homelab\n" in agent
+    assert "RuntimeDirectory=homelab-secrets\nRuntimeDirectoryMode=0700\nRuntimeDirectoryPreserve=yes\n" in agent
+    assert "ExecStartPost=/srv/homelab/tooling/current/host/wait-for-secrets\n" in agent
 
 
-def test_keeps_host_files_lines_added_by_cutover(tmp_path: Path):
+def test_install_requires_secrets_user_without_destdir(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    getent = fake_bin / "getent"
+    getent.write_text("#!/bin/sh\nexit 2\n")
+    getent.chmod(0o755)
+    result = subprocess.run([str(INSTALL), "--sha", SHA], cwd=ROOT,
+                            env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+                            text=True, capture_output=True)
+    assert result.returncode == 1
+    assert "homelab-secrets user missing: create it first (docs/operations.md)" in result.stderr
+    assert list(tmp_path.iterdir()) == [fake_bin]
+
+
+def test_keeps_host_files_lines_added_by_other_tools(tmp_path: Path):
     assert run(tmp_path).returncode == 0
     host_files = tmp_path / "srv/homelab/HOST-FILES"
     dropin = "/etc/systemd/system/homelab-infisical-agent.service.d/10-homelab.conf\n"

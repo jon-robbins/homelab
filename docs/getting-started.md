@@ -82,8 +82,7 @@ sudo mkdir -p /srv/homelab/data
 sudo touch /mnt/<disk>/.homelab-mounted
 ```
 
-`host/cutover.sh` does the marker and `chattr +i` steps for a host migrating from an older setup; on a new host,
-the two lines above plus `chattr +i` on the empty mount directory (with the disk unmounted) are enough.
+The two lines above plus `chattr +i` on the empty mount directory (with the disk unmounted) are enough.
 See [0007](decisions/0007-disk-markers.md).
 
 ### 5. Secrets

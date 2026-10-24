@@ -1,0 +1,31 @@
+services:
+  navidrome:
+    image: ghcr.io/navidrome/navidrome:0.58.0@sha256:2ae037d464de9f802d047165a13b1c9dc2bdbb14920a317ae4aef1233adc0a3c
+    user: "${PUID}:${PGID}"
+    pids_limit: 500
+    networks: [homelab_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - TZ=${TZ}
+      - ND_MUSICFOLDER=/music
+      - ND_DATAFOLDER=/data
+      - ND_BASEURL=/navidrome
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/navidrome
+        target: /data
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        read_only: true
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+      homelab.probe: http://:4533/ping
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true

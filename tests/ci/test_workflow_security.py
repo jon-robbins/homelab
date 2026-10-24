@@ -30,6 +30,11 @@ RELEASE_SECRETS = {
     "sign": None,
     "feed": "SITE_FEED_TOKEN",
 }
+APP_TOKEN_ACTION = "actions/create-github-app-token@"
+AUTOMERGE_APP_SECRETS = {
+    "client-id": "${{ secrets.AUTOMERGE_APP_CLIENT_ID }}",
+    "private-key": "${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}",
+}
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -183,6 +188,17 @@ class WorkflowSecurityTests(unittest.TestCase):
             elif isinstance(value, str):
                 self.assertFalse(has_secrets_context_reference(value), value)
 
+        if allow_automerge:
+            # The automerge app's credentials are the only secrets allowed, and only as app-token inputs.
+            workflow = copy.deepcopy(workflow)
+            token_steps = [
+                step for step in workflow["jobs"]["automerge"]["steps"]
+                if str(step.get("uses", "")).startswith(APP_TOKEN_ACTION)
+            ]
+            self.assertEqual(len(token_steps), 1)
+            inputs = token_steps[0]["with"]
+            for name, expression in AUTOMERGE_APP_SECRETS.items():
+                self.assertEqual(inputs.pop(name), expression)
         assert_no_secrets(workflow)
 
     def assert_release_policy(self, workflow: dict[str, Any]) -> None:

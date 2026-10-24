@@ -45,6 +45,13 @@ def test_catalog_site_renders_every_module():
 
 def test_catalog_render_has_production_limits_and_service_settings():
     services = render(ROOT, SITE, {}).app["services"]
+    edge = render(ROOT, SITE, {}).edge["services"]
+    assert edge["caddy"]["user"] == "1000:1000"
+    assert services["overseerr"]["user"] == "1000:1000"
+    for name in ("sonarr", "radarr", "lidarr", "bazarr", "qbittorrent"):
+        assert services[name]["environment"]["UMASK"] == "002"
+    assert services["plex"]["cap_drop"] == ["ALL"]
+    assert services["plex"]["cap_add"] == ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"]
     assert {name: (service["mem_limit"], service["memswap_limit"]) for name, service in services.items()
             if "mem_limit" in service} == {
         "autobrr": ("536870912", "1073741824"),
@@ -71,6 +78,6 @@ def test_catalog_render_has_production_limits_and_service_settings():
     assert qbt_events["user"] == "1000:1000"
     assert qbt_events["labels"]["homelab.state"] == "stateful"
     [state] = qbt_events["volumes"]
-    assert (state["type"], state["source"], state["target"]) == ("bind", "/tmp/homelab-catalog/data/qbt-events", "/state")
+    assert (state["type"], state["source"], state["target"]) == ("bind", "/tmp/homelab-catalog/data/homelab-qbt-events", "/state")
     assert not state.get("bind", {}).get("create_host_path")  # compose prints false as an empty bind block
     assert services["jellyfin"]["group_add"] == ["video"]

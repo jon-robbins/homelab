@@ -100,6 +100,18 @@ def _binds(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]
             yield f"bind {source} is outside the declared site roots"
 
 
+def _data_dir(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    # homelab-backup snapshots a stateful service as ${APP_DATA_DIR}/<service>, so its app data must live there.
+    data = ctx.env.get("APP_DATA_DIR")
+    if data is None or (service.get("labels") or {}).get("homelab.state") != "stateful":
+        return
+    own = os.path.join(data, name)
+    for volume in service.get("volumes") or []:
+        source = volume.get("source", "") if volume.get("type") == "bind" else ""
+        if source and under(source, data) and not under(source, own):
+            yield f"stateful bind {source} must sit under {own}, which homelab-backup snapshots"
+
+
 def _caps(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
     allowed = set(_allowlist("cap-allowlist.json")["capabilities"])
     yield from (
@@ -132,7 +144,7 @@ def _gpu(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
         yield "deploy GPU request is not on the allowlist"
 
 
-RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _caps, _gpu)
+RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _data_dir, _caps, _gpu)
 
 
 # --- rules on the site and the whole model ----------------------------------------------------------------

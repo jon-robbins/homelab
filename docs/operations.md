@@ -49,6 +49,34 @@ Edge (caddy, cloudflared) is never applied by the timer. Apply it yourself from 
 docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps caddy cloudflared
 ```
 
+## New host
+
+`host/install.sh` installs the controller, backup and the agent's tmpfs drop-in. Root's git refuses a checkout it
+doesn't own, so run it from a clone owned by root, checked out at the release tooling SHA:
+
+First create the service users, using the site's `PUID` and `PGID`:
+
+```bash
+sudo groupadd --system --gid <PGID> homelab
+sudo useradd --system --uid <PUID> --gid homelab --no-create-home --shell /usr/sbin/nologin homelab
+sudo useradd --system --gid homelab --no-create-home --shell /usr/sbin/nologin homelab-secrets
+```
+
+```bash
+sudo git clone https://github.com/jon-robbins/homelab /tmp/homelab-install && sudo git -C /tmp/homelab-install checkout <sha>
+sudo /tmp/homelab-install/host/install.sh --sha <sha> && sudo rm -rf /tmp/homelab-install
+```
+
+Three host steps are not automated:
+
+1. The Infisical agent: install `config/systemd/homelab-infisical-agent.service` to `/etc/systemd/system/`, copy
+   `config/infisical/templates/` to `/srv/homelab/infisical/templates/`, and write `/etc/infisical-agent/config.yaml`
+   from `config/infisical/agent-config.yaml.example`, with the machine identity's credential files under
+   `/etc/infisical-agent/auth/` (`0600`). Then `systemctl enable --now homelab-infisical-agent`.
+2. Disk markers: `sudo touch <root>/.homelab-mounted` on each root the site lists in `marker_roots`, once the disk
+   is mounted. The controller refuses to apply while a marker is missing.
+3. The site sets `HOMELAB_SECRET_DIR=/run/homelab-secrets`.
+
 ## Break-glass
 
 Restart one service without the controller, the network or GitHub:
