@@ -8,7 +8,8 @@ services:
     cap_drop: [ALL]
     # start.sh writes config.ini from the secret files into /tmp, then runs the image's polling loop. Search
     # preferences default to Soularr's own; a site override may set SOULARR_ALLOWED_FILETYPES,
-    # SOULARR_ALBUMS_PER_RUN, SOULARR_MIN_MATCH_RATIO, SOULARR_SEARCH_RETRY_WAIT_HOURS, SOULARR_SKIP_REGION_CHECK.
+    # SOULARR_ALBUMS_PER_RUN, SOULARR_MIN_MATCH_RATIO, SOULARR_SEARCH_RETRY_WAIT_HOURS, SOULARR_SKIP_REGION_CHECK,
+    # and SOULARR_DOWNLOAD_DIR (must match slskd's SLSKD_DOWNLOADS_DIR).
     entrypoint: ["tini", "-g", "--", "/homelab/start.sh"]
     command: []
     secrets: [LIDARR_API_KEY, SLSKD_API_KEY]
@@ -17,6 +18,12 @@ services:
       - type: bind
         source: ${APP_DATA_DIR}/soularr
         target: /data
+        bind: {create_host_path: false}
+      # Soularr moves each finished album into its own folder here, then asks Lidarr to import that folder; Lidarr
+      # mounts the same directory at the same path.
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
         bind: {create_host_path: false}
     configs:
       - source: soularr-start

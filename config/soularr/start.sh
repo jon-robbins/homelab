@@ -1,7 +1,8 @@
 #!/bin/bash
 # Soularr reads only config.ini, so render it from the mounted secrets into /tmp (container-local, never on a host
 # disk), then start the image's polling loop with that config and /data for its state. Search preferences come
-# from SOULARR_* variables a site override may set; the defaults are Soularr's own.
+# from SOULARR_* variables a site override may set; the defaults are Soularr's own. SOULARR_DOWNLOAD_DIR must be
+# slskd's download directory, and Lidarr sees /downloads at the same path.
 set -euo pipefail
 
 umask 077
@@ -10,13 +11,13 @@ cat >/tmp/soularr/config.ini <<EOF
 [Lidarr]
 api_key = $(cat /run/secrets/LIDARR_API_KEY)
 host_url = http://lidarr:8686/lidarr
-download_dir = /downloads/soulseek
+download_dir = ${SOULARR_DOWNLOAD_DIR:-/downloads/soulseek}
 
 [Slskd]
 api_key = $(cat /run/secrets/SLSKD_API_KEY)
 host_url = http://slskd:5030
 url_base = /slskd
-download_dir = /downloads/soulseek
+download_dir = ${SOULARR_DOWNLOAD_DIR:-/downloads/soulseek}
 
 [Release Settings]
 skip_region_check = ${SOULARR_SKIP_REGION_CHECK:-False}
