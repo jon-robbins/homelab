@@ -8,7 +8,7 @@ applications:
     health_probe: alpha-health
     semantic_probes: [alpha-route]
   - name: beta
-    image: ghcr.io/jon-robbins/homelab/example
+    image: ghcr.io/jon-robbins/homelab/caddy
     rollback: manual
     depends_on: [alpha]
     secrets: []
