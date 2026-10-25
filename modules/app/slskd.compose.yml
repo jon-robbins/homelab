@@ -1,0 +1,60 @@
+services:
+  slskd:
+    image: ghcr.io/slskd/slskd:0.26.2@sha256:d0963a3e5b16facd295bf4f2156dad0182f246b1b21a032cae12f5494c694843
+    pids_limit: 500
+    networks: [homelab_net]
+    # The Soulseek peer port, allowlisted for all interfaces like qBittorrent's (docs/security.md). The web UI is
+    # not published; Caddy proxies it.
+    ports: ["50300:50300/tcp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    # The image's entrypoint drops to PUID:PGID; start.sh exports the secret files as slskd's settings first.
+    entrypoint: ["/usr/bin/tini", "--", "/homelab/start.sh"]
+    command: ["./slskd"]
+    secrets: [SLSKD_SLSK_USERNAME, SLSKD_SLSK_PASSWORD, SLSKD_WEB_PASSWORD, SLSKD_API_KEY]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SLSKD_UMASK=002
+      - SLSKD_URL_BASE=/slskd
+      - SLSKD_DOWNLOADS_DIR=/downloads/soulseek
+      - SLSKD_INCOMPLETE_DIR=/downloads/soulseek-incomplete
+    # Shares nothing by default. To share a library, a site override mounts it read-only and sets SLSKD_SHARED_DIR.
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/slskd
+        target: /app
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind: {create_host_path: false}
+    configs:
+      - source: slskd-start
+        target: /homelab/start.sh
+        mode: 0555
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5030/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+configs:
+  slskd-start:
+    file: config/slskd/start.sh
+
+secrets:
+  SLSKD_SLSK_USERNAME: {file: "${HOMELAB_SECRET_DIR}/SLSKD_SLSK_USERNAME"}
+  SLSKD_SLSK_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/SLSKD_SLSK_PASSWORD"}
+  SLSKD_WEB_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/SLSKD_WEB_PASSWORD"}
+  SLSKD_API_KEY: {file: "${HOMELAB_SECRET_DIR}/SLSKD_API_KEY"}
+
+networks:
+  homelab_net:
+    external: true

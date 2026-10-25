@@ -69,7 +69,9 @@ Docker after the agent so containers never start without them. The site sets
 `HOMELAB_SECRET_DIR=/run/homelab-secrets`.
 
 Current names: `TMDB_API_KEY`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, `SONARR_API_KEY`,
-`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `CLOUDFLARE_TOKEN`.
+`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `LIDARR_API_KEY`, `CLOUDFLARE_TOKEN`,
+`SLSKD_SLSK_USERNAME`, `SLSKD_SLSK_PASSWORD` (the Soulseek account; slskd registers it on first login),
+`SLSKD_WEB_PASSWORD` (slskd's web UI, user `slskd`), `SLSKD_API_KEY` (shared by slskd and Soularr).
 
 After rotating a secret, force-recreate the services that mount it
 ([operations](operations.md#rotate-a-secret)). See [0010](decisions/0010-secrets.md).

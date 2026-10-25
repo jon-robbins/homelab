@@ -1,0 +1,46 @@
+services:
+  soularr:
+    image: docker.io/mrusse08/soularr:v1.2.3@sha256:e448d49d0ca6091a35653ff9198ebb4a3acf42abfc2f2056490a9a0f0cffd210
+    pids_limit: 100
+    user: "${PUID}:${PGID}"
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    # start.sh writes config.ini from the secret files into /tmp, then runs the image's polling loop. Search
+    # preferences default to Soularr's own; a site override may set SOULARR_ALLOWED_FILETYPES,
+    # SOULARR_ALBUMS_PER_RUN, SOULARR_MIN_MATCH_RATIO, SOULARR_SEARCH_RETRY_WAIT_HOURS, SOULARR_SKIP_REGION_CHECK.
+    entrypoint: ["tini", "-g", "--", "/homelab/start.sh"]
+    command: []
+    secrets: [LIDARR_API_KEY, SLSKD_API_KEY]
+    environment: ["TZ=${TZ}", "SCRIPT_INTERVAL=300", "WEBUI_ENABLED=false"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/soularr
+        target: /data
+        bind: {create_host_path: false}
+    configs:
+      - source: soularr-start
+        target: /homelab/start.sh
+        mode: 0555
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /tmp/soularr/config.ini && ps aux | grep -q '[r]un.sh'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on: [slskd, lidarr]
+    restart: unless-stopped
+
+configs:
+  soularr-start:
+    file: config/soularr/start.sh
+
+secrets:
+  LIDARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/LIDARR_API_KEY"}
+  SLSKD_API_KEY: {file: "${HOMELAB_SECRET_DIR}/SLSKD_API_KEY"}
+
+networks:
+  homelab_net:
+    external: true
