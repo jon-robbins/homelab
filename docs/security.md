@@ -26,7 +26,7 @@ whatever UFW says.
 Rules ([0015](decisions/0015-exposure-policy.md)):
 
 1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:443"` or a LAN address, not `"443:443"`.
-2. Only the media server's streaming port and the torrent peer port may listen on all interfaces.
+2. Only the media server's streaming port and the peer ports (torrent, Soulseek) may listen on all interfaces.
 3. Admin UIs are reachable only from the LAN and Tailscale, through Caddy with a `remote_ip` guard
    ([ingress](ingress.md#caddy-routes)). Never port-forward an admin UI.
 4. Add `DOCKER-USER` rules so that traffic from the WAN interface reaches only the allowlisted ports.
@@ -40,6 +40,7 @@ What the catalog publishes today:
 | plex | `32400` on all interfaces | allowed (remote streaming); harden per [ingress](ingress.md#plex-remote-access) |
 | jellyfin | `8096` on all interfaces | bind to the LAN address; use Tailscale remotely |
 | qbittorrent | `51423` TCP and UDP on all interfaces | allowed (peer port); the web UI is not published |
+| slskd | `50300` TCP on all interfaces | allowed (Soulseek peer port); the web UI is not published |
 | overseerr | `127.0.0.1:5055` | fine |
 | cloudflared | host network, outbound only | fine |
 
@@ -53,6 +54,7 @@ iptables -I DOCKER-USER -i eth0 -m conntrack --ctstate ESTABLISHED,RELATED -j RE
 iptables -A DOCKER-USER -i eth0 -p tcp -m conntrack --ctorigdstport 32400 -j RETURN
 iptables -A DOCKER-USER -i eth0 -p tcp -m conntrack --ctorigdstport 51423 -j RETURN
 iptables -A DOCKER-USER -i eth0 -p udp -m conntrack --ctorigdstport 51423 -j RETURN
+iptables -A DOCKER-USER -i eth0 -p tcp -m conntrack --ctorigdstport 50300 -j RETURN
 iptables -A DOCKER-USER -i eth0 -j DROP
 ```
 
