@@ -7,7 +7,7 @@
 | **LAN** | everything, at home | nothing to configure | home only |
 | **Tailscale** | admin UIs (*arr apps, qBittorrent, Prowlarr) and anything personal, from anywhere | no open ports; per-device identity | every client needs Tailscale |
 | **Cloudflare Tunnel** (`cloudflared`) | web apps you want reachable without Tailscale, such as a request page for friends | no open ports; Cloudflare in front | **no video streaming** (Cloudflare's terms); Cloudflare sees the traffic |
-| **Router port forward** | only media streaming that must work without Tailscale (Plex remote access), and the torrent peer port | works with every client | the service is directly on the internet: it must be patched fast and hardened ([security](security.md)) |
+| **Router port forward** | only media streaming that must work without Tailscale (Plex remote access), and the peer ports (torrent, Soulseek) | works with every client | the service is directly on the internet: it must be patched fast and hardened ([security](security.md)) |
 
 The default is: admin UIs on LAN and Tailscale only, web apps through the tunnel if needed, and a port forward
 only for the media server's streaming port.

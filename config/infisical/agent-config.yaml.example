@@ -28,3 +28,18 @@ templates:
   - source-path: /srv/homelab/infisical/templates/QBITTORRENT_PASSWORD.tmpl
     destination-path: /run/homelab-secrets/QBITTORRENT_PASSWORD
     polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/LIDARR_API_KEY.tmpl
+    destination-path: /run/homelab-secrets/LIDARR_API_KEY
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/SLSKD_SLSK_USERNAME.tmpl
+    destination-path: /run/homelab-secrets/SLSKD_SLSK_USERNAME
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/SLSKD_SLSK_PASSWORD.tmpl
+    destination-path: /run/homelab-secrets/SLSKD_SLSK_PASSWORD
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/SLSKD_WEB_PASSWORD.tmpl
+    destination-path: /run/homelab-secrets/SLSKD_WEB_PASSWORD
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/SLSKD_API_KEY.tmpl
+    destination-path: /run/homelab-secrets/SLSKD_API_KEY
+    polling-interval: 60s

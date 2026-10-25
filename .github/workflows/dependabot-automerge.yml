@@ -21,9 +21,10 @@ jobs:
           github-token: ${{ github.token }}
       # A GITHUB_TOKEN merge starts no push workflows, so post-merge builds and the
       # release would never run. The app token's merge is a real push.
+      # Soularr is excluded: a single maintainer's image that holds API keys waits for review (0014).
       - name: Create automerge app token
         id: app-token
-        if: steps.metadata.outputs.package-ecosystem == 'docker_compose' && steps.metadata.outputs.directory == '/modules/app' && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        if: steps.metadata.outputs.package-ecosystem == 'docker_compose' && steps.metadata.outputs.directory == '/modules/app' && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor') && !contains(steps.metadata.outputs.dependency-names, 'mrusse08/soularr')
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           # Dependabot-triggered runs read only Dependabot secrets.

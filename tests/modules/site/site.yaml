@@ -18,8 +18,10 @@ services:
   jellyfin: {}
   lidarr: {}
   navidrome: {}
+  slskd: {}
+  soularr: {}
   homelab-qbt-events: {}
   homelab-arr-missing-search: {}
   homelab-seerr-request-reconciler: {}
   homelab-arr-post-import: {}
-managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, homelab-qbt-events, homelab-arr-missing-search, homelab-seerr-request-reconciler, homelab-arr-post-import]
+managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, homelab-qbt-events, homelab-arr-missing-search, homelab-seerr-request-reconciler, homelab-arr-post-import]

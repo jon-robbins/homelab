@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/arr" -}}
+{{- range . -}}
+{{- if eq .Key "SLSKD_SLSK_USERNAME" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}
