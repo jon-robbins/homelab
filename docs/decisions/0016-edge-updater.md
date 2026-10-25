@@ -19,10 +19,11 @@ Caddy nor cloudflared carries it. A bad edge image breaks the web UIs and the tu
 1. `homelab-edge-update`, a host-tier timer separate from the controller, applies the current release's
    `edge.json` when it differs from the last one that came up healthy.
 2. It pulls first; a failed pull changes nothing and is retried next run. It then recreates the edge services
-   with `--no-deps` and waits for each to report healthy, which for these services means Caddy's admin API
-   answers and the tunnel is connected.
-3. If a service does not become healthy, it re-applies the last good `edge.json` (before the first good apply,
-   the previous release's), and skips that release until a newer one arrives.
+   with `--no-deps --wait`, so Compose waits for each healthcheck: Caddy's admin API answers and the tunnel is
+   connected.
+3. If a service does not become healthy, it re-applies the last good `edge.json` and skips that release until a
+   newer one arrives. Before the first good apply there is nothing known-good, so it only alerts; an older
+   release's edge may never have run.
 4. While the running edge differs from the release, the controller's existing "edge change pending" notice fails
    the deadman ping ([0013](0013-deadman-alerting.md)); that is the alert. No new alerting path.
 5. Edge-tier Dependabot patch and minor bumps merge unattended, like the app tier ([0014](0014-dependabot-automerge.md)).

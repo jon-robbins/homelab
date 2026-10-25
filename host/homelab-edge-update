@@ -22,47 +22,20 @@ if [[ -f $good ]] && cmp -s "$tmp/edge.json" "$good"; then exit 0; fi
 if [[ -f $failed && $(<"$failed") == "$want" ]]; then exit 0; fi
 
 compose() { docker compose -p homelab-edge -f "$1" "${@:2}"; }
-
-healthy() {
-  local service=$1 deadline=$((SECONDS + TIMEOUT)) id status health
-  while ((SECONDS < deadline)); do
-    id=$(compose "$tmp/edge.json" ps -q "$service")
-    if [[ -n $id ]]; then
-      status=$(docker inspect -f '{{.State.Status}}' "$id")
-      health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
-      [[ $status == running && ($health == healthy || $health == none) ]] && return 0
-      [[ $status == exited || $health == unhealthy ]] && return 1
-    fi
-    sleep 2
-  done
-  return 1
-}
-
-services() { compose "$1" config --services; }
+# --wait returns non-zero when a service exits, turns unhealthy or is not healthy within the timeout.
+up() { compose "$1" up -d --no-deps --wait --wait-timeout "$TIMEOUT"; }
 
 # Nothing has changed if the pull fails, so that is retried next run rather than marked as failed.
-mapfile -t names < <(services "$tmp/edge.json")
-compose "$tmp/edge.json" pull "${names[@]}" || { echo "edge: pull failed; retrying next run" >&2; exit 1; }
+compose "$tmp/edge.json" pull || { echo "edge: pull failed; retrying next run" >&2; exit 1; }
 
-apply_current() {
-  local service
-  compose "$tmp/edge.json" up -d --no-deps "${names[@]}" || return 1
-  for service in "${names[@]}"; do
-    healthy "$service" || { echo "edge: $service did not become healthy" >&2; return 1; }
-  done
-}
-
-if apply_current; then
+if up "$tmp/edge.json"; then
   install -m 0644 "$tmp/edge.json" "$good"
   rm -f "$failed"
   echo "edge: applied ${want:0:12}"
   exit 0
 fi
 printf '%s\n' "$want" >"$failed"
-# Before the first good apply there is no copy; the release the controller ran before this one is the fallback.
-fallback=$good
-[[ -f $fallback ]] || fallback=$HOMELAB/releases/previous/edge.json
-if [[ -f $fallback ]] && mapfile -t back < <(services "$fallback") && compose "$fallback" up -d --no-deps "${back[@]}"; then
+if [[ -f $good ]] && up "$good"; then
   echo "edge: rolled back ${want:0:12}; it stays skipped until a newer release" >&2
 else
   echo "edge: ${want:0:12} failed and there was nothing to roll back to" >&2

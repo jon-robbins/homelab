@@ -8,29 +8,25 @@ import subprocess
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "host/homelab-edge-update"
 
-# A fake docker: logs every call, lists two edge services, and reports $FAKE_HEALTH for them.
+# A fake docker: logs every call; `up --wait` fails with $FAKE_HEALTH=unhealthy, except for the last good edge.
 DOCKER = """#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
-  *"config --services"*) printf 'caddy\\ncloudflared\\n' ;;
-  *" pull "*) exit "${FAKE_PULL_STATUS:-0}" ;;
-  "inspect -f {{.State.Status}}"*) echo running ;;
-  "inspect -f"*) echo "${FAKE_HEALTH:-healthy}" ;;
-  *"ps -q "*) for last; do :; done; printf 'id-%s\\n' "$last" ;;
+  *" pull"*) exit "${FAKE_PULL_STATUS:-0}" ;;
+  *edge-good.json*" up "*) ;;
+  *" up "*) [ "${FAKE_HEALTH:-healthy}" = healthy ] ;;
 esac
 """
 
 
-def setup(tmp_path: Path, edge: str, *, good: str | None = None, previous: str | None = None) -> dict[str, str]:
+def setup(tmp_path: Path, edge: str, *, good: str | None = None) -> dict[str, str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     (bin_dir / "docker").write_text(DOCKER)
     (bin_dir / "docker").chmod(0o755)
     home = tmp_path / "srv"
-    for name, text in (("current", edge), ("previous", previous)):
-        if text is not None:
-            (home / "releases" / name).mkdir(parents=True, exist_ok=True)
-            (home / "releases" / name / "edge.json").write_text(text)
+    (home / "releases/current").mkdir(parents=True)
+    (home / "releases/current/edge.json").write_text(edge)
     (home / "state").mkdir(parents=True, exist_ok=True)
     if good is not None:
         (home / "state/edge-good.json").write_text(good)
@@ -53,7 +49,7 @@ def calls(tmp_path: Path) -> list[str]:
 
 
 def ups(tmp_path: Path) -> list[str]:
-    return [call for call in calls(tmp_path) if " up -d --no-deps " in call]
+    return [call for call in calls(tmp_path) if " up -d --no-deps --wait " in call]
 
 
 def state(tmp_path: Path, name: str) -> Path:
@@ -70,8 +66,8 @@ def test_new_release_is_pulled_applied_and_recorded_as_good(tmp_path: Path):
     env = setup(tmp_path, '{"v": 2}', good='{"v": 1}')
     result = run(env)
     assert result.returncode == 0, result.stderr
-    assert any(" pull caddy cloudflared" in call for call in calls(tmp_path))
-    assert len(ups(tmp_path)) == 1 and ups(tmp_path)[0].endswith("up -d --no-deps caddy cloudflared")
+    assert any(call.endswith(" pull") for call in calls(tmp_path))
+    assert len(ups(tmp_path)) == 1
     assert state(tmp_path, "edge-good.json").read_text() == '{"v": 2}'
     assert not state(tmp_path, "edge-failed").exists()
 
@@ -110,14 +106,7 @@ def test_pull_failure_changes_nothing_and_retries_next_run(tmp_path: Path):
     assert state(tmp_path, "edge-good.json").read_text() == '{"v": 2}'
 
 
-def test_first_run_falls_back_to_the_previous_release(tmp_path: Path):
-    env = setup(tmp_path, '{"v": 2}', previous='{"v": 1}')
-    assert run(env, FAKE_HEALTH="unhealthy").returncode == 1
-    assert "releases/previous/edge.json" in ups(tmp_path)[-1]
-    assert not state(tmp_path, "edge-good.json").exists()
-
-
-def test_failure_with_nothing_to_roll_back_to_still_fails_loudly(tmp_path: Path):
+def test_first_run_failure_has_nothing_to_roll_back_to_and_fails_loudly(tmp_path: Path):
     env = setup(tmp_path, '{"v": 2}')
     result = run(env, FAKE_HEALTH="unhealthy")
     assert result.returncode == 1 and "nothing to roll back to" in result.stderr
