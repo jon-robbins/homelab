@@ -40,6 +40,14 @@ printf '%s\n' \
   '[Timer]' \
   'OnCalendar=*-*-* 04:15:00' 'Persistent=true' 'RandomizedDelaySec=10m' '' \
   '[Install]' 'WantedBy=timers.target' >"$tmp/backup.timer"
+# Edge is applied by its own unit, never by the controller (0003, 0016).
+printf '%s\n' \
+  '[Unit]' 'After=docker.service' '' '[Service]' \
+  'Type=oneshot' 'ExecStart=/srv/homelab/tooling/current/host/homelab-edge-update' \
+  'Environment=DOCKER_CONFIG=/srv/homelab/trust/docker' >"$tmp/edge.service"
+printf '%s\n' \
+  '[Timer]' 'OnBootSec=4min' \
+  'OnUnitActiveSec=5min' '' '[Install]' 'WantedBy=timers.target' >"$tmp/edge.timer"
 # Containers mount secret files the Infisical agent renders into tmpfs, so Docker starts after the agent has.
 printf '%s\n' '[Unit]' 'After=tailscaled.service homelab-infisical-agent.service' >"$tmp/dropin"
 printf '%s\n' \
@@ -53,6 +61,8 @@ printf '%s\n' \
   /etc/systemd/system/homelab-backup.timer \
   /etc/systemd/system/homelab-controller.service \
   /etc/systemd/system/homelab-controller.timer \
+  /etc/systemd/system/homelab-edge-update.service \
+  /etc/systemd/system/homelab-edge-update.timer \
   /etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf \
   /etc/sysctl.d/90-homelab.conf \
   /var/lib/tailscale >"$tmp/HOST-FILES"
@@ -67,6 +77,8 @@ files=(
   "$d/etc/systemd/system/homelab-controller.timer:$tmp/controller.timer"
   "$d/etc/systemd/system/homelab-backup.service:$tmp/backup.service"
   "$d/etc/systemd/system/homelab-backup.timer:$tmp/backup.timer"
+  "$d/etc/systemd/system/homelab-edge-update.service:$tmp/edge.service"
+  "$d/etc/systemd/system/homelab-edge-update.timer:$tmp/edge.timer"
   "$d/etc/systemd/system/docker.service.d/10-homelab.conf:$tmp/dropin"
   "$d/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf:$tmp/agent-dropin"
   "$d/etc/sysctl.d/90-homelab.conf:$tmp/sysctl"
@@ -153,7 +165,7 @@ for pair in "${files[@]}"; do
 done
 if [[ -z $d ]]; then
   systemctl daemon-reload
-  systemctl enable --now homelab-controller.timer
+  systemctl enable --now homelab-controller.timer homelab-edge-update.timer
   systemctl enable homelab-backup.timer
   sysctl --load /etc/sysctl.d/90-homelab.conf
 fi

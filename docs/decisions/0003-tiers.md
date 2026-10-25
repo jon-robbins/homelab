@@ -1,6 +1,7 @@
 # 0003: Host, edge, app and unmanaged tiers
 
-- **Status:** Accepted (2026-10-15)
+- **Status:** Accepted (2026-10-15); the edge row and the first **Don't** superseded by
+  [0016](0016-edge-updater.md) (2026-10-25)
 - **Code:** `modules/app/`, `modules/edge/`, `host/`, `scripts/controller/`
 - **Related:** [0005](0005-slim-controller.md), [operations](../operations.md)
 

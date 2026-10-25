@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Apply the current release's edge tier (caddy, cloudflared) when it changed, and put the last good one back if a
+# service does not come up healthy (0016). Separate from the controller, which never touches the edge tier (0003).
+# A rolled-back release stays skipped until a newer one arrives; meanwhile the controller's "edge change pending"
+# notice fails the deadman ping, which is the alert.
+set -euo pipefail
+
+HOMELAB=${HOMELAB:-/srv/homelab}
+TIMEOUT=${EDGE_HEALTH_TIMEOUT:-180}
+state=$HOMELAB/state
+good=$state/edge-good.json   # the edge.json that last came up healthy
+failed=$state/edge-failed    # sha256 of an edge.json that was rolled back
+
+[[ -e $state/observe-only ]] && exit 0
+[[ -f $HOMELAB/releases/current/edge.json ]] || exit 0
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+# Copy first: the controller may move releases/current while this runs.
+cp "$HOMELAB/releases/current/edge.json" "$tmp/edge.json"
+want=$(sha256sum "$tmp/edge.json" | cut -d' ' -f1)
+if [[ -f $good ]] && cmp -s "$tmp/edge.json" "$good"; then exit 0; fi
+if [[ -f $failed && $(<"$failed") == "$want" ]]; then exit 0; fi
+
+compose() { docker compose -p homelab-edge -f "$1" "${@:2}"; }
+
+healthy() {
+  local service=$1 deadline=$((SECONDS + TIMEOUT)) id status health
+  while ((SECONDS < deadline)); do
+    id=$(compose "$tmp/edge.json" ps -q "$service")
+    if [[ -n $id ]]; then
+      status=$(docker inspect -f '{{.State.Status}}' "$id")
+      health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
+      [[ $status == running && ($health == healthy || $health == none) ]] && return 0
+      [[ $status == exited || $health == unhealthy ]] && return 1
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+services() { compose "$1" config --services; }
+
+# Nothing has changed if the pull fails, so that is retried next run rather than marked as failed.
+mapfile -t names < <(services "$tmp/edge.json")
+compose "$tmp/edge.json" pull "${names[@]}" || { echo "edge: pull failed; retrying next run" >&2; exit 1; }
+
+apply_current() {
+  local service
+  compose "$tmp/edge.json" up -d --no-deps "${names[@]}" || return 1
+  for service in "${names[@]}"; do
+    healthy "$service" || { echo "edge: $service did not become healthy" >&2; return 1; }
+  done
+}
+
+if apply_current; then
+  install -m 0644 "$tmp/edge.json" "$good"
+  rm -f "$failed"
+  echo "edge: applied ${want:0:12}"
+  exit 0
+fi
+printf '%s\n' "$want" >"$failed"
+# Before the first good apply there is no copy; the release the controller ran before this one is the fallback.
+fallback=$good
+[[ -f $fallback ]] || fallback=$HOMELAB/releases/previous/edge.json
+if [[ -f $fallback ]] && mapfile -t back < <(services "$fallback") && compose "$fallback" up -d --no-deps "${back[@]}"; then
+  echo "edge: rolled back ${want:0:12}; it stays skipped until a newer release" >&2
+else
+  echo "edge: ${want:0:12} failed and there was nothing to roll back to" >&2
+fi
+exit 1

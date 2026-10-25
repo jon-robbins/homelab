@@ -28,7 +28,7 @@ flowchart LR
     C -->|git fetch, cosign verify| F
     C -->|snapshot| K[homelab-backup / restic]
     C -->|compose up --no-deps| A[app tier<br/>Compose project homelab]
-    E[edge tier: caddy, cloudflared<br/>owner-applied] --> A
+    E[edge tier: caddy, cloudflared<br/>edge updater, with rollback] --> A
     I[Infisical agent] -->|secret files| A
     C -->|ping / fail ping| H[healthchecks.io]
   end
@@ -53,7 +53,7 @@ Dependency rule: site → platform and plugins; plugin → platform contract; pl
 | Tier | Members | Changed by |
 |---|---|---|
 | host | Tailscale, controller and backup timers, Infisical agent, deadman pings | `host/install.sh` (systemd) |
-| edge | caddy, cloudflared | the owner, from the current release ([operations](../operations.md#edge)) |
+| edge | caddy, cloudflared | `homelab-edge-update`, from the current release, with rollback ([0016](../decisions/0016-edge-updater.md)) |
 | app | every other module | the controller |
 | unmanaged | anything else on the host | never this project |
 
@@ -84,7 +84,7 @@ See [0003](../decisions/0003-tiers.md).
 5. Verify the signature against the pinned workflow identity and the bundle hash; unpack to
    `/srv/homelab/releases/<N>/` read-only.
 6. Plan: a managed app service changes when its Compose config hash differs from the running container's.
-   Services the site marks `state: stopped` are created but not started. Edge changes are only reported.
+   Services the site marks `state: stopped` are created but not started. The controller only reports edge changes; `homelab-edge-update` applies them ([0016](../decisions/0016-edge-updater.md)).
 7. Pull images and snapshot each changed stateful service (stopped first).
 8. `docker compose -p homelab -f app.json up -d --no-deps` for the changed services.
 9. Wait up to 180 s for each to be healthy.

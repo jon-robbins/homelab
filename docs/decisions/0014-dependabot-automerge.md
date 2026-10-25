@@ -1,6 +1,7 @@
 # 0014: App-tier patch and minor updates merge and deploy unattended
 
-- **Status:** Accepted (2026-10-20; amends the "owner merge is the approval" rule of [0004](0004-signed-full-state-releases.md))
+- **Status:** Accepted (2026-10-20; amends the "owner merge is the approval" rule of [0004](0004-signed-full-state-releases.md));
+  the edge-tier exclusion superseded by [0016](0016-edge-updater.md) (2026-10-25)
 - **Code:** `.github/workflows/dependabot-automerge.yml`, `.github/dependabot.yml`
 - **Related:** [0009](0009-image-trust.md), [operations](../operations.md)
 
