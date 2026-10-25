@@ -31,10 +31,6 @@ services:
         source: ${TV_DIR}
         target: /tv
         bind: {create_host_path: false}
-    configs:
-      - source: qbittorrent-dispatcher
-        target: /scripts/dispatcher.sh
-        mode: 0555
     labels: {homelab.state: stateful}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080 >/dev/null || exit 1"]
@@ -43,8 +39,5 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
-configs:
-  qbittorrent-dispatcher:
-    file: config/qbittorrent/dispatcher.sh
 networks:
   homelab_net: {external: true}
