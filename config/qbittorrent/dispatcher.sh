@@ -1,10 +1,16 @@
 #!/bin/sh
 # qBittorrent on-completion fan-out. Arg1 = infohash (%I).
 # After deploy, set qBT prefs: autorun_enabled=true, autorun_program=/scripts/dispatcher.sh "%I"
+# Set QBT_DISPATCH_EVENTS_URL (e.g. via a site Compose override on the qbittorrent service) to point
+# completions at an events service. Unset or empty means no notification is sent.
 HASH="$1"
 [ -n "$HASH" ] || exit 0
 
-EVENTS_URL="${QBT_DISPATCH_EVENTS_URL:-http://homelab-qbt-events:8101/v1/torrent-finished}"
+EVENTS_URL="${QBT_DISPATCH_EVENTS_URL:-}"
+if [ -z "$EVENTS_URL" ]; then
+  echo "qbt-dispatch: no QBT_DISPATCH_EVENTS_URL set; nothing to notify hash=$HASH"
+  exit 0
+fi
 TIMEOUT_SECS="${QBT_DISPATCH_TIMEOUT_SECS:-5}"
 
 post_one() {
