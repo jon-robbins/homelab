@@ -1,0 +1,41 @@
+services:
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+    command: server
+    user: "${PUID}:${PGID}"
+    mem_limit: 1g
+    memswap_limit: 2g
+    pids_limit: 500
+    shm_size: 512m
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    secrets: [AUTHENTIK_SECRET_KEY, AUTHENTIK_PG_PASSWORD]
+    environment:
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-postgres
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=file:///run/secrets/AUTHENTIK_PG_PASSWORD
+      - AUTHENTIK_SECRET_KEY=file:///run/secrets/AUTHENTIK_SECRET_KEY
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=false
+      - TZ=${TZ}
+    depends_on:
+      authentik-postgres: {condition: service_healthy}
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/authentik-server/data
+        target: /data
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+secrets:
+  AUTHENTIK_SECRET_KEY: {file: "${HOMELAB_SECRET_DIR}/AUTHENTIK_SECRET_KEY"}
+  AUTHENTIK_PG_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/AUTHENTIK_PG_PASSWORD"}
+networks:
+  homelab_net: {external: true}

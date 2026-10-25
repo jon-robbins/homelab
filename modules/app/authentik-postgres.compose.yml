@@ -1,0 +1,34 @@
+services:
+  authentik-postgres:
+    image: docker.io/library/postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
+    user: "${PUID}:${PGID}"
+    mem_limit: 512m
+    memswap_limit: 1g
+    pids_limit: 200
+    shm_size: 128m
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    secrets: [AUTHENTIK_PG_PASSWORD]
+    environment:
+      - POSTGRES_DB=authentik
+      - POSTGRES_USER=authentik
+      - POSTGRES_PASSWORD_FILE=/run/secrets/AUTHENTIK_PG_PASSWORD
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/authentik-postgres/data
+        target: /var/lib/postgresql/data
+        bind: {create_host_path: false}
+    labels: {homelab.state: stateful}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+secrets:
+  AUTHENTIK_PG_PASSWORD: {file: "${HOMELAB_SECRET_DIR}/AUTHENTIK_PG_PASSWORD"}
+networks:
+  homelab_net: {external: true}
