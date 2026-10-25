@@ -52,7 +52,7 @@ device). Policy runs after the merge, so an override cannot add anything a modul
 
 ## `files/` and `edge/`
 
-Config files that modules mount (`files/workers.yaml`, `edge/Caddyfile`, `edge/config.yml` for cloudflared).
+Config files that modules mount (`edge/Caddyfile`, `edge/config.yml` for cloudflared).
 Modules refer to them as Compose `configs` with `file: site:<path>`; the renderer inlines their content into the
 release.
 

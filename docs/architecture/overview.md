@@ -41,7 +41,7 @@ flowchart LR
 
 | Repo | Visibility | Holds |
 |---|---|---|
-| `homelab` (this one) | public | module catalog, Compose policy, renderer, release workflow, controller, host scripts, first-party images (caddy, homelab-workers), docs, tests |
+| `homelab` (this one) | public | module catalog, Compose policy, renderer, release workflow, controller, host scripts, first-party images (caddy), docs, tests |
 | site repo | private | `site.yaml`, `site.env`, `files/`, `overrides/`, `edge/` (Caddyfile, cloudflared config), code-free plugins, and the `releases` branch that is the signed feed |
 | plugin repo | private, optional | code, image build and modules for services only one owner runs |
 
@@ -108,7 +108,6 @@ the services that use it ([0007](../decisions/0007-disk-markers.md)).
 | `scripts/release/` | render, Compose policy, compile, record, feed, release reconciler (runs in GitHub Actions) |
 | `scripts/controller/` | `homelabctl` and its loop (runs on the host) |
 | `host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` |
-| `apps/homelab-workers/` | the first-party worker image (qBittorrent events, *arr post-import, missing search, Seerr reconciler) |
 | `config/` | Caddy image and example Caddyfile, Infisical templates, release policy allowlists, CI budgets |
 | `examples/` | a synthetic site and plugin used by tests and docs |
 | `tests/` | see [development](../development.md#tests) |

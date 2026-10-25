@@ -21,7 +21,7 @@ What you need before setting up a host, what each one is for, and where its cred
 | **Google Drive** (or any rclone/restic backend) | off-site copy of the nightly backup | create your own Google OAuth client for rclone; the shared default client hits quota limits. Use `drive.file` scope. |
 | **Telegram** (or email) | where healthchecks.io sends alerts | configured inside healthchecks.io, not on the host |
 | **Plex account** | Plex server claim and remote access | sign in from the Plex web UI on first start; homelab stores no Plex token |
-| **TMDB** | metadata lookups for the worker that reconciles Seerr requests | `TMDB_API_KEY` in Infisical |
+| **TMDB** | metadata lookups for Seerr | `TMDB_API_KEY` in Infisical |
 | **Indexers / trackers** | Prowlarr sources | configured inside Prowlarr; not part of this repo |
 
 ## GitHub tokens
