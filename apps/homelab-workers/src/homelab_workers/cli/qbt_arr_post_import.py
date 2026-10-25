@@ -134,6 +134,8 @@ def main() -> int:
     for row in results:
         if not row.get("ok"):
             print(f"qbt-arr-post-import: FAIL hash={row.get('hash')} error={row.get('error')}", file=sys.stderr)
+        elif row.get("skipped"):
+            print(f"qbt-arr-post-import: KEEP hash={row.get('hash')} seeding from staging: {row['skipped']}")
         elif not args.dry_run and row.get("hash"):
             processed.add(str(row["hash"]).lower())
 

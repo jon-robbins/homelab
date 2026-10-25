@@ -118,8 +118,11 @@ class QBittorrentClient:
         tag: str | None = None,
         category: str | None = None,
         filter_name: str | None = None,
+        hashes: str | None = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, str] = {}
+        if hashes:
+            params["hashes"] = hashes
         if tag:
             params["tag"] = tag
         if category:

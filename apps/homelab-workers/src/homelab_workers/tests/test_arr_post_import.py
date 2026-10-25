@@ -183,59 +183,117 @@ def test_plan_includes_nvme_staging_torrent() -> None:
 
 
 class FakePostImportQbt:
-    def __init__(self) -> None:
+    """Records calls in order; reports the torrent's files and a recheck that takes `checking_polls` polls."""
+
+    def __init__(self, files: list[dict[str, object]] | None = None, checking_polls: int = 1) -> None:
+        self.files = files if files is not None else [{"name": "S01E01.mkv", "size": 4}]
+        self.checking_polls = checking_polls
+        self.events: list[str] = []
         self.paused: list[str] = []
         self.resumed: list[str] = []
         self.locations: list[tuple[list[str], str]] = []
         self.rechecked: list[str] = []
 
     def torrents_pause(self, *, hashes: list[str] | None = None, tag: str | None = None) -> int:
+        self.events.append("stop")
         self.paused.extend(hashes or [])
         return len(hashes or [])
 
     def torrents_resume(self, *, hashes: list[str] | None = None, tag: str | None = None) -> int:
+        self.events.append("start")
         self.resumed.extend(hashes or [])
         return len(hashes or [])
 
     def torrents_set_location(self, hashes: list[str], location: str) -> None:
+        self.events.append("setLocation")
         self.locations.append((hashes, location))
 
     def torrents_recheck(self, hashes: list[str]) -> None:
+        self.events.append("recheck")
         self.rechecked.extend(hashes)
 
+    def torrent_files(self, torrent_hash: str) -> list[dict[str, object]]:
+        return self.files
 
-def test_apply_post_import_relocate_deletes_staging(tmp_path: Path) -> None:
-    from homelab_workers.shared.arr_post_import import apply_post_import_relocate
+    def torrents_info_raw(self, *, hashes: str | None = None) -> list[dict[str, object]]:
+        checking = self.checking_polls > 0
+        self.checking_polls -= 1
+        self.events.append("poll:checking" if checking else "poll:done")
+        return [{"hash": hashes, "state": "checkingUP" if checking else "stoppedUP"}]
 
+
+def _show(tmp_path: Path) -> tuple[Path, Path, Path]:
     library = tmp_path / "tv" / "Show" / "Season 01"
     library.mkdir(parents=True)
     library_file = library / "S01E01.mkv"
     library_file.write_text("data", encoding="utf-8")
     staging = tmp_path / "downloads" / "tv" / "Show"
     staging.mkdir(parents=True)
-    (staging / "S01E01.mkv").write_text("dup", encoding="utf-8")
+    (staging / "S01E01.mkv").write_text("dup!", encoding="utf-8")
+    return library, library_file, staging
 
+
+def _relocate(qbt: FakePostImportQbt, library: Path, library_file: Path, staging: Path) -> dict[str, object]:
+    from homelab_workers.shared.arr_post_import import apply_post_import_relocate
+
+    action = {
+        "hash": "a" * 40,
+        "library_file": str(library_file),
+        "set_location_dir": str(library),
+        "staging_path": str(staging),
+    }
+    path_map = {"library_file_host": library_file, "staging_host": staging}
+    return apply_post_import_relocate(qbt, [action], dry_run=False, path_map=path_map, poll_s=0)[0]
+
+
+def test_apply_post_import_relocate_deletes_staging(tmp_path: Path) -> None:
+    library, library_file, staging = _show(tmp_path)
     qbt = FakePostImportQbt()
-    actions = [
-        {
-            "hash": "a" * 40,
-            "library_file": str(library_file),
-            "set_location_dir": str(library),
-            "staging_path": str(staging),
-        }
-    ]
-    results = apply_post_import_relocate(
-        qbt,
-        actions,
-        dry_run=False,
-        path_map={"library_file_host": library_file, "staging_host": staging},
-    )
-    assert results[0]["ok"] is True
+    result = _relocate(qbt, library, library_file, staging)
+    assert result["ok"] is True
     assert not staging.exists()
     assert library_file.exists()
     assert qbt.paused == ["a" * 40]
     assert qbt.resumed == ["a" * 40]
     assert qbt.rechecked == ["a" * 40]
+
+
+def test_apply_starts_only_after_the_recheck_finishes(tmp_path: Path) -> None:
+    # qBittorrent leaves a torrent stopped when it was stopped before a recheck, so a start sent mid-check is lost.
+    library, library_file, staging = _show(tmp_path)
+    qbt = FakePostImportQbt(checking_polls=3)
+    _relocate(qbt, library, library_file, staging)
+    assert qbt.events[-2:] == ["poll:done", "start"]
+    assert qbt.events.count("poll:checking") == 3
+
+
+def test_apply_keeps_staging_when_the_torrent_has_a_root_folder(tmp_path: Path) -> None:
+    # The torrent expects <save path>/<release folder>/<file>; the library holds the file one level up, so
+    # pointing qBittorrent at the library folder would leave it with missing files and no staging copy.
+    library, library_file, staging = _show(tmp_path)
+    qbt = FakePostImportQbt(files=[{"name": "Show.S01E01.1080p/S01E01.mkv", "size": 4}])
+    result = _relocate(qbt, library, library_file, staging)
+    assert result["ok"] is True
+    assert result["skipped"]
+    assert staging.exists()
+    assert qbt.events == []
+
+
+def test_apply_keeps_staging_when_the_library_file_differs_in_size(tmp_path: Path) -> None:
+    library, library_file, staging = _show(tmp_path)
+    qbt = FakePostImportQbt(files=[{"name": "S01E01.mkv", "size": 999}])
+    result = _relocate(qbt, library, library_file, staging)
+    assert result["skipped"]
+    assert staging.exists()
+    assert qbt.events == []
+
+
+def test_apply_keeps_staging_when_the_torrent_has_files_the_library_lacks(tmp_path: Path) -> None:
+    library, library_file, staging = _show(tmp_path)
+    qbt = FakePostImportQbt(files=[{"name": "S01E01.mkv", "size": 4}, {"name": "S01E01.nfo", "size": 10}])
+    result = _relocate(qbt, library, library_file, staging)
+    assert result["skipped"]
+    assert staging.exists()
 
 
 class FailingSetLocationQbt(FakePostImportQbt):
@@ -244,29 +302,9 @@ class FailingSetLocationQbt(FakePostImportQbt):
 
 
 def test_apply_post_import_resumes_after_set_location_failure(tmp_path: Path) -> None:
-    from homelab_workers.shared.arr_post_import import apply_post_import_relocate
-
-    library = tmp_path / "tv" / "Show" / "Season 01"
-    library.mkdir(parents=True)
-    library_file = library / "S01E01.mkv"
-    library_file.write_text("data", encoding="utf-8")
-    staging = tmp_path / "downloads" / "tv" / "Show"
-    staging.mkdir(parents=True)
-
+    library, library_file, staging = _show(tmp_path)
     qbt = FailingSetLocationQbt()
-    results = apply_post_import_relocate(
-        qbt,
-        [
-            {
-                "hash": "c" * 40,
-                "library_file": str(library_file),
-                "set_location_dir": str(library),
-                "staging_path": str(staging),
-            }
-        ],
-        dry_run=False,
-        path_map={"library_file_host": library_file, "staging_host": staging},
-    )
-    assert results[0]["ok"] is False
-    assert qbt.paused == ["c" * 40]
-    assert qbt.resumed == ["c" * 40]
+    result = _relocate(qbt, library, library_file, staging)
+    assert result["ok"] is False
+    assert qbt.paused == ["a" * 40]
+    assert qbt.resumed == ["a" * 40]
