@@ -28,7 +28,6 @@ def test_commit_without_build_inputs_needs_no_build():
 
 
 @pytest.mark.parametrize("path", [
-    "apps/homelab-workers/main.py",
     "config/caddy/Dockerfile",
     ".github/workflows/post-merge-build.yml",
     "config/release/approved-ghcr-destinations.json",

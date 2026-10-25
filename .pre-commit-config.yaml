@@ -5,8 +5,6 @@ repos:
     rev: v0.11.13
     hooks:
       - id: ruff
-        files: ^apps/homelab-workers/.*\.py$
-      - id: ruff
         name: ruff complexity (controller, rewritten release code; C901 <= 10)
         files: ^scripts/(controller/.*|release/(modules|compose_policy|render|compile))\.py$
         args: [--select, C901, --config, "lint.mccabe.max-complexity = 10"]

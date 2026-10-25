@@ -9,10 +9,6 @@ env/
 build/
 dist/
 
-apps/homelab-workers/.venv/
-apps/homelab-workers/.venv-tests/
-apps/homelab-workers/uv.lock
-
 .coverage
 .pytest_cache/
 **/.pytest_cache/
