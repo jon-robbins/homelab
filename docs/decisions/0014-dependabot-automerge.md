@@ -11,6 +11,10 @@ green. The normal release and controller path then deploys them, usually within 
 
 Majors, edge-tier images (caddy, cloudflared), GitHub Actions and Python dependencies still wait for the owner.
 
+Exception (2026-10-25): Soularr's image (`mrusse08/soularr`) waits for the owner at any update type. It is one
+person's Docker Hub image with no outside review, it holds the Lidarr and slskd API keys, and it is not
+internet-facing, so an unattended bump carries the risk without the security-patch benefit.
+
 Pause: `gh workflow disable dependabot-automerge.yml`, or `sudo touch /srv/homelab/state/observe-only` on the host.
 
 ## Consequences
