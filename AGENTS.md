@@ -17,8 +17,8 @@ part of every task.
 
 - One service per Compose file in `modules/<tier>/<service>.compose.yml`; no second description format. ([0001])
 - Nothing private in this repo: no real domains, private IPs, home paths, plugin names or secrets. ([0002])
-- The controller never applies the edge tier, never starts a service the owner stopped, always uses `--no-deps`,
-  and never restores data on its own. ([0003], [0005])
+- The controller never applies the edge tier (its own updater does, with rollback), never starts a service the
+  owner stopped, always uses `--no-deps`, and never restores data on its own. ([0003], [0005], [0016])
 - Only signed releases from `release.yml` on `main` run on the host. No deploy-from-checkout path. ([0004])
 - Every image is digest-pinned; every Action is SHA-pinned by tooling, not by hand. ([0009])
 - Secrets are files from `${HOMELAB_SECRET_DIR}`; never in `environment:`, `site.env` or a release. ([0010])
@@ -35,6 +35,7 @@ part of every task.
 [0010]: docs/decisions/0010-secrets.md
 [0011]: docs/decisions/0011-complexity-budgets.md
 [0015]: docs/decisions/0015-exposure-policy.md
+[0016]: docs/decisions/0016-edge-updater.md
 
 ## Where to look when something breaks
 

@@ -117,6 +117,8 @@ def test_host_files_dropin_and_no_infisical_unit(tmp_path: Path):
         "/etc/systemd/system/homelab-backup.timer\n"
         "/etc/systemd/system/homelab-controller.service\n"
         "/etc/systemd/system/homelab-controller.timer\n"
+        "/etc/systemd/system/homelab-edge-update.service\n"
+        "/etc/systemd/system/homelab-edge-update.timer\n"
         "/etc/systemd/system/homelab-infisical-agent.service.d/20-secrets.conf\n"
         "/etc/sysctl.d/90-homelab.conf\n/var/lib/tailscale\n"
     )
@@ -164,6 +166,8 @@ def test_units_verify_with_systemd_analyze(tmp_path: Path):
             "homelab-controller.timer",
             "homelab-backup.service",
             "homelab-backup.timer",
+            "homelab-edge-update.service",
+            "homelab-edge-update.timer",
         )
     ]
     subprocess.run([systemd_analyze, "--root", str(tmp_path), "verify", *units], check=True)

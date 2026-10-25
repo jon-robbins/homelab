@@ -29,3 +29,4 @@ Rules:
 | [0013](0013-deadman-alerting.md) | Deadman alerting through healthchecks.io | Accepted |
 | [0014](0014-dependabot-automerge.md) | App-tier patch and minor updates merge and deploy unattended | Accepted |
 | [0015](0015-exposure-policy.md) | Nothing is reachable from the internet unless allowlisted | Proposed |
+| [0016](0016-edge-updater.md) | The edge tier updates itself, with rollback | Accepted |

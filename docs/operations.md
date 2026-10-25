@@ -14,8 +14,9 @@ homelabctl reconcile --now            # apply now, even in observe-only mode
 
 ## Updates
 
-App-tier patch/minor Dependabot bumps merge and deploy on their own (usually within about 80 minutes). Majors and
-edge images wait for you ([0014](decisions/0014-dependabot-automerge.md)).
+App- and edge-tier patch/minor Dependabot bumps merge and deploy on their own (usually within about 80 minutes).
+Majors and Soularr's image wait for you ([0014](decisions/0014-dependabot-automerge.md),
+[0016](decisions/0016-edge-updater.md)).
 
 Pause everything:
 
@@ -43,7 +44,16 @@ every tick sends a fail ping until you act.
 
 ## Edge
 
-Edge (caddy, cloudflared) is never applied by the timer. Apply it yourself from the current release:
+Edge (caddy, cloudflared) is applied by its own timer, `homelab-edge-update`, never by the controller
+([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json` if it
+changed, waits for both services to be healthy, and otherwise puts the last good one back and skips that release
+until a newer one. While the running edge differs from the release, the deadman ping fails with
+"edge change pending".
+
+- Last run: `journalctl -u homelab-edge-update -n 20`.
+- After a rollback: fix forward with a new release, or apply the skipped one by hand once you know why it failed
+  (`sudo rm /srv/homelab/state/edge-failed`, then `sudo systemctl start homelab-edge-update`).
+- To apply by hand, as before:
 
 ```bash
 docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps caddy cloudflared
@@ -51,8 +61,8 @@ docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d 
 
 ## New host
 
-`host/install.sh` installs the controller, backup and the agent's tmpfs drop-in. Root's git refuses a checkout it
-doesn't own, so run it from a clone owned by root, checked out at the release tooling SHA:
+`host/install.sh` installs the controller, the edge updater, backup and the agent's tmpfs drop-in. Root's git
+refuses a checkout it doesn't own, so run it from a clone owned by root, checked out at the release tooling SHA:
 
 First create the service users, using the site's `PUID` and `PGID`:
 
