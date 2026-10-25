@@ -1,6 +1,5 @@
 {
   "destinations": [
-    "ghcr.io/jon-robbins/homelab/homelab-workers",
     "ghcr.io/jon-robbins/homelab/caddy"
   ]
 }

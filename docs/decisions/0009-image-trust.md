@@ -1,6 +1,6 @@
 # 0009: Digest pins, allowlisted namespaces, attested first-party images
 
-- **Status:** Accepted (2026-10-12; 2026-10-15)
+- **Status:** Accepted (2026-10-12; 2026-10-15; caddy became the only first-party image 2026-10-25, see [0017](0017-personal-services-are-plugins.md))
 - **Code:** `config/release/image-policy.json`, `config/release/approved-ghcr-destinations.json`,
   `.github/workflows/post-merge-build.yml`, `.github/workflows/reusable-publish.yml`, `.github/dependabot.yml`
 - **Related:** [0004](0004-signed-full-state-releases.md), [0014](0014-dependabot-automerge.md)
@@ -10,7 +10,7 @@
 - Every image is pinned by digest (`repo:tag@sha256:…`). The tag is for humans and Dependabot.
 - Upstream and plugin images must come from a namespace in `image-policy.json` and resolve in their registry.
   The reviewed pin in a merged PR is the trust anchor.
-- First-party images (caddy, homelab-workers) are built post-merge with GitHub artifact attestations; the release
+- The only first-party image is caddy; it is built post-merge with GitHub artifact attestations; the release
   verifies the attestation, byte-copies the image to its published name and injects the digest. The digest in a
   first-party module file is a placeholder that the release replaces.
 - GitHub Actions are pinned by full SHA. Nobody types a SHA: Dependabot bumps them, pinact writes version

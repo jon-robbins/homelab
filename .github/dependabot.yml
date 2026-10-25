@@ -18,13 +18,6 @@ updates:
         patterns:
           - "ghcr.io/flaresolverr/flaresolverr"
   - package-ecosystem: docker
-    directory: /apps/homelab-workers
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
-  - package-ecosystem: docker
     directory: /config/caddy
     schedule:
       interval: weekly

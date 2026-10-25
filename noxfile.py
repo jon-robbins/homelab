@@ -11,7 +11,6 @@ import nox
 PYTHON = "3.12"
 nox.options.default_venv_backend = "uv|virtualenv"
 ROOT = Path(__file__).parent
-WORKERS = ROOT / "apps/homelab-workers"
 
 
 def install(session: nox.Session, *packages: str) -> None:
@@ -21,13 +20,6 @@ def install(session: nox.Session, *packages: str) -> None:
 @nox.session(python=PYTHON, tags=["no-docker"])
 def complexity_budget(session: nox.Session) -> None:
     session.run("python", str(ROOT / "scripts/ci/complexity_budget.py"))
-
-
-@nox.session(python=PYTHON, tags=["no-docker"])
-def workers(session: nox.Session) -> None:
-    install(session, f"{WORKERS}[dev]")
-    session.run("pytest", "-q", str(WORKERS / "src/homelab_workers/tests"))
-    session.run("ruff", "check", str(WORKERS / "src"))
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])

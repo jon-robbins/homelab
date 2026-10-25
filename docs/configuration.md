@@ -52,7 +52,7 @@ device). Policy runs after the merge, so an override cannot add anything a modul
 
 ## `files/` and `edge/`
 
-Config files that modules mount (`files/workers.yaml`, `edge/Caddyfile`, `edge/config.yml` for cloudflared).
+Config files that modules mount (`edge/Caddyfile`, `edge/config.yml` for cloudflared).
 Modules refer to them as Compose `configs` with `file: site:<path>`; the renderer inlines their content into the
 release.
 
@@ -68,8 +68,7 @@ agent drop-in that creates the directory and waits for every rendered file (`hos
 Docker after the agent so containers never start without them. The site sets
 `HOMELAB_SECRET_DIR=/run/homelab-secrets`.
 
-Current names: `TMDB_API_KEY`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, `SONARR_API_KEY`,
-`RADARR_API_KEY`, `PROWLARR_API_KEY`, `OVERSEERR_API_KEY`, `LIDARR_API_KEY`, `CLOUDFLARE_TOKEN`,
+Current names: `TMDB_API_KEY`, `LIDARR_API_KEY`, `CLOUDFLARE_TOKEN`,
 `SLSKD_SLSK_USERNAME`, `SLSKD_SLSK_PASSWORD` (the Soulseek account; slskd registers it on first login),
 `SLSKD_WEB_PASSWORD` (slskd's web UI, user `slskd`), `SLSKD_API_KEY` (shared by slskd and Soularr).
 

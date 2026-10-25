@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-09-27; plugin model 2026-10-15)
 - **Code:** whole repository; `tests/boundary/`, `scripts/ci/public-readiness.py`
+- **Amended by:** [0017](0017-personal-services-are-plugins.md) (what belongs in a plugin repo)
 - **Related:** [0001](0001-compose-modules.md), [plugins guide](../plugins.md), [configuration](../configuration.md)
 
 ## Context

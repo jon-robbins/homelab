@@ -54,7 +54,7 @@ Create a private repo with this layout (see [configuration](configuration.md) fo
 ```text
 site.yaml        # which services run, which the controller manages
 site.env         # non-secret values: paths, PUID/PGID, TZ, BASE_DOMAIN, TAILSCALE_IP
-files/           # config files modules mount (e.g. workers.yaml)
+files/           # config files modules mount (e.g. a mounted config file)
 overrides/       # per-service Compose fragments the policy allows
 edge/Caddyfile   # your routes; start from config/caddy/Caddyfile
 plugins/         # optional code-free plugins

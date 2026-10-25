@@ -10,24 +10,6 @@ templates:
   - source-path: /srv/homelab/infisical/templates/TMDB_API_KEY.tmpl
     destination-path: /run/homelab-secrets/TMDB_API_KEY
     polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/SONARR_API_KEY.tmpl
-    destination-path: /run/homelab-secrets/SONARR_API_KEY
-    polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/RADARR_API_KEY.tmpl
-    destination-path: /run/homelab-secrets/RADARR_API_KEY
-    polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/PROWLARR_API_KEY.tmpl
-    destination-path: /run/homelab-secrets/PROWLARR_API_KEY
-    polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/OVERSEERR_API_KEY.tmpl
-    destination-path: /run/homelab-secrets/OVERSEERR_API_KEY
-    polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/QBITTORRENT_USERNAME.tmpl
-    destination-path: /run/homelab-secrets/QBITTORRENT_USERNAME
-    polling-interval: 60s
-  - source-path: /srv/homelab/infisical/templates/QBITTORRENT_PASSWORD.tmpl
-    destination-path: /run/homelab-secrets/QBITTORRENT_PASSWORD
-    polling-interval: 60s
   - source-path: /srv/homelab/infisical/templates/LIDARR_API_KEY.tmpl
     destination-path: /run/homelab-secrets/LIDARR_API_KEY
     polling-interval: 60s

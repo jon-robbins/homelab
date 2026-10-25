@@ -28,7 +28,6 @@ when that project already exists on the daemon. That keeps it from touching a re
 | `tests/controller/` | `homelabctl`: planning, reconcile loop, verification, state files | `controller` |
 | `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` |
 | `tests/host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` with `DESTDIR` and fakes | — |
-| `apps/homelab-workers/src/homelab_workers/tests/` | the worker package | `workers` |
 | `tests/boundary/`, `tests/docs/`, `scripts/ci/public-readiness.py` | no private values in tracked files; doc links resolve | `scripts/ci/public-check.sh` |
 
 ## What makes a useful test

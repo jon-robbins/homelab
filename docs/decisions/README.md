@@ -30,3 +30,4 @@ Rules:
 | [0014](0014-dependabot-automerge.md) | App-tier patch and minor updates merge and deploy unattended | Accepted |
 | [0015](0015-exposure-policy.md) | Nothing is reachable from the internet unless allowlisted | Proposed |
 | [0016](0016-edge-updater.md) | The edge tier updates itself, with rollback | Accepted |
+| [0017](0017-personal-services-are-plugins.md) | Personal services are plugins, not catalog modules | Accepted |

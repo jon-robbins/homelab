@@ -12,13 +12,13 @@ from scripts.release.render import Rendered
 
 SITE_YAML = Path(__file__).parents[2] / "examples/site/site.yaml"
 BUILT = "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "b" * 64
-REFS = {"caddy": BUILT, "homelab-workers": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "c" * 64}
+REFS = {"caddy": BUILT}
 
 
 def models():
     app = {
         "services": {
-            "worker": {"image": "ghcr.io/jon-robbins/homelab/homelab-workers@sha256:" + "0" * 64},
+            "proxy": {"image": "ghcr.io/jon-robbins/homelab/caddy@sha256:" + "0" * 64},
             "sonarr": {"image": "lscr.io/linuxserver/sonarr:4.0@sha256:" + "d" * 64},
         }
     }
@@ -38,7 +38,7 @@ def test_bundle_is_deterministic_and_has_the_v2_layout(tmp_path):
 
 def test_first_party_images_use_the_built_digest_and_upstream_images_are_untouched():
     app = pin_first_party(models().app, REFS)
-    assert app["services"]["worker"]["image"] == REFS["homelab-workers"]
+    assert app["services"]["proxy"]["image"] == REFS["caddy"]
     assert app["services"]["sonarr"]["image"] == models().app["services"]["sonarr"]["image"]
 
 

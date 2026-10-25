@@ -1,5 +1,0 @@
-{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/arr" -}}
-{{- range . -}}
-{{- if eq .Key "RADARR_API_KEY" -}}{{ .Value }}{{ end -}}
-{{- end -}}
-{{- end -}}

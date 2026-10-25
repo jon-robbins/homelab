@@ -17,7 +17,7 @@ The release renders every module with stock `docker compose config` and then rej
 - no service is privileged and none mounts the Docker socket;
 - secrets come only from `${HOMELAB_SECRET_DIR}/NAME` files.
 
-Files a module needs from a repo (Caddyfile, scripts, `workers.yaml`) are Compose `configs` whose content the
+Files a module needs from a repo (Caddyfile, scripts) are Compose `configs` whose content the
 renderer inlines, so a release never points back into a git checkout. Binds are only for data and media.
 
 ## Consequences
