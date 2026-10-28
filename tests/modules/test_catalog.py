@@ -54,12 +54,18 @@ def test_catalog_render_has_production_limits_and_service_settings():
     assert services["plex"]["cap_add"] == ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"]
     assert {name: (service["mem_limit"], service["memswap_limit"]) for name, service in services.items()
             if "mem_limit" in service} == {
+        "authentik-postgres": ("536870912", "1073741824"),
+        "authentik-server": ("1073741824", "2147483648"),
+        "authentik-worker": ("1073741824", "2147483648"),
         "autobrr": ("536870912", "1073741824"),
         "flaresolverr": ("2147483648", "4294967296"),
         "plex": ("8589934592", "17179869184"),
         "qbittorrent": ("4294967296", "8589934592"),
     }
     expected_pids = {
+        "authentik-postgres": 200,
+        "authentik-server": 500,
+        "authentik-worker": 500,
         "autobrr": 200,
         "qbittorrent": 200,
         "bazarr": 500,
@@ -73,3 +79,21 @@ def test_catalog_render_has_production_limits_and_service_settings():
     }
     assert {name: services[name]["pids_limit"] for name in expected_pids} == expected_pids
     assert services["jellyfin"]["group_add"] == ["video"]
+
+
+def test_catalog_authentik_modules():
+    services = render(ROOT, SITE, {}).app["services"]
+    postgres, server, worker = (services[f"authentik-{part}"] for part in ("postgres", "server", "worker"))
+    assert not any("docker.sock" in str(volume) for volume in worker.get("volumes", []))
+    assert worker["user"] == "1000:1000"
+    both = {"AUTHENTIK_SECRET_KEY", "AUTHENTIK_PG_PASSWORD"}
+    assert {secret["target"].removeprefix("/run/secrets/") for secret in server["secrets"]} == both
+    assert {secret["target"].removeprefix("/run/secrets/") for secret in worker["secrets"]} == both
+    assert {secret["target"].removeprefix("/run/secrets/") for secret in postgres["secrets"]} == {"AUTHENTIK_PG_PASSWORD"}
+    for service in (postgres, server, worker):
+        for key, value in service["environment"].items():
+            if "PASSWORD" in key or "SECRET" in key:
+                assert value.startswith("file:///run/secrets/") or key.endswith("_FILE")
+        assert "ports" not in service
+    assert server["depends_on"]["authentik-postgres"]["condition"] == "service_healthy"
+    assert worker["depends_on"]["authentik-postgres"]["condition"] == "service_healthy"

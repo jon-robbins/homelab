@@ -20,4 +20,7 @@ services:
   navidrome: {}
   slskd: {}
   soularr: {}
-managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr]
+  authentik-postgres: {}
+  authentik-server: {}
+  authentik-worker: {}
+managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker]
