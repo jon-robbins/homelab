@@ -28,6 +28,7 @@ BUILD_INPUT_PREFIXES = (
     ".github/workflows/post-merge-build.yml",
     "config/release/approved-ghcr-destinations.json",
     "config/caddy/",
+    "config/seerr-oidc/",
 )
 # The commit API lists at most this many files per page; a full page may be truncated.
 COMMIT_FILES_LIMIT = 300

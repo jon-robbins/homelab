@@ -32,14 +32,18 @@ jobs:
             caddy:
               - 'config/caddy/**'
               - 'config/caddy/Dockerfile'
+            seerr-oidc:
+              - 'config/seerr-oidc/**'
       - name: Create build matrix
         id: matrix
         env:
           FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
+          FILTER_SEERR_OIDC: ${{ steps.filter.outputs.seerr-oidc }}
           FILTER_RECIPE: ${{ steps.filter.outputs.recipe }}
         run: |
           matrix=$(jq -cn '[
-            {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY}
+            {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY},
+            {"dockerfile":"build/seerr-oidc/context/Dockerfile","context":"build/seerr-oidc/context","image":"seerr-oidc","prepare":"config/seerr-oidc/build.py","prepare_destination":"build/seerr-oidc","source_lock":"config/seerr-oidc/source.json","changed":env.FILTER_SEERR_OIDC}
           ] | map(select(.changed == "true" or env.FILTER_RECIPE == "true") | del(.changed)) | {include:.}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
@@ -69,16 +73,33 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Prepare verified image source
+        if: matrix.prepare
+        env:
+          PREPARE_SCRIPT: ${{ matrix.prepare }}
+          PREPARE_DESTINATION: ${{ matrix.prepare_destination }}
+        run: python3 "$PREPARE_SCRIPT" "$PREPARE_DESTINATION" --prepare-only
+
       - name: Build OCI layout
         env:
+          SOURCE_LOCK: ${{ matrix.source_lock }}
           BUILD_DOCKERFILE: ${{ matrix.dockerfile }}
           BUILD_CONTEXT: ${{ matrix.context }}
-        run: >-
-          docker buildx build
-          --platform linux/amd64
-          --file "$BUILD_DOCKERFILE"
-          --output "type=oci,dest=oci-layout.tar"
-          "$BUILD_CONTEXT"
+        run: |
+          build_args=()
+          if [[ -n "$SOURCE_LOCK" ]]; then
+            build_args+=(
+              --build-arg "COMMIT_TAG=$(jq -r .commit "$SOURCE_LOCK")"
+              --label "org.opencontainers.image.source=$(jq -r .repository "$SOURCE_LOCK")"
+              --label "org.opencontainers.image.revision=$(jq -r .commit "$SOURCE_LOCK")"
+              --label "io.homelab.node-base=$(jq -r .node_image "$SOURCE_LOCK")"
+            )
+          fi
+          docker buildx build "${build_args[@]}" \
+            --platform linux/amd64 \
+            --file "$BUILD_DOCKERFILE" \
+            --output "type=oci,dest=oci-layout.tar" \
+            "$BUILD_CONTEXT"
 
       - name: Attest OCI layout
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v2.3.0

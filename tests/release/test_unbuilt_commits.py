@@ -29,6 +29,8 @@ def test_commit_without_build_inputs_needs_no_build():
 
 @pytest.mark.parametrize("path", [
     "config/caddy/Dockerfile",
+    "config/seerr-oidc/build.py",
+    "config/seerr-oidc/source.json",
     ".github/workflows/post-merge-build.yml",
     "config/release/approved-ghcr-destinations.json",
 ])
