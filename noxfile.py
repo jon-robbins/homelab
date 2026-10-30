@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import nox
@@ -25,8 +26,8 @@ def complexity_budget(session: nox.Session) -> None:
 @nox.session(python=PYTHON, tags=["no-docker"])
 def release(session: nox.Session) -> None:
     session.install("--require-hashes", "-r", "config/release/requirements.txt")
-    session.install("pytest")
-    session.run("pytest", "-q", "tests/release", "tests/modules", "--ignore=tests/release/test_render_docker.py")
+    session.install("pytest", "nox==2025.2.9")
+    session.run("pytest", "-q", "tests/release", "tests/modules", "tests/images", "--ignore=tests/release/test_render_docker.py")
 
 
 @nox.session(python=PYTHON, tags=["no-docker"])
@@ -76,8 +77,22 @@ def images(session: nox.Session) -> None:
     )
     for index, build in enumerate(json.loads(builds)):
         tag = f"homelab-gate-image-{index}"
-        session.run("docker", "build", "-q", "--file", build["dockerfile"], "--tag", tag,
-                    build["context"], external=True)
+        with tempfile.TemporaryDirectory(prefix="homelab-image-") as temporary:
+            dockerfile, context = build["dockerfile"], build["context"]
+            if build.get("prepare"):
+                destination = Path(temporary) / "source"
+                session.run("python", build["prepare"], str(destination), "--prepare-only")
+                dockerfile = str(destination / Path(dockerfile).relative_to(build["prepare_destination"]))
+                context = str(destination / Path(context).relative_to(build["prepare_destination"]))
+            build_args = []
+            if build.get("source_lock"):
+                lock = json.loads((ROOT / build["source_lock"]).read_text())
+                build_args = ["--platform", "linux/amd64", "--build-arg", "COMMIT_TAG=" + lock["commit"],
+                              "--label", "org.opencontainers.image.source=" + lock["repository"],
+                              "--label", "org.opencontainers.image.revision=" + lock["commit"],
+                              "--label", "io.homelab.node-base=" + lock["node_image"]]
+            session.run("docker", "build", "-q", *build_args, "--file", dockerfile, "--tag", tag,
+                        context, external=True)
         if build["cap_drop_check"] is True:
             session.run("docker", "run", "--rm", "--cap-drop", "ALL", "--security-opt",
                         "no-new-privileges:true", tag, "version", external=True)

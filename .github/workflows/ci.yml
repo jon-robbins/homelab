@@ -142,17 +142,36 @@ jobs:
       matrix:
         include:
           - {dockerfile: config/caddy/Dockerfile, context: config/caddy, cap_drop_check: true}
+          - {dockerfile: build/seerr-oidc/context/Dockerfile, context: build/seerr-oidc/context, prepare: config/seerr-oidc/build.py, prepare_destination: build/seerr-oidc, source_lock: config/seerr-oidc/source.json, cap_drop_check: false}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare verified image source
+        if: matrix.prepare
+        env:
+          PREPARE_SCRIPT: ${{ matrix.prepare }}
+          PREPARE_DESTINATION: ${{ matrix.prepare_destination }}
+        run: python3 "$PREPARE_SCRIPT" "$PREPARE_DESTINATION" --prepare-only
       - name: Build image without push
         env:
+          SOURCE_LOCK: ${{ matrix.source_lock }}
           DOCKERFILE: ${{ matrix.dockerfile }}
           BUILD_CONTEXT: ${{ matrix.context }}
           JOB_INDEX: ${{ strategy.job-index }}
-        run: docker build --file "$DOCKERFILE" --tag "ci-$JOB_INDEX" "$BUILD_CONTEXT"
+        run: |
+          build_args=()
+          if [[ -n "$SOURCE_LOCK" ]]; then
+            build_args+=(
+              --platform linux/amd64
+              --build-arg "COMMIT_TAG=$(jq -r .commit "$SOURCE_LOCK")"
+              --label "org.opencontainers.image.source=$(jq -r .repository "$SOURCE_LOCK")"
+              --label "org.opencontainers.image.revision=$(jq -r .commit "$SOURCE_LOCK")"
+              --label "io.homelab.node-base=$(jq -r .node_image "$SOURCE_LOCK")"
+            )
+          fi
+          docker build "${build_args[@]}" --file "$DOCKERFILE" --tag "ci-$JOB_INDEX" "$BUILD_CONTEXT"
       - name: Start Caddy without capabilities
         if: matrix.cap_drop_check
         env:

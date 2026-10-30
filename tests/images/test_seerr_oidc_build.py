@@ -31,6 +31,7 @@ class BuildTests(unittest.TestCase):
         data, lock = fixture()
         with tempfile.TemporaryDirectory() as directory:
             context = build.prepare(data, Path(directory), lock)
+            self.assertEqual(context, Path(directory) / "context")
             self.assertEqual((context / "Dockerfile").read_text(),
                              "FROM node:new@sha256:pinned AS base\nRUN pnpm build\nFROM node:new@sha256:pinned\n")
 

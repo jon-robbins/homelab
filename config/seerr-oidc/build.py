@@ -26,7 +26,9 @@ def prepare(archive: bytes, destination: Path, lock: dict) -> Path:
     if sum(line.startswith(old) for line in text.splitlines()) != 2:
         raise ValueError("expected exactly two upstream Node base references")
     dockerfile.write_text(text.replace(old, "FROM " + lock["node_image"]))
-    return context
+    prepared = destination / "context"
+    context.rename(prepared)
+    return prepared
 
 
 def main() -> None:

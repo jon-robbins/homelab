@@ -1,5 +1,6 @@
 {
   "destinations": [
-    "ghcr.io/jon-robbins/homelab/caddy"
+    "ghcr.io/jon-robbins/homelab/caddy",
+    "ghcr.io/jon-robbins/homelab/seerr-oidc"
   ]
 }
