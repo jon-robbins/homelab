@@ -185,3 +185,32 @@ def test_repository_plugin_must_be_supplied_and_is_then_validated(tmp_path):
     plugin = write_plugin(tmp_path / "checkout", readme="nothing here")
     with pytest.raises(ValidationError, match="does not mention service whoami"):
         load_site(site, tmp_path, {"plugin": plugin})
+
+
+def test_one_media_directory_can_be_a_bind_and_marker_root(tmp_path):
+    env = "APP_DATA_DIR=/srv/homelab/data\nMEDIA_DIR=/srv/media\nMEDIA_BIND_IP=192.0.2.10\nPEER_BIND_IP=192.0.2.10\n"
+    site = write_site(tmp_path, env=env, bind_roots=["APP_DATA_DIR", "MEDIA_DIR"], marker_roots=["MEDIA_DIR"])
+    assert load_site(site, tmp_path).env["MEDIA_DIR"] == "/srv/media"
+
+
+@pytest.mark.parametrize("key", ["MEDIA_BIND_IP", "PEER_BIND_IP"])
+@pytest.mark.parametrize("value", ["all", "", "example.test", "192.0.2.300"])
+def test_bind_addresses_must_be_ip_addresses(tmp_path, key, value):
+    with pytest.raises(ValidationError, match=f"site.env.{key}: must be an IP address"):
+        load_site(write_site(tmp_path, env=f"APP_DATA_DIR=/x\n{key}={value}\n"), tmp_path)
+
+
+@pytest.mark.parametrize("address", ["0.0.0.0", "::", "192.0.2.10"])
+def test_bind_addresses_accept_any_ip_including_the_wildcard(tmp_path, address):
+    load_site(write_site(tmp_path, env=f"APP_DATA_DIR=/x\nMEDIA_BIND_IP={address}\n"), tmp_path)
+
+
+def test_exposed_ports_are_declared_per_service_port_and_protocol(tmp_path):
+    site = load_site(write_site(tmp_path, exposed=["jellyfin:8096/tcp", "qbittorrent:51423/udp"]), tmp_path)
+    assert site.config["exposed"] == ["jellyfin:8096/tcp", "qbittorrent:51423/udp"]
+
+
+@pytest.mark.parametrize("entry", ["jellyfin", "jellyfin:8096", "jellyfin:http/tcp", "8096/tcp", "Jelly fin:1/tcp", 8096])
+def test_exposed_entries_must_be_service_port_protocol(tmp_path, entry):
+    with pytest.raises(ValidationError, match="site.yaml.exposed"):
+        load_site(write_site(tmp_path, exposed=[entry]), tmp_path)
