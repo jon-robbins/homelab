@@ -1,0 +1,18 @@
+services:
+  slskd:
+    environment:
+      SLSKD_SHARED_DIR: /music
+      SLSKD_DOWNLOADS_DIR: /downloads/music-lidarr
+      SLSKD_INCOMPLETE_DIR: /downloads/soulseek-incomplete
+    volumes:
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        read_only: true
+        bind:
+          create_host_path: false

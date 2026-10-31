@@ -25,8 +25,10 @@ whatever UFW says.
 
 Rules ([0015](decisions/0015-exposure-policy.md)):
 
-1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:443"` or a LAN address, not `"443:443"`.
-2. Only the media server's streaming port and the peer ports (torrent, Soulseek) may listen on all interfaces.
+1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:443"` or a LAN address, not `"443:443"`. Compose policy
+   rejects a port without one.
+2. A port may listen on all interfaces only if the site lists it under `exposed` in `site.yaml`; the usual entries are
+   the media server's streaming port and the peer ports (torrent, Soulseek).
 3. Admin UIs are reachable only from the LAN and Tailscale, through Caddy with a `remote_ip` guard
    ([ingress](ingress.md#caddy-routes)). Never port-forward an admin UI.
 4. Add `DOCKER-USER` rules so that traffic from the WAN interface reaches only the allowlisted ports.
@@ -36,11 +38,11 @@ What the catalog publishes today:
 
 | Module | Published | Recommendation |
 |---|---|---|
-| caddy | `80`, `8443` on all interfaces; `443` on the Tailscale address | bind `80` and `8443` to the LAN address, or drop them |
-| plex | `32400` on all interfaces | allowed (remote streaming); harden per [ingress](ingress.md#plex-remote-access) |
-| jellyfin | `8096` on all interfaces | bind to the LAN address; use Tailscale remotely |
-| qbittorrent | `51423` TCP and UDP on all interfaces | allowed (peer port); the web UI is not published |
-| slskd | `50300` TCP on all interfaces | allowed (Soulseek peer port); the web UI is not published |
+| caddy | `443` on the Tailscale address | a site adds anything else in an override; a wildcard one needs `exposed` |
+| plex | `32400` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` (remote streaming) needs `exposed`, harden per [ingress](ingress.md#plex-remote-access) |
+| jellyfin | `8096` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` needs `exposed` |
+| qbittorrent | `51423` TCP and UDP on `PEER_BIND_IP` | peer port; `0.0.0.0` needs `exposed`; the web UI is not published |
+| slskd | `50300` TCP on `PEER_BIND_IP` | Soulseek peer port; `0.0.0.0` needs `exposed`; the web UI is not published |
 | overseerr | `127.0.0.1:5055` | fine |
 | cloudflared | host network, outbound only | fine |
 

@@ -1,0 +1,4 @@
+services:
+  prowlarr:
+    environment:
+      PROWLARR__AUTH__METHOD: External

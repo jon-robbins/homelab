@@ -2,26 +2,18 @@ services:
   jellyfin:
     image: lscr.io/linuxserver/jellyfin:12.4ubu2604-ls57@sha256:3894d9eae88418d3cf9ac6349392d2c4dad818365a59565d19edc38098897044
     pids_limit: 500
-    group_add: [video]
     networks: [homelab_net]
-    ports: ["8096:8096/tcp"]
+    ports: ["${MEDIA_BIND_IP}:8096:8096/tcp"]
     security_opt: ["no-new-privileges:true"]
     environment: ["PUID=${PUID}", "PGID=${PGID}", "TZ=${TZ}", "JELLYFIN_PublishedServerUrl=https://jellyfin.${BASE_DOMAIN}"]
-    gpus: all
-    devices: ["/dev/dri:/dev/dri"]
     volumes:
       - type: bind
         source: ${APP_DATA_DIR}/jellyfin
         target: /config
         bind: {create_host_path: false}
       - type: bind
-        source: ${MOVIES_DIR}
-        target: /movies
-        read_only: true
-        bind: {create_host_path: false}
-      - type: bind
-        source: ${TV_DIR}
-        target: /tv
+        source: ${MEDIA_DIR}
+        target: /data
         read_only: true
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}

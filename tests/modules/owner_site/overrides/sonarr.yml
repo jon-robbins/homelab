@@ -1,0 +1,20 @@
+services:
+  sonarr:
+    environment:
+      SONARR__AUTH__METHOD: External
+    volumes:
+      - type: bind
+        source: ${TV_DIR}
+        target: /tv
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/.seed/Seeding
+        target: /seeding
+        bind:
+          create_host_path: false

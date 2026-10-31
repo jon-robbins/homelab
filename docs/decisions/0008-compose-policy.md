@@ -28,4 +28,5 @@ Policy runs on the rendered model, after overrides are merged, so a site overrid
 
 - Don't widen an allowlist inside an unrelated change; each widening is its own reviewed commit.
 - Don't bind-mount a file from the repo; use `configs`.
-- Not yet enforced, see [0015](0015-exposure-policy.md): published ports on all interfaces.
+- Published ports on all interfaces require a site exposure declaration, enforced by
+  [0019](0019-shared-media-mount.md) under [0015](0015-exposure-policy.md).

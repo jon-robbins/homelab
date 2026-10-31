@@ -1,0 +1,16 @@
+services:
+  soularr:
+    environment:
+      SOULARR_ALLOWED_FILETYPES: mp3 320,mp3
+      SOULARR_DOWNLOAD_DIR: /media-nvme/Incoming/music-lidarr
+    volumes:
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_NVME_PATH}
+        target: /media-nvme
+        bind:
+          create_host_path: false

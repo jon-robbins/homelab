@@ -1,0 +1,11 @@
+services:
+  navidrome:
+    environment:
+      ND_EXTAUTH_LOGOUTURL: https://home.example.test/outpost.goauthentik.io/sign_out
+    volumes:
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        read_only: true
+        bind:
+          create_host_path: false

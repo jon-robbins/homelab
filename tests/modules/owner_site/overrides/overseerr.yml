@@ -1,0 +1,6 @@
+services:
+  overseerr:
+    # This site keeps its own TMDB key; the module no longer asks for one.
+    secrets: [TMDB_API_KEY]
+secrets:
+  TMDB_API_KEY: {file: "${HOMELAB_SECRET_DIR}/TMDB_API_KEY"}

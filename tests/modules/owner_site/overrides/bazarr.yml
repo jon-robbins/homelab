@@ -1,0 +1,13 @@
+services:
+  bazarr:
+    volumes:
+      - type: bind
+        source: ${TV_DIR}
+        target: /tv
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MOVIES_DIR}
+        target: /movies
+        bind:
+          create_host_path: false

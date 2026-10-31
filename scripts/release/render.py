@@ -185,6 +185,7 @@ def render(platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Rende
         namespaces={service.name: service.namespace for service in services},
         env=site.env,
         roots=tuple(site.env[key] for key in site.config["bind_roots"]),
+        exposed=frozenset(site.config.get("exposed", [])),
     )
     for model in models.values():
         if model:

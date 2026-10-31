@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import uuid
 
@@ -118,3 +119,30 @@ def test_example_golden_and_runtime_marker_and_config(tmp_path, monkeypatch):
         assert "bind source path does not exist" in started.stderr.lower()
     finally:
         _docker(*command, "down", "-v", check=False)
+
+
+def test_an_import_through_the_rendered_data_mount_is_a_real_hardlink(tmp_path):
+    """One disk: qBittorrent writes under /data/downloads, Sonarr links it into /data/tv. Same inode, no copy."""
+    site = tmp_path / "site"
+    shutil.copytree(ROOT / "tests/modules/site", site)
+    media = tmp_path / "media"
+    (media / "downloads").mkdir(parents=True)
+    (media / "tv").mkdir()
+    env = (site / "site.env").read_text().replace("/tmp/homelab-catalog/media", str(media))
+    (site / "site.env").write_text(env)
+    services = render(ROOT, site, {}).app["services"]
+
+    def mounts(name):
+        return [
+            arg
+            for volume in services[name]["volumes"]
+            if volume["target"] in ("/data", "/data/downloads")
+            for arg in ("-v", f"{volume['source']}:{volume['target']}")
+        ]
+
+    image = "alpine:3.20"
+    _docker("run", "--rm", *mounts("qbittorrent"), image, "sh", "-c", "echo episode > /data/downloads/show.mkv")
+    _docker("run", "--rm", *mounts("sonarr"), "--entrypoint", "ln", services["sonarr"]["image"],
+            "/data/downloads/show.mkv", "/data/tv/show.mkv")
+    assert (media / "tv/show.mkv").stat().st_ino == (media / "downloads/show.mkv").stat().st_ino
+    assert (media / "tv/show.mkv").stat().st_nlink == 2
