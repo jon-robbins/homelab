@@ -55,12 +55,15 @@ started checkpoint; SIGKILL leaves the same history. Run apply again to resume. 
 
 ## Local apply
 
-Local files live under `/srv/homelab/setup/`: `owner`, `checkpoints.json`, `setup.lock` and content-addressed
+Local files live under `/srv/homelab/setup/`: `checkpoints.json`, `setup.lock` and content-addressed
 `releases/`. This state is independent of signed feed sequence numbers. `--root` changes the engine state location;
-it does not relocate the host backup utility's data tree. Secret files use the site's `HOMELAB_SECRET_DIR` and
+it does not relocate the host backup utility's data tree. A `local-setup.owner` marker is written at both the
+chosen root and `/srv/homelab`, so the signed installer refuses even an alternate-root local installation. Secret files use the site's `HOMELAB_SECRET_DIR` and
 are written atomically in a 0700 directory. Generated secrets survive reruns; provider-issued secrets are never invented.
 
-An owner trust policy or current signed release refuses local commands before rendering or writing. An unknown
+Owner trust, tooling (including a partial installation), current release or controller units refuse local commands
+before rendering or writing, regardless of `--root`. Containers in the reserved Compose projects must point to
+this engine's release tree; an unavailable Docker daemon blocks that ownership check. An unknown
 ownership marker refuses apply. For a stale marker, first inspect running services and their data, then remove the
 marker manually only after establishing that this host is free for local setup. Setup never silently changes modes.
 
@@ -76,9 +79,15 @@ Each service starts explicitly with `--no-deps`, after pulling, and waits for he
 must remain running without restarts for ten seconds; this is process readiness, not proof of application wiring.
 Existing stateful app services are stopped and snapshotted through `homelab-backup` before recreation. A failed
 snapshot leaves the service stopped and halts; restore is always manual. Stateful edge recreation is refused.
-Services explicitly configured stopped are created without starting. A service stopped after a completed phase stays
-stopped on repeated retries. During an incomplete first phase, exited containers may be restarted to resume setup.
-Existing media roots without disk markers block; setup only creates a marker when it creates the root itself.
+Services explicitly configured stopped are created without starting. Exited containers remain stopped regardless
+of checkpoint history, unless setup recorded that it stopped them for a snapshot. That restart intent survives a
+killed update and is cleared after health succeeds. Containers that failed to start in the created state may retry.
+Running containers with matching configuration are waited for without stopping or snapshotting them again.
+If the snapshot utility is absent, apply requires explicit acknowledgment before changing existing stateful data.
+Disk markers must already exist, including when the mount point is absent; mount and mark the correct disk first.
+New writable bind directories use the service's numeric user/group or PUID/PGID. Existing directories are not chowned.
+Dependencies within phases are ordered before dependents; missing or later-phase dependencies are rejected.
+Compose output is captured and stdin is closed, so engine steps do not interact with the terminal.
 
 ## Verification
 

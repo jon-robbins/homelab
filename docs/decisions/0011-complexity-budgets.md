@@ -1,7 +1,7 @@
 # 0011: Complexity budgets with a kill switch
 
 - **Status:** Accepted (2026-10-15; controller cap amended 2026-10-17; setup budget accepted in [0018](0018-local-setup-path.md), 2026-10-31)
-- **Code:** `config/ci/budgets.json`, `scripts/ci/`, `.pre-commit-config.yaml` (ruff `C901`), `setup/`
+- **Code:** `config/ci/budgets.json`, `scripts/ci/`, `.pre-commit-config.yaml` (ruff `C901`)
 - **Related:** [0005](0005-slim-controller.md)
 
 ## Context

@@ -1,7 +1,7 @@
 """A fake Docker world: commands go in, container states come out, and every command is recorded."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 import pytest
 
@@ -20,13 +20,18 @@ class FakeOps:
         self.pulled: list[tuple[str, tuple[str, ...]]] = []
         self.network = False
         self.broken: set[str] = set()  # services that start but never become healthy
+        self.foreign: list[str] = []  # containers in the owner's projects that setup did not create
+        self.errors: set[str] = set()  # services whose container failed to start (State.Error)
+        self.starting: set[str] = set()  # services whose health check is still starting when first asked
+        self.backups = True  # is homelab-backup installed
+        self.events: list[tuple[str, str]] = []  # stop and snapshot, in order
 
     def config_hash(self, release_dir, project, service):
         return f"{project}/{service}"
 
     def container(self, project, service):
         state = self.containers.get((project, service))
-        return ContainerView(f"{project}/{service}", state, "") if state else None
+        return ContainerView(f"{project}/{service}", state, "boom" if service in self.errors else "") if state else None
 
     def path_exists(self, path):
         return Path(path).exists()
@@ -40,6 +45,18 @@ class FakeOps:
         service = argv[-1]
         if "up" in argv:
             self.containers[(project, service)] = "created" if "--no-start" in argv else "running"
+            self.errors.discard(service)
+
+    def can_snapshot(self):
+        return self.backups
+
+    def stop(self, service):
+        self.events.append(("stop", service))
+        self.containers[("homelab", service)] = "exited"
+
+    def snapshot(self, service, tag):
+        self.events.append(("snapshot", service))
+        return "snapshot-id"
 
     def network_exists(self, name):
         return self.network
@@ -51,7 +68,12 @@ class FakeOps:
         state = self.containers.get((project, service))
         if state != "running":
             return Verdict("fail", f"{service}: {state or 'missing'}")
+        if service in self.starting and timeout_s == 0:
+            return Verdict("fail", f"{service}: health check still starting")
         return Verdict("fail", f"{service}: unhealthy") if service in self.broken else Verdict("ok", "")
+
+    def foreign_containers(self, releases):
+        return self.foreign
 
     def ups(self):
         return [(c[c.index("-p") + 1], c[-1]) for c in self.calls if "up" in c and "--no-start" not in c]
@@ -64,12 +86,16 @@ def ops():
 
 @pytest.fixture
 def world(tmp_path):
-    return {"data": tmp_path / "data", "secrets": tmp_path / "secrets", "root": tmp_path / "srv"}
+    return {
+        "data": tmp_path / "data",
+        "secrets": tmp_path / "secrets",
+        "root": tmp_path / "srv",
+    }
 
 
 @pytest.fixture
 def ctx(tmp_path, world):
-    layout = Layout(world["root"])
+    layout = Layout(world["root"], owner_root=tmp_path / "owner", unit_dir=tmp_path / "units")
     layout.claim()
     return Context(
         layout=layout,
@@ -96,9 +122,15 @@ def models(world):
                 "image": "db@sha256:" + "a" * 64,
                 "labels": {"homelab.state": "stateful"},
                 "secrets": [{"source": "DB_PASSWORD"}],
-                "volumes": [bind(data / "db", "/var/lib/db"), bind(data / ".homelab-mounted", "/m", marker=True)],
+                "volumes": [
+                    bind(data / "db", "/var/lib/db"),
+                    bind(data / ".homelab-mounted", "/m", marker=True),
+                ],
             },
-            "web": {"image": "web@sha256:" + "b" * 64, "secrets": [{"source": "WEB_KEY"}]},
+            "web": {
+                "image": "web@sha256:" + "b" * 64,
+                "secrets": [{"source": "WEB_KEY"}],
+            },
             "worker": {"image": "worker@sha256:" + "c" * 64},
         },
         "secrets": {
@@ -107,9 +139,20 @@ def models(world):
         },
     }
     edge = {"services": {"caddy": {"image": "caddy@sha256:" + "d" * 64}}}
-    site = {"managed": ["db", "web", "worker", "caddy"], "services": {"db": {}, "web": {}, "worker": {}, "caddy": {}}}
+    site = {
+        "managed": ["db", "web", "worker", "caddy"],
+        "services": {"db": {}, "web": {}, "worker": {}, "caddy": {}},
+    }
     return app, edge, site
 
 
 def argv_text(calls):
     return [re.sub(r"\s+", " ", " ".join(c)) for c in calls]
+
+
+@pytest.fixture(autouse=True)
+def isolated_host(tmp_path, monkeypatch):
+    from setup.engine import layout
+
+    monkeypatch.setattr(layout, "OWNER_ROOT", tmp_path / "owner")
+    monkeypatch.setattr(layout, "UNIT_DIR", tmp_path / "units")

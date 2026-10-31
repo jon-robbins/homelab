@@ -110,7 +110,7 @@ def test_owner_pipeline_tests_pass_with_setup_absent(tmp_path):
     imports = "import scripts.controller.homelabctl, scripts.release.render, scripts.release.reconcile"
     loaded = subprocess.run([sys.executable, "-c", imports], cwd=copy, env=env, capture_output=True, text=True)
     assert loaded.returncode == 0, loaded.stderr
-    tests = ["tests/controller", "tests/ci/test_complexity_budget.py"]
+    tests = ["tests/controller", "tests/ci/test_complexity_budget.py", "tests/docs"]
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests],
         cwd=copy, env=env, capture_output=True, text=True,

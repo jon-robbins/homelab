@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import argparse
-from getpass import getpass
-from pathlib import Path
 import signal
 import sys
-from typing import Sequence
+from collections.abc import Sequence
+from getpass import getpass
+from pathlib import Path
 
 from scripts.release.modules import load_site
 
 from .engine.checkpoints import Checkpoints
-from .engine.contract import Answer, Choice, Confirm, Context, OpenUrl, Prompt, Secret, Status
-from .engine.layout import HostClaimed, Layout
+from .engine.contract import (
+    Answer,
+    Choice,
+    Confirm,
+    Context,
+    OpenUrl,
+    Prompt,
+    Secret,
+    Status,
+)
+from .engine.layout import HostClaimed, Layout, SetupError
 from .engine.local import Release, build_steps, defaults
 from .engine.ops import LocalOps
 from .engine.runner import Event, run, status
@@ -52,13 +61,28 @@ def ask(prompt: Prompt) -> Answer:
 
 def _context(args: argparse.Namespace, layout: Layout, secrets: Path) -> Context:
     return Context(
-        layout, SecretStore(secrets), Checkpoints(layout.setup_dir), args.platform, args.site, dict(args.plugin)
+        layout,
+        SecretStore(secrets),
+        Checkpoints(layout.setup_dir),
+        args.platform,
+        args.site,
+        dict(args.plugin),
     )
 
 
-def _steps(ctx: Context, release: Release):
+def _steps(ctx: Context, release: Release, ops):
     chosen, generated = phases()
-    return build_steps(ctx, release, make_ops(), phases=chosen, generated=generated)
+    return build_steps(ctx, release, ops, phases=chosen, generated=generated)
+
+
+def _guard(layout: Layout, ops) -> None:
+    """Refuse, before any write, a host that the owner's pipeline has claimed or has containers running on."""
+    layout.refuse_owner_host()
+    if foreign := ops.foreign_containers(layout.releases):
+        raise HostClaimed(
+            f"containers in the owner's Compose projects that setup did not create: {', '.join(sorted(foreign))}. "
+            "Local setup does not adopt or recreate them; use a host without them."
+        )
 
 
 def _show(event: Event) -> None:
@@ -67,11 +91,17 @@ def _show(event: Event) -> None:
 
 
 def _apply(args: argparse.Namespace, layout: Layout) -> int:
-    layout.refuse_owner_host()
+    ops = make_ops()
+    _guard(layout, ops)
     release, secrets = open_site(args, layout)
     layout.claim()
     ctx = _context(args, layout, secrets)
-    outcome = run(_steps(ctx, release), ctx, ask=ask if sys.stdin.isatty() else None, on_event=_show)
+    outcome = run(
+        _steps(ctx, release, ops),
+        ctx,
+        ask=ask if sys.stdin.isatty() else None,
+        on_event=_show,
+    )
     if not outcome.ok:
         print(
             f"stopped at {outcome.stopped_at}: {outcome.reason}\nFix that, then run apply again; it resumes.",
@@ -81,13 +111,14 @@ def _apply(args: argparse.Namespace, layout: Layout) -> int:
 
 
 def _status(args: argparse.Namespace, layout: Layout) -> int:
-    layout.refuse_owner_host()
+    ops = make_ops()
+    _guard(layout, ops)
     if layout.mode() is None:
         print("not set up on this host yet; run apply")
         return 0
     release, secrets = open_site(args, layout)
     ctx = _context(args, layout, secrets)
-    report = status(_steps(ctx, release), ctx)
+    report = status(_steps(ctx, release, ops), ctx)
     for step, state in report.items():
         print(f"{step}: {state.status.value}{(' - ' + state.reason) if state.reason else ''}")
     for step in ctx.checkpoints.interrupted():
@@ -110,16 +141,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python3 -m setup.cli", description="Set up this host locally.")
     parser.add_argument("--root", type=Path, default=Path(DEFAULT_ROOT))
     parser.add_argument("--site", type=Path, required=True, help="your local site directory")
-    parser.add_argument("--platform", type=Path, default=Path.cwd(), help="the homelab checkout or release")
+    parser.add_argument(
+        "--platform",
+        type=Path,
+        default=Path.cwd(),
+        help="the homelab checkout or release",
+    )
     parser.add_argument("--plugin", type=_plugin, action="append", default=[], help="NAME=DIR")
     parser.add_argument("command", choices=("apply", "status"))
     args = parser.parse_args(argv)
-    for name in ("SIGHUP", "SIGTERM"):  # a dropped SSH session ends the run cleanly; apply resumes from checks
+    for name in (
+        "SIGHUP",
+        "SIGTERM",
+    ):  # a dropped SSH session ends the run cleanly; apply resumes from checks
         signal.signal(getattr(signal, name), _interrupt)
     try:
         return (_apply if args.command == "apply" else _status)(args, Layout(args.root))
-    except HostClaimed as error:
-        print(f"refused: {error}", file=sys.stderr)
+    except SetupError as error:
+        print(
+            f"{'refused' if isinstance(error, HostClaimed) else 'cannot continue'}: {error}",
+            file=sys.stderr,
+        )
+        return 2
+    except (OSError, ValueError, RuntimeError) as error:
+        print(f"cannot continue: {error}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("interrupted; run apply again to resume where it stopped", file=sys.stderr)

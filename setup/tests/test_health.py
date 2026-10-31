@@ -37,3 +37,29 @@ def test_failures_say_why():
     assert "exited" in judge(container(status="exited"), 10, NOW).reason
     assert "no container" in judge(None, 10, NOW).reason
     assert "unhealthy" in judge(container(health="unhealthy"), 10, NOW).reason
+
+
+def test_commands_capture_both_streams_and_close_stdin(capsys):
+    import sys
+    from setup.engine.ops import LocalOps
+
+    LocalOps().run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('stdout'); print('stderr', file=sys.stderr); assert not sys.stdin.read()",
+        ]
+    )
+    assert capsys.readouterr() == ("", "")
+
+
+def test_foreign_container_check_rejects_prefix_siblings_and_mixed_files(tmp_path, monkeypatch):
+    import subprocess
+    from setup.engine.ops import LocalOps
+
+    root = tmp_path / "releases"
+    output = (
+        f"ours\t{root}/abc/app.json\nforeign\t{root}-other/app.json\nmixed\t{root}/abc/app.json,/elsewhere/app.json\n"
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, output))
+    assert LocalOps().foreign_containers(root) == ["foreign", "mixed"]

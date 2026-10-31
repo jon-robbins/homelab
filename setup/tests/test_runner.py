@@ -244,7 +244,7 @@ from setup.engine.layout import Layout
 from setup.engine.runner import run
 from setup.engine.secrets import SecretStore
 root = Path(sys.argv[1])
-layout = Layout(root)
+layout = Layout(root, owner_root=root, unit_dir=root / "units")
 layout.claim()
 ctx = Context(layout, SecretStore(root / "secrets"), Checkpoints(layout.setup_dir), root, root)
 class Work:

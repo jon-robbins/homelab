@@ -51,3 +51,36 @@ def test_a_controller_that_already_ran_here_is_refused(tmp_path):
     (root / "releases" / "current").symlink_to(root)
     with pytest.raises(HostClaimed):
         Layout(root).claim()
+
+
+def test_the_real_owner_root_is_checked_whatever_root_was_asked_for(tmp_path):
+    owner = tmp_path / "owner"
+    owner_host(owner)
+    layout = Layout(tmp_path / "elsewhere", owner_root=owner, unit_dir=tmp_path / "units")
+    with pytest.raises(HostClaimed, match="signed-release"):
+        layout.claim()
+    assert not (tmp_path / "elsewhere").exists()
+
+
+@pytest.mark.parametrize(
+    "leftover",
+    ["tooling/current", "tooling/abc123/host", "units/homelab-controller.timer"],
+)
+def test_a_half_installed_owner_host_is_refused(tmp_path, leftover):
+    owner = tmp_path / "owner"
+    path = owner / leftover if not leftover.startswith("units/") else tmp_path / leftover
+    path.parent.mkdir(parents=True)
+    path.write_text("")
+    with pytest.raises(HostClaimed, match="signed-release"):
+        Layout(tmp_path / "srv", owner_root=owner, unit_dir=tmp_path / "units").refuse_owner_host()
+
+
+def test_the_ownership_marker_is_a_flat_file_the_owner_installer_can_check(tmp_path):
+    layout = Layout(tmp_path / "srv")
+    assert layout.marker == tmp_path / "srv" / "local-setup.owner"
+
+
+def test_alternate_root_claim_is_visible_to_the_owner_installer(tmp_path):
+    layout = Layout(tmp_path / "alternate")
+    layout.claim()
+    assert (tmp_path / "owner/local-setup.owner").read_text().strip() == "local-setup"

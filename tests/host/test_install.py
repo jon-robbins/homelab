@@ -229,3 +229,13 @@ def test_touch_failure_removes_new_observe_only_marker(tmp_path: Path):
     assert not (tmp_path / "srv/homelab/state/observe-only").exists()
     assert not (tmp_path / "srv/homelab/tooling/current").exists()
     assert not (tmp_path / "srv/homelab/tooling" / SHA).exists()
+
+
+def test_install_refuses_a_host_that_local_setup_owns(tmp_path: Path):
+    owner = tmp_path / "srv/homelab"
+    owner.mkdir(parents=True)
+    (owner / "local-setup.owner").write_text("local-setup\n")
+    before = tree(tmp_path)
+    result = run(tmp_path)
+    assert result.returncode == 1 and "local setup" in result.stderr
+    assert tree(tmp_path) == before

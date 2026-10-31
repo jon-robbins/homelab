@@ -40,6 +40,10 @@ def local_site(tmp_path):
     shutil.copytree(ROOT / "examples/plugin-hello", tmp_path / "plugin-hello")
     env = (site / "site.env").read_text().replace("/tmp/homelab-example", str(tmp_path / "host"))
     (site / "site.env").write_text(env)
+    for name in ("data", "media-hdd", "media-nvme", "media-plex"):
+        root = tmp_path / "host" / name
+        root.mkdir(parents=True)
+        (root / ".homelab-mounted").touch()
     yield ["--root", str(tmp_path / "srv"), "--site", str(site), "--platform", str(ROOT)]
     for model in (tmp_path / "srv/setup/releases").glob("*/app.json"):
         subprocess.run(

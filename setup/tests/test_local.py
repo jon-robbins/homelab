@@ -1,15 +1,26 @@
 import json
-from pathlib import Path
+import os
+import shutil
 import stat
+from pathlib import Path
 
 import pytest
 
-from setup.engine.contract import Result, State
+from setup.engine.checkpoints import Checkpoints
+from setup.engine.contract import Confirm, Result, State
 from setup.engine.local import Release, build_steps
 from setup.engine.runner import run, status
+from setup.engine.steps import Dirs
 from setup.tests.conftest import argv_text
 
 PHASES = (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",)))
+
+
+@pytest.fixture(autouse=True)
+def disk(world):
+    """The media disk is mounted: its root exists and carries the marker. Tests of the other case remove it."""
+    world["data"].mkdir(parents=True)
+    (world["data"] / ".homelab-mounted").touch()
 
 
 @pytest.fixture
@@ -35,7 +46,12 @@ def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):
     provide_web_key(ctx)
     outcome = converge(steps, ctx)
     assert outcome.ok, outcome.reason
-    assert ops.ups() == [("homelab", "db"), ("homelab", "web"), ("homelab", "worker"), ("homelab-edge", "caddy")]
+    assert ops.ups() == [
+        ("homelab", "db"),
+        ("homelab", "web"),
+        ("homelab", "worker"),
+        ("homelab-edge", "caddy"),
+    ]
 
 
 def test_every_start_is_no_deps_never_builds_and_never_pulls_implicitly(steps, ctx, ops):
@@ -77,11 +93,31 @@ def test_a_service_the_owner_stopped_afterwards_is_reported_not_restarted(steps,
     assert ops.ups() == []
 
 
-def test_an_exited_container_from_an_interrupted_first_run_is_started_again(steps, ctx, ops):
+def test_an_exited_container_is_never_restarted_even_before_the_phase_completed(steps, ctx, ops):
     provide_web_key(ctx)
-    ops.containers[("homelab", "worker")] = "exited"  # no completed phase: not the owner's doing
+    ops.containers[("homelab", "worker")] = "exited"  # a crash, or the owner's `docker stop`: setup can't tell which
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "worker" in outcome.reason and "docker rm" in outcome.reason
+    assert ("homelab", "worker") not in ops.ups()
+
+
+def test_a_lost_checkpoint_file_never_restarts_a_service_its_owner_stopped(steps, ctx, ops):
+    provide_web_key(ctx)
     assert converge(steps, ctx).ok
-    assert ("homelab", "worker") in ops.ups()
+    ops.containers[("homelab", "web")] = "exited"
+    (ctx.layout.setup_dir / "checkpoints.json").unlink()  # moved aside as corrupt
+    ctx.checkpoints = Checkpoints(ctx.layout.setup_dir)
+    ops.calls.clear()
+    assert not converge(steps, ctx).ok
+    assert ops.ups() == []
+
+
+def test_a_container_that_failed_to_start_is_started_again_not_blocked(steps, ctx, ops):
+    provide_web_key(ctx)
+    ops.containers[("homelab", "web")] = "created"
+    ops.errors.add("web")  # Docker keeps State.Error, e.g. after a port was taken
+    assert converge(steps, ctx).ok
+    assert ("homelab", "web") in ops.ups()
 
 
 def test_a_service_that_never_becomes_healthy_fails_its_phase_and_stops_the_run(steps, ctx, ops):
@@ -103,23 +139,35 @@ def test_generated_secrets_are_created_once_provider_secrets_are_not_invented(st
 
 
 def test_a_media_root_that_exists_without_its_marker_blocks_instead_of_being_adopted(steps, ctx, world):
-    world["data"].mkdir(parents=True)  # e.g. the empty mount point of a disk that isn't mounted
+    (world["data"] / ".homelab-mounted").unlink()  # e.g. the empty mount point of a disk that isn't mounted
     outcome = converge(steps, ctx)
     assert not outcome.ok and outcome.stopped_at == "engine.dirs"
     assert str(world["data"] / ".homelab-mounted") in outcome.reason
 
 
-def test_a_new_root_gets_directories_and_its_marker(steps, ctx, world):
+def test_a_mounted_root_gets_its_directories(steps, ctx, world):
     provide_web_key(ctx)
     assert converge(steps, ctx).ok
-    assert (world["data"] / "db").is_dir() and (world["data"] / ".homelab-mounted").is_file()
+    assert (world["data"] / "db").is_dir()
+
+
+def test_a_missing_root_is_never_given_a_marker_on_the_system_disk(steps, ctx, world):
+    shutil.rmtree(world["data"])  # the disk is not mounted, so its mount point does not exist either
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and outcome.stopped_at == "engine.dirs"
+    assert "mount" in outcome.reason and str(world["data"] / ".homelab-mounted") in outcome.reason
+    assert not world["data"].exists()
 
 
 def test_service_stopped_in_site_is_created_but_never_started(ctx, models, ops):
     app, edge, site = models
     site["services"]["worker"] = {"state": "stopped"}
     steps = build_steps(
-        ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES, generated=("DB_PASSWORD",)
+        ctx,
+        Release.from_models(ctx.layout, app, edge, site),
+        ops,
+        phases=PHASES,
+        generated=("DB_PASSWORD",),
     )
     provide_web_key(ctx)
     assert converge(steps, ctx).ok
@@ -160,7 +208,7 @@ def test_extra_steps_slot_into_the_order_through_requires(ctx, release, ops):
 def test_status_reads_everything_and_changes_nothing(steps, ctx, ops, world):
     report = status(steps, ctx)
     assert report["phase.database"].status.value in ("needed", "blocked")
-    assert ops.calls == [] and not world["data"].exists() and not ctx.secrets.exists("DB_PASSWORD")
+    assert ops.calls == [] and not (world["data"] / "db").exists() and not ctx.secrets.exists("DB_PASSWORD")
 
 
 def test_release_directory_is_content_addressed_and_read_only(steps, ctx, release):
@@ -183,9 +231,16 @@ def test_services_in_a_phase_that_the_site_does_not_run_are_dropped(ctx, models,
     app, edge, site = models
     release = Release.from_models(ctx.layout, app, edge, site)
     steps = build_steps(
-        ctx, release, ops, phases=(("database", ("db", "ghost")), ("apps", ("*",)), ("caddy", ("caddy",)))
+        ctx,
+        release,
+        ops,
+        phases=(("database", ("db", "ghost")), ("apps", ("*",)), ("caddy", ("caddy",))),
     )
-    assert [s.id for s in steps if s.id.startswith("phase.")] == ["phase.database", "phase.apps", "phase.caddy"]
+    assert [s.id for s in steps if s.id.startswith("phase.")] == [
+        "phase.database",
+        "phase.apps",
+        "phase.caddy",
+    ]
 
 
 def test_repeated_apply_never_restarts_an_owner_stopped_service(steps, ctx, ops):
@@ -207,7 +262,7 @@ def test_existing_stateful_service_is_snapshotted_before_recreation(steps, ctx, 
     )
     seen = []
     ops.stop = lambda service: seen.append(("stop", service))
-    ops.snapshot = lambda service, tag: seen.append(("snapshot", service)) or "snapshot-id"
+    ops.snapshot = lambda service, tag: (seen.append(("snapshot", service)) or "snapshot-id")
     original_run = ops.run
 
     def recording(argv):
@@ -253,3 +308,154 @@ def test_tunnel_cannot_start_without_an_external_gate_step(ctx, models, ops, req
     with pytest.raises(ValueError, match="GATE-1"):
         converge(build_steps(ctx, release, ops, requires=requires), ctx)
     assert ops.calls == []
+
+
+def changed(ops, service):
+    original = ops.config_hash
+    ops.config_hash = lambda directory, project, name: (
+        "changed" if name == service else original(directory, project, name)
+    )
+
+
+def test_a_stateful_service_that_is_still_starting_is_waited_for_not_stopped(steps, ctx, ops):
+    provide_web_key(ctx)
+    ops.containers[("homelab", "db")] = "running"  # a killed run left it mid-start
+    ops.starting.add("db")
+    assert converge(steps, ctx).ok
+    assert ops.events == [] and ("homelab", "db") not in ops.ups()
+
+
+def test_the_first_start_of_a_stateful_service_takes_no_snapshot(steps, ctx, ops):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    assert ops.events == []
+
+
+def test_recreating_stateful_data_without_backups_asks_first_and_touches_nothing(steps, ctx, ops):
+    provide_web_key(ctx)
+    ops.containers[("homelab", "db")] = "running"
+    changed(ops, "db")
+    ops.backups = False
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "snapshot" in outcome.reason and "input" in outcome.reason
+    assert ops.events == [] and ops.ups() == []
+    asked = []
+    outcome = converge(steps, ctx, ask=lambda prompt: asked.append(prompt) or True)
+    assert outcome.ok and isinstance(asked[0], Confirm) and ("homelab", "db") in ops.ups()
+    assert ops.events == []  # nothing to snapshot with; the person accepted that
+
+
+def test_a_run_killed_after_the_snapshot_stopped_a_service_finishes_the_restart(steps, ctx, ops):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok  # the phase is complete, so an exited service would look owner-stopped
+    changed(ops, "db")
+    original = ops.snapshot
+
+    def killed(service, tag):
+        raise KeyboardInterrupt
+
+    ops.snapshot = killed
+    with pytest.raises(KeyboardInterrupt):
+        converge(steps, ctx)
+    assert ops.containers[("homelab", "db")] == "exited"
+    ops.snapshot = original
+    assert converge(steps, ctx).ok
+    assert ops.containers[("homelab", "db")] == "running" and ("snapshot", "db") in ops.events
+    assert not ctx.layout.restart_pending("db")
+
+
+def test_a_stopped_by_the_owner_stateful_service_is_still_left_alone(steps, ctx, ops):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    ops.containers[("homelab", "db")] = "exited"
+    ops.calls.clear()
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "db" in outcome.reason and ops.ups() == [] and ops.events == []
+
+
+def test_new_data_directories_belong_to_the_user_the_service_runs_as(ctx, models, monkeypatch, world):
+    app, edge, site = models
+    app["services"]["db"]["user"] = "1000:1001"
+    chowned = []
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "chown", lambda path, uid, gid: chowned.append((Path(path), uid, gid)))
+    dirs = Dirs(Release.from_models(ctx.layout, app, edge, site))
+    assert dirs.apply(ctx).ok
+    assert chowned == [(world["data"] / "db", 1000, 1001)]
+
+
+def test_without_root_a_directory_for_another_user_is_refused_before_anything_is_made(ctx, models, monkeypatch, world):
+    app, edge, site = models
+    app["services"]["db"]["user"] = "1000:1001"
+    monkeypatch.setattr(os, "geteuid", lambda: 501)
+    monkeypatch.setattr(os, "getegid", lambda: 20)
+    result = Dirs(Release.from_models(ctx.layout, app, edge, site)).apply(ctx)
+    assert not result.ok and "1000:1001" in result.message and "root" in result.message
+    assert not (world["data"] / "db").exists()
+
+
+def test_apps_start_after_what_they_depend_on_not_alphabetically(ctx, models, ops):
+    app, edge, site = models
+    app["services"]["web"]["depends_on"] = {"worker": {"condition": "service_started"}}
+    app["services"]["worker"]["depends_on"] = ["db"]
+    steps = build_steps(
+        ctx,
+        Release.from_models(ctx.layout, app, edge, site),
+        ops,
+        phases=(("apps", ("*",)),),
+        generated=("DB_PASSWORD",),
+    )
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    started = [s for _, s in ops.ups()]
+    assert started.index("db") < started.index("worker") < started.index("web")
+
+
+def test_a_requires_entry_for_a_step_that_does_not_exist_is_an_error_not_ignored(ctx, release, ops):
+    with pytest.raises(ValueError, match="phase.databse"):
+        build_steps(ctx, release, ops, phases=PHASES, requires={"phase.databse": ("GATE-1",)})
+
+
+def test_killed_update_after_start_waits_without_another_snapshot(steps, ctx, ops):
+    provide_web_key(ctx)
+    ops.containers[("homelab", "db")] = "running"
+    ops.starting.add("db")
+    ctx.layout.set_restart_pending("db", True)
+    assert converge(steps, ctx).ok
+    assert ops.events == []
+    assert ("homelab", "db") not in ops.ups()
+    assert not ctx.layout.restart_pending("db")
+
+
+def test_resumed_stateful_boot_gets_the_full_health_timeout(steps, ctx, ops):
+    provide_web_key(ctx)
+    ops.containers[("homelab", "db")] = "running"
+    ops.starting.add("db")
+    waits = []
+    original = ops.wait_healthy
+
+    def wait(project, service, timeout):
+        if service == "db":
+            waits.append(timeout)
+        return original(project, service, timeout)
+
+    ops.wait_healthy = wait
+    assert converge(steps, ctx).ok
+    assert 180 in waits and 30 not in waits
+    assert ops.events == [] and ("homelab", "db") not in ops.ups()
+
+
+@pytest.mark.parametrize("backups", [True, False])
+def test_existing_stateful_edge_is_never_recreated_without_manual_backup(ctx, models, ops, backups):
+    app, edge, site = models
+    edge["services"]["caddy"]["labels"] = {"homelab.state": "stateful"}
+    ops.containers[("homelab-edge", "caddy")] = "running"
+    ops.backups = backups
+    changed(ops, "caddy")
+    provide_web_key(ctx)
+    steps = build_steps(
+        ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES, generated=("DB_PASSWORD",)
+    )
+    outcome = converge(steps, ctx, ask=lambda prompt: True)
+    assert not outcome.ok and "stateful edge" in outcome.reason
+    assert ("homelab-edge", "caddy") not in ops.ups()

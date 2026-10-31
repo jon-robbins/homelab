@@ -20,6 +20,7 @@ fi
 repo=$(cd "$(dirname "$0")/.." && pwd)
 [[ "$(git -C "$repo" rev-parse HEAD)" == "$sha" ]] || { echo "SHA does not match HEAD" >&2; exit 1; }
 h=$d/srv/homelab
+[[ ! -e $h/local-setup.owner ]] || { echo "this host is set up by local setup, not the signed-release pipeline; refusing" >&2; exit 1; }
 t=$h/tooling/$sha
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

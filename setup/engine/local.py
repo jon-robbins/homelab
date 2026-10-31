@@ -6,13 +6,14 @@ nothing here is signed. The steps read and write only paths under the person's o
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
-from typing import Any, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -37,9 +38,17 @@ class Release:
 
     @classmethod
     def from_models(cls, layout: Layout, app: dict, edge: dict, site: dict) -> Release:
-        site = {**site, "managed": site.get("managed", sorted({*app.get("services", {}), *edge.get("services", {})}))}
+        site = {
+            **site,
+            "managed": site.get("managed", sorted({*app.get("services", {}), *edge.get("services", {})})),
+        }
         blob = json.dumps([app, edge, site], sort_keys=True, separators=(",", ":"))
-        return cls(layout.releases / hashlib.sha256(blob.encode()).hexdigest()[:16], app, edge, site)
+        return cls(
+            layout.releases / hashlib.sha256(blob.encode()).hexdigest()[:16],
+            app,
+            edge,
+            site,
+        )
 
     @classmethod
     def render(cls, layout: Layout, platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Release:
@@ -88,7 +97,23 @@ def _phases(release: Release, phases: Iterable[tuple[str, Sequence[str]]]) -> li
         picked = sorted(present - named) if "*" in services else [s for s in services if s in present]
         if picked:
             chosen.append((name, tuple(picked)))
-    return chosen
+    models = {**release.app.get("services", {}), **release.edge.get("services", {})}
+    done = set()
+    ordered = []
+    for name, services in chosen:
+        pending, result = list(services), []
+        while pending:
+            ready = next(
+                (s for s in pending if set(models[s].get("depends_on", ())) <= done),
+                None,
+            )
+            if ready is None:
+                raise ValueError(f"dependencies missing, cyclic or in a later phase: {pending}")
+            pending.remove(ready)
+            result.append(ready)
+            done.add(ready)
+        ordered.append((name, tuple(result)))
+    return ordered
 
 
 def build_steps(
@@ -120,6 +145,8 @@ def build_steps(
         steps.append(Phase(f"phase.{name}", previous, release, services, ops))
         previous = (f"phase.{name}",)
     wanted = dict(requires or {})
+    if unknown := set(wanted) - {s.id for s in steps}:
+        raise ValueError(f"requires names unknown steps: {sorted(unknown)}")
     for name, services in chosen:
         if "cloudflared" in services:
             wanted[f"phase.{name}"] = (*wanted.get(f"phase.{name}", ()), "GATE-1")
