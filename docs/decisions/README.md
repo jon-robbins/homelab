@@ -31,3 +31,4 @@ Rules:
 | [0015](0015-exposure-policy.md) | Nothing is reachable from the internet unless allowlisted | Proposed |
 | [0016](0016-edge-updater.md) | The edge tier updates itself, with rollback | Accepted |
 | [0017](0017-personal-services-are-plugins.md) | Personal services are plugins, not catalog modules | Accepted |
+| [0018](0018-local-setup-path.md) | Guided local setup for new homelabs | Accepted |

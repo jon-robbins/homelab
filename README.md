@@ -1,5 +1,8 @@
 # Homelab
 
+A guided setup path is in development. Today's install guides describe an advanced route; they require manual
+configuration and are intended for technically experienced users.
+
 A small, auditable platform for running self-hosted services with Docker Compose on one Linux host. You describe
 services as plain Compose files, keep your own values in a private repo, and every merge becomes a signed release
 that a small controller on the host verifies and applies, with a snapshot before each change and an alert when

@@ -1,8 +1,8 @@
 # 0002: Public platform, private site repo, plugin repos
 
-- **Status:** Accepted (2026-09-27; plugin model 2026-10-15)
+- **Status:** Accepted (2026-09-27; plugin model 2026-10-15; local product path scoped 2026-10-31)
 - **Code:** whole repository; `tests/boundary/`, `scripts/ci/public-readiness.py`
-- **Amended by:** [0017](0017-personal-services-are-plugins.md) (what belongs in a plugin repo)
+- **Amended by:** [0017](0017-personal-services-are-plugins.md) (what belongs in a plugin repo), [0018](0018-local-setup-path.md) (owner pipeline site repo; stranger's generated local site directory)
 - **Related:** [0001](0001-compose-modules.md), [plugins guide](../plugins.md), [configuration](../configuration.md)
 
 ## Context

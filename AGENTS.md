@@ -1,8 +1,8 @@
 # Notes for coding agents
 
-Read this before changing anything. The previous version of this homelab collapsed under code that LLMs added one
-incident at a time without seeing the whole system. This repository is deliberately small; keeping it that way is
-part of every task.
+Read this before changing anything. `homelab` is a public product that guides people through setting up a secure,
+fully wired media server on their own Linux machine. Keep the security core small; the wizard is separate, with its own
+budget. The owner also uses this repository to publish signed releases for the owner's host.
 
 ## Orientation (read in this order)
 
@@ -17,13 +17,19 @@ part of every task.
 
 - One service per Compose file in `modules/<tier>/<service>.compose.yml`; no second description format. ([0001])
 - Nothing private in this repo: no real domains, private IPs, home paths, plugin names or secrets. ([0002])
+- New users set up a host through the guided local path and own a generated local site directory. The owner's site
+  repository and release pipeline are for the owner's host only. A host belongs to exactly one setup mode; setup must
+  refuse a host claimed by the other mode. ([0002], [0018])
 - The controller never applies the edge tier (its own updater does, with rollback), never starts a service the
   owner stopped, always uses `--no-deps`, and never restores data on its own. ([0003], [0005], [0016])
-- Only signed releases from `release.yml` on `main` run on the host. No deploy-from-checkout path. ([0004])
+- Only signed releases from `release.yml` on `main` run through the owner's pipeline. The owner's controller has no
+  deploy-from-checkout path. Local setup is a separate, user-invoked path for stranger-owned hosts. ([0004], [0018])
 - Every image is digest-pinned; every Action is SHA-pinned by tooling, not by hand. ([0009])
 - Secrets are files from `${HOMELAB_SECRET_DIR}`; never in `environment:`, `site.env` or a release. ([0010])
 - Line budgets in `config/ci/budgets.json` and `C901 <= 10`. Over budget means cut a feature, never compress code
   and never raise the budget in the same change. ([0011])
+- The wizard is a separate entity in `setup/`, with its own 2,000-line budget. It may call platform interfaces; nothing
+  in `scripts/`, `host/` or `modules/` may depend on it. ([0011], [0018])
 - A published port binds an explicit interface unless it is on the exposure allowlist. ([0015], proposed)
 
 [0001]: docs/decisions/0001-compose-modules.md
@@ -36,6 +42,7 @@ part of every task.
 [0011]: docs/decisions/0011-complexity-budgets.md
 [0015]: docs/decisions/0015-exposure-policy.md
 [0016]: docs/decisions/0016-edge-updater.md
+[0018]: docs/decisions/0018-local-setup-path.md
 
 ## Where to look when something breaks
 
