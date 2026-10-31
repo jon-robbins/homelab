@@ -1,7 +1,7 @@
 # 0011: Complexity budgets with a kill switch
 
-- **Status:** Accepted (2026-10-15; controller cap amended 2026-10-17; setup budget proposal in [0018](0018-local-setup-path.md) awaits owner decision, 2026-10-31)
-- **Code:** `config/ci/budgets.json`, `scripts/ci/`, `.pre-commit-config.yaml` (ruff `C901`)
+- **Status:** Accepted (2026-10-15; controller cap amended 2026-10-17; setup budget accepted in [0018](0018-local-setup-path.md), 2026-10-31)
+- **Code:** `config/ci/budgets.json`, `scripts/ci/`, `.pre-commit-config.yaml` (ruff `C901`), `setup/`
 - **Related:** [0005](0005-slim-controller.md)
 
 ## Context
@@ -13,7 +13,8 @@ head.
 ## Decision
 
 - CI enforces line budgets per area (`config/ci/budgets.json`: controller 750, renderer and module checks 600,
-  `host/` 500), measured after `ruff format`, and ruff `C901` complexity ≤ 10 per function.
+  `host/` 500, setup 2,000), measured after `ruff format`, and ruff `C901` complexity ≤ 10 per function.
+- The setup budget is separate, as accepted in [0018](0018-local-setup-path.md); deleting `setup/` leaves the owner pipeline working.
 - When work does not fit, cut features. Budgets change only by an owner decision recorded here, never inside a
   feature change.
 

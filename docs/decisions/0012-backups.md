@@ -1,7 +1,7 @@
 # 0012: Nightly restic plus off-site copy; snapshot before change
 
 - **Status:** Accepted (2026-09-27)
-- **Code:** `host/homelab-backup`, `host/install.sh` (backup timer), `scripts/controller/reconcile.py` (step 7)
+- **Code:** `host/homelab-backup`, `host/install.sh` (backup timer), `scripts/controller/reconcile.py` (step 7), `setup/engine/steps.py` (local pre-change snapshots)
 - **Related:** [0006](0006-host-layout.md), [0013](0013-deadman-alerting.md), [operations](../operations.md#backups)
 
 ## Decision

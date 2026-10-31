@@ -1,0 +1,47 @@
+{
+ "phases": [
+  [
+   "postgres",
+   [
+    "authentik-postgres"
+   ]
+  ],
+  [
+   "authentik-server",
+   [
+    "authentik-server"
+   ]
+  ],
+  [
+   "authentik-worker",
+   [
+    "authentik-worker"
+   ]
+  ],
+  [
+   "apps",
+   [
+    "*"
+   ]
+  ],
+  [
+   "caddy",
+   [
+    "caddy"
+   ]
+  ],
+  [
+   "tunnel",
+   [
+    "cloudflared"
+   ]
+  ]
+ ],
+ "generated_secrets": [
+  "AUTHENTIK_PG_PASSWORD",
+  "AUTHENTIK_SECRET_KEY",
+  "SLSKD_API_KEY",
+  "SLSKD_WEB_PASSWORD",
+  "LIDARR_API_KEY"
+ ]
+}

@@ -5,6 +5,7 @@
       "paths": ["scripts/release/render.py", "scripts/release/modules.py"],
       "max_lines": 600
     },
-    {"paths": ["host"], "max_lines": 500}
+    {"paths": ["host"], "max_lines": 500},
+    {"paths": ["setup"], "max_lines": 2000}
   ]
 }
