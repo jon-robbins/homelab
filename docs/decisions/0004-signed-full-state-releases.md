@@ -1,6 +1,6 @@
 # 0004: Signed, full-state releases on an event-driven trigger
 
-- **Status:** Accepted (signing 2026-10-12; trigger 2026-10-15)
+- **Status:** Accepted (signing 2026-10-12; trigger 2026-10-15; owner-pipeline scope clarified by [0018](0018-local-setup-path.md), 2026-10-31)
 - **Code:** `.github/workflows/release.yml`, `scripts/release/`, `scripts/controller/feed.py`,
   `scripts/controller/admission.py`
 - **Related:** [0005](0005-slim-controller.md), [0009](0009-image-trust.md), [architecture](../architecture/overview.md)

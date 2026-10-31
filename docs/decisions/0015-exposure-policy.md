@@ -1,6 +1,6 @@
 # 0015: Nothing is reachable from the internet unless allowlisted
 
-- **Status:** Proposed (2026-10-20, post-migration security audit)
+- **Status:** Proposed (2026-10-20, post-migration security audit; applies to the local setup path per [0018](0018-local-setup-path.md), 2026-10-31)
 - **Code (when implemented):** `modules/`, `scripts/release/compose_policy.py`, `host/install.sh`
 - **Related:** [0008](0008-compose-policy.md), [0010](0010-secrets.md), [security](../security.md), [ingress](../ingress.md)
 

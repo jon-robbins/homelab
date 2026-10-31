@@ -1,6 +1,6 @@
 # 0005: A slim custom controller with file state
 
-- **Status:** Accepted (2026-10-12; budget and cuts 2026-10-17)
+- **Status:** Accepted (2026-10-12; budget and cuts 2026-10-17; stranger setup scope clarified by [0018](0018-local-setup-path.md), 2026-10-31)
 - **Code:** `scripts/controller/`, `config/ci/budgets.json`
 - **Related:** [0004](0004-signed-full-state-releases.md), [0011](0011-complexity-budgets.md),
   [operations](../operations.md)
