@@ -91,7 +91,9 @@ def merge_docker_config(path: Path) -> bool:
 
 
 def _run(command: list[str]) -> None:
-    subprocess.run(command, check=True, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive", "NEEDRESTART_MODE": "a"})
+    subprocess.run(
+        command, check=True, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive", "NEEDRESTART_MODE": "a"}
+    )
 
 
 def _dpkg_version(package: str) -> str | None:
