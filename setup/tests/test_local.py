@@ -2,12 +2,15 @@ import json
 import os
 import shutil
 import stat
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 from setup.engine.checkpoints import Checkpoints
-from setup.engine.contract import Result, State
+from setup.engine.contract import Confirm, Result, State
+from setup.engine.layout import Layout
+from setup.engine import local
 from setup.engine.local import Release, build_steps
 from setup.engine.runner import run, status
 from setup.engine.steps import Dirs
@@ -44,6 +47,23 @@ def provide_web_key(ctx):
 
 def provide_existing_db_password(ctx):
     ctx.secrets.put("DB_PASSWORD", "existing-database-password")
+
+
+def test_render_reserves_the_host_planned_caddy_address(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "site.yaml").write_text("contract: 1\nservices: {}\n", encoding="utf-8")
+    rendered = SimpleNamespace(
+        app={"services": {}},
+        edge={"services": {"caddy": {"networks": ["homelab_net"]}}},
+    )
+    monkeypatch.setattr(local, "render", lambda *args: rendered)
+
+    release = Release.render(Layout(tmp_path / "root"), tmp_path, site, {}, {"caddy_address": "planned-address"})
+
+    assert release.edge["services"]["caddy"]["networks"] == {
+        "homelab_net": {"ipv4_address": "planned-address"}
+    }
 
 
 def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):

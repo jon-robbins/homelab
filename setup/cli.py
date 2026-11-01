@@ -39,11 +39,11 @@ def phases():
     return defaults()
 
 
-def open_site(args: argparse.Namespace, layout: Layout) -> tuple[Release, Path]:
+def open_site(args: argparse.Namespace, layout: Layout, network_spec) -> tuple[Release, Path]:
     """Validate and render the site (read-only), and find where its secrets live."""
     plugins = dict(args.plugin)
     env = load_site(args.site, args.platform, plugins).env
-    return Release.render(layout, args.platform, args.site, plugins), Path(env["HOMELAB_SECRET_DIR"])
+    return Release.render(layout, args.platform, args.site, plugins, network_spec), Path(env["HOMELAB_SECRET_DIR"])
 
 
 def ask(prompt: Prompt) -> Answer:
@@ -70,9 +70,9 @@ def _context(args: argparse.Namespace, layout: Layout, secrets: Path) -> Context
     )
 
 
-def _steps(ctx: Context, release: Release, ops):
+def _steps(ctx: Context, release: Release, ops, network_spec):
     chosen, generated = phases()
-    return build_steps(ctx, release, ops, phases=chosen, generated=generated)
+    return build_steps(ctx, release, ops, phases=chosen, generated=generated, network_spec=network_spec)
 
 
 def _guard(layout: Layout, ops) -> None:
@@ -93,11 +93,12 @@ def _show(event: Event) -> None:
 def _apply(args: argparse.Namespace, layout: Layout) -> int:
     ops = make_ops()
     _guard(layout, ops)
-    release, secrets = open_site(args, layout)
+    network_spec = ops.network_spec(layout.setup_dir)
+    release, secrets = open_site(args, layout, network_spec)
     layout.claim()
     ctx = _context(args, layout, secrets)
     outcome = run(
-        _steps(ctx, release, ops),
+        _steps(ctx, release, ops, network_spec),
         ctx,
         ask=ask if sys.stdin.isatty() else None,
         on_event=_show,
@@ -116,9 +117,10 @@ def _status(args: argparse.Namespace, layout: Layout) -> int:
     if layout.mode() is None:
         print("not set up on this host yet; run apply")
         return 0
-    release, secrets = open_site(args, layout)
+    network_spec = ops.network_spec(layout.setup_dir)
+    release, secrets = open_site(args, layout, network_spec)
     ctx = _context(args, layout, secrets)
-    report = status(_steps(ctx, release, ops), ctx)
+    report = status(_steps(ctx, release, ops, network_spec), ctx)
     for step, state in report.items():
         print(f"{step}: {state.status.value}{(' - ' + state.reason) if state.reason else ''}")
     for step in ctx.checkpoints.interrupted():

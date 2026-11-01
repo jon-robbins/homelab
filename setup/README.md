@@ -72,6 +72,10 @@ this engine's release tree; an unavailable Docker daemon blocks that ownership c
 ownership marker refuses apply. For a stale marker, first inspect running services and their data, then remove the
 marker manually only after establishing that this host is free for local setup. Setup never silently changes modes.
 
+The local network step checks existing host routes and Docker IPAM ranges, selects an unused RFC1918 subnet, and
+persists it in `network.json` under the local setup state. Re-runs reuse that plan. The first `/24` is reserved for
+the gateway and Caddy address; Docker receives a separate `/24` as its dynamic allocation range.
+
 `build_steps(ctx, release, ops, extra=(), requires={})` builds release, network, directories, secrets and ordered
 phases. Core IDs are `engine.release`, `engine.network`, `engine.dirs`, `engine.secrets` and `phase.<name>`.
 Use `extra` for provider/wiring/gate steps and `requires={"phase.tunnel": ("GATE-1",)}` to hold a phase until its
