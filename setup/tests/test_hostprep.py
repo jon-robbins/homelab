@@ -3,8 +3,11 @@ import json
 
 import pytest
 
+from setup import hostprep
 from setup.hostprep import (
+    apply_local_host_config,
     artifact_pin,
+    install_cosign,
     merge_docker_config,
     replace_file,
     validate_target,
@@ -67,3 +70,107 @@ def test_local_secret_readiness_fails_when_a_required_secret_is_missing(tmp_path
 
     with pytest.raises(TimeoutError, match="REQUIRED_KEY"):
         wait_for_secrets(config, tmp_path / "secrets", timeout_s=0)
+
+
+def test_replace_file_leaves_an_identical_file_untouched(tmp_path):
+    target = tmp_path / "unit.service"
+    assert replace_file(target, b"same", 0o644) is True
+    before = target.stat().st_mtime_ns
+
+    assert replace_file(target, b"same", 0o644) is False
+    assert target.stat().st_mtime_ns == before
+    assert replace_file(target, b"different", 0o644) is True
+
+
+def test_installed_cosign_matching_the_pin_is_not_downloaded_again(tmp_path, monkeypatch):
+    content = b"pinned cosign"
+    monkeypatch.setattr(
+        hostprep,
+        "artifact_pin",
+        lambda name: {"url": "unused", "sha256": hashlib.sha256(content).hexdigest()},
+    )
+    target = tmp_path / "cosign"
+    replace_file(target, content, 0o755)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("downloaded an artifact that was already installed")
+
+    monkeypatch.setattr(hostprep, "urlopen", refuse)
+    assert install_cosign(target) == target
+
+
+class Commands:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, command):
+        self.calls.append(command)
+
+
+def test_host_config_applies_once_and_a_rerun_runs_nothing(tmp_path):
+    first, second = Commands(), Commands()
+
+    apply_local_host_config(tmp_path, first)
+    apply_local_host_config(tmp_path, second)
+
+    assert ["systemctl", "daemon-reload"] in first.calls
+    assert ["systemctl", "try-restart", "docker"] in first.calls
+    assert second.calls == []
+
+
+def test_docker_waits_for_secrets_only_once_an_agent_config_exists(tmp_path):
+    apply_local_host_config(tmp_path, Commands())
+
+    unit = (tmp_path / "etc/systemd/system/homelab-infisical-agent.service").read_text()
+    dropin = (tmp_path / "etc/systemd/system/docker.service.d/10-homelab-local.conf").read_text()
+    assert "ConditionPathExists=/etc/infisical-agent/config.yaml" in unit
+    assert "Wants=tailscaled.service" in dropin
+    assert "Requires=homelab-infisical-agent.service" in dropin
+    assert "After=tailscaled.service homelab-infisical-agent.service" in dropin
+
+
+def test_merging_docker_defaults_reports_whether_it_changed_anything(tmp_path):
+    path = tmp_path / "daemon.json"
+
+    assert merge_docker_config(path) is True
+    assert merge_docker_config(path) is False
+
+
+def test_port_check_can_be_skipped_for_a_host_that_setup_already_serves(monkeypatch):
+    seen = []
+    monkeypatch.setattr(hostprep, "validate_target", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hostprep.shutil, "disk_usage", lambda path: type("U", (), {"free": 10**12})())
+    monkeypatch.setattr(hostprep.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(hostprep, "_listening_web_ports", lambda: seen.append("probed") or {"443"})
+    monkeypatch.setattr(hostprep, "_read_host_facts", lambda: ({}, 8192, False))
+
+    hostprep.preflight(check_ports=False)
+    assert seen == []
+    with pytest.raises(ValueError, match="443"):
+        hostprep.preflight()
+
+
+def test_listening_port_parser_uses_local_address_and_ignores_setup_caddy_peer(monkeypatch):
+    output = """LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*
+LISTEN 0 4096 0.0.0.0:443 8.8.8.8:52344
+LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*
+"""
+    monkeypatch.setattr(hostprep.subprocess, "run", lambda *args, **kwargs: type("Result", (), {"stdout": output})())
+
+    assert hostprep._listening_web_ports() == {"80", "443"}
+
+
+def test_rerun_reenables_and_starts_the_pinned_tailscale_service(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hostprep, "artifact_pin", lambda name: {"version": "1.2.3"})
+    monkeypatch.setattr(hostprep, "_tailscale_version", lambda: "1.2.3")
+    monkeypatch.setattr(
+        hostprep.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command) or type("Result", (), {"returncode": 0})(),
+    )
+    monkeypatch.setattr(hostprep, "_run", lambda command: calls.append(command))
+
+    hostprep._install_tailscale()
+
+    assert ["systemctl", "enable", "--now", "tailscaled"] in calls
