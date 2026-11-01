@@ -61,9 +61,7 @@ def test_render_reserves_the_host_planned_caddy_address(tmp_path, monkeypatch):
 
     release = Release.render(Layout(tmp_path / "root"), tmp_path, site, {}, {"caddy_address": "planned-address"})
 
-    assert release.edge["services"]["caddy"]["networks"] == {
-        "homelab_net": {"ipv4_address": "planned-address"}
-    }
+    assert release.edge["services"]["caddy"]["networks"] == {"homelab_net": {"ipv4_address": "planned-address"}}
 
 
 def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):

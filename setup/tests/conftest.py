@@ -70,7 +70,12 @@ class FakeOps:
         return self.network and self.network_plan
 
     def network_spec(self, state_dir):
-        return {"subnet": "test-subnet", "gateway": "test-gateway", "caddy_address": "test-caddy", "ip_range": "test-range"}
+        return {
+            "subnet": "test-subnet",
+            "gateway": "test-gateway",
+            "caddy_address": "test-caddy",
+            "ip_range": "test-range",
+        }
 
     def ensure_network(self, name, state_dir, spec):
         self.network = True

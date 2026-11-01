@@ -16,6 +16,10 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     (world["secrets"]).mkdir(parents=True)
     (world["secrets"] / "WEB_KEY").write_text("provided-by-a-provider-step")
     monkeypatch.setattr(cli, "make_ops", lambda: ops)
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "install_pinned_packages", lambda: None)
+    monkeypatch.setattr(cli, "ensure_service_user", lambda: None)
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: None)
     monkeypatch.setattr(
         cli,
         "open_site",

@@ -162,9 +162,7 @@ class LocalOps(SubprocessOps):
         if not path.exists() or not self.network_exists(name):
             return False
         expected = json.loads(path.read_text(encoding="utf-8"))
-        inspected = subprocess.run(
-            ["docker", "network", "inspect", name], capture_output=True, text=True, check=True
-        )
+        inspected = subprocess.run(["docker", "network", "inspect", name], capture_output=True, text=True, check=True)
         configs = json.loads(inspected.stdout)[0].get("IPAM", {}).get("Config", ())
         return any(
             config.get("Subnet") == expected["subnet"]
@@ -187,9 +185,18 @@ class LocalOps(SubprocessOps):
         if not self.network_exists(name):
             self.run(
                 [
-                    "docker", "network", "create", "--driver", "bridge",
-                    "--subnet", spec["subnet"], "--gateway", spec["gateway"],
-                    "--ip-range", spec["ip_range"], name,
+                    "docker",
+                    "network",
+                    "create",
+                    "--driver",
+                    "bridge",
+                    "--subnet",
+                    spec["subnet"],
+                    "--gateway",
+                    spec["gateway"],
+                    "--ip-range",
+                    spec["ip_range"],
+                    name,
                 ]
             )
 
