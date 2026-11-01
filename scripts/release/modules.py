@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import ipaddress
 import re
 from typing import Any, Mapping
 
@@ -17,14 +18,20 @@ import yaml
 from .contracts import ValidationError, ValidationErrors
 
 TIERS = ("app", "edge")
-# Keys a site.env may define. The first four are the only ones a site may declare as bind roots.
-ROOT_KEYS = ("APP_DATA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH", "MEDIA_PLEX_PATH")
-# Media roles: where this site keeps movies, TV and downloads. Each must sit under a declared bind root.
+# Keys a site.env may define. The ROOT_KEYS are the only ones a site may declare as bind roots. MEDIA_DIR is the one
+# parent directory (downloads/, tv/, movies/, music/) that importing apps see as /data, so imports can hardlink.
+ROOT_KEYS = ("APP_DATA_DIR", "MEDIA_DIR", "MEDIA_HDD_PATH", "MEDIA_NVME_PATH", "MEDIA_PLEX_PATH")
+# Per-role paths, kept for sites with media on several disks (overrides and plugins mount them). Each must sit under
+# a declared bind root.
 MEDIA_ROLE_KEYS = ("MOVIES_DIR", "TV_DIR", "DOWNLOADS_DIR", "MUSIC_DIR")
+# Addresses the published ports bind: the media servers' direct ports, and the torrent and Soulseek peer ports.
+BIND_IP_KEYS = ("MEDIA_BIND_IP", "PEER_BIND_IP")
 SITE_ENV_KEYS = frozenset(
-    {*ROOT_KEYS, *MEDIA_ROLE_KEYS, "PUID", "PGID", "TZ", "HOMELAB_SECRET_DIR", "BASE_DOMAIN", "TAILSCALE_IP"}
+    {*ROOT_KEYS, *MEDIA_ROLE_KEYS, *BIND_IP_KEYS}
+    | {"PUID", "PGID", "TZ", "HOMELAB_SECRET_DIR", "BASE_DOMAIN", "TAILSCALE_IP"}
 )
 _NAME = re.compile(r"[a-z][a-z0-9-]{0,62}")
+_EXPOSED = re.compile(r"[a-z][a-z0-9-]{0,62}:[0-9]{1,5}/(tcp|udp)")
 _REFERENCE = re.compile(r"\$\{(\w+)\}")
 _MODULE_SUFFIX = ".compose.yml"
 
@@ -147,12 +154,20 @@ def load_plugin(name: str, root: Path, env: Mapping[str, str], platform: Path) -
     return Plugin(name, root, metadata.get("image_namespace"))
 
 
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _check_site_config(config: Any, env: Mapping[str, str]) -> list[ValidationError]:
     errors = _fields(
         config,
         "site.yaml",
         {"contract": int, "site_id": str, "bind_roots": list, "plugins": dict, "services": dict, "managed": list},
-        {"marker_roots": list},
+        {"marker_roots": list, "exposed": list},
     )
     if errors:
         return errors
@@ -172,7 +187,17 @@ def _check_site_config(config: Any, env: Mapping[str, str]) -> list[ValidationEr
         errors += _fields(spec or {}, f"site.yaml.services.{name}", {}, {"from": str, "state": str})
         if isinstance(spec, dict) and spec.get("state", "running") not in ("running", "stopped"):
             errors.append(ValidationError(f"site.yaml.services.{name}.state", "must be running or stopped"))
+    errors += [
+        ValidationError("site.yaml.exposed", f"{entry!r}: use service:port/proto")
+        for entry in config.get("exposed", [])
+        if not (isinstance(entry, str) and _EXPOSED.fullmatch(entry))
+    ]
     errors += [ValidationError(f"site.env.{key}", "unknown key") for key in env if key not in SITE_ENV_KEYS]
+    errors += [
+        ValidationError(f"site.env.{key}", "must be an IP address")
+        for key in BIND_IP_KEYS
+        if key in env and not _is_ip(env[key])
+    ]
     return errors
 
 
