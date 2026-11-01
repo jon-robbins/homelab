@@ -310,15 +310,13 @@ def validate_target(
     machine: str,
     memory_mib: int,
     public_ip: bool,
-    *,
-    acknowledged=False,
 ):
     if os_release.get("ID") != "ubuntu" or os_release.get("VERSION_ID") != "24.04" or machine != "x86_64":
         raise ValueError("only Ubuntu 24.04 amd64 is supported")
     if memory_mib < 4096:
         raise ValueError("at least 4096 MiB RAM is required")
-    if public_ip and not acknowledged:
-        raise ValueError("a public IP was detected; acknowledge this exposure before setup")
+    if public_ip:
+        raise ValueError("a globally addressed interface was detected; setup refuses this host")
 
 
 def _read_host_facts() -> tuple[dict[str, str], int, bool]:
@@ -346,7 +344,7 @@ def _listening_web_ports() -> set[str]:
     return {row.split()[3].rsplit(":", 1)[-1] for row in rows if len(row.split()) > 3} & {"80", "443"}
 
 
-def preflight(*, acknowledge_public_ip: bool = False, check_ports: bool = True) -> None:
+def preflight(*, check_ports: bool = True) -> None:
     """Refuse an unsuitable host before anything is written. A host setup already serves skips the port check."""
     release, memory_mib, public_ip = _read_host_facts()
     validate_target(
@@ -354,7 +352,6 @@ def preflight(*, acknowledge_public_ip: bool = False, check_ports: bool = True) 
         platform.machine(),
         memory_mib,
         public_ip,
-        acknowledged=acknowledge_public_ip,
     )
     if shutil.disk_usage("/").free < 2 * 1024**3:
         raise ValueError("less than 2 GiB is free on the root filesystem")

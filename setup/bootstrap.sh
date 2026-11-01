@@ -4,7 +4,7 @@
 #   curl -fsSLO <release>/bootstrap.sh && echo "<sha256>  bootstrap.sh" | sha256sum -c && sudo bash bootstrap.sh
 #
 # It never runs downloaded bytes before checking them against a pinned digest, and it never pipes into a shell.
-# Extra arguments go to `python3 -m setup.cli` (for example --ack-public-ip). Running it again changes nothing.
+# Extra arguments go to `python3 -m setup.cli`. Running it again changes nothing.
 set -euo pipefail
 
 # --- Stamped when a release is cut (WS-13). A checkout carries no pin, so it refuses to fetch a release. ---
