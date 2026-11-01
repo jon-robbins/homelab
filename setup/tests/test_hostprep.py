@@ -43,11 +43,10 @@ def test_install_replaces_existing_binary_atomically_and_sets_its_mode(tmp_path)
     assert sorted(path.name for path in tmp_path.iterdir()) == ["tailscaled"]
 
 
-def test_preflight_accepts_only_ubuntu_2404_amd64_with_public_ip_acknowledged():
+def test_preflight_accepts_only_ubuntu_2404_amd64_and_always_refuses_public_ip():
     validate_target({"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64", 8192, False)
-    with pytest.raises(ValueError, match="public IP"):
+    with pytest.raises(ValueError, match="globally addressed"):
         validate_target({"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64", 8192, True)
-    validate_target({"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64", 8192, True, acknowledged=True)
     with pytest.raises(ValueError, match="Ubuntu 24.04 amd64"):
         validate_target({"ID": "debian", "VERSION_ID": "12"}, "x86_64", 8192, False)
 

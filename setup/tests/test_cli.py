@@ -195,3 +195,13 @@ def test_apply_and_status_still_need_a_site(prep, capsys):
 
     assert stopped.value.code == 2
     assert "--site" in capsys.readouterr().err
+
+
+def test_cli_does_not_offer_a_public_address_waiver(prep, capsys):
+    _, argv = prep
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main([*argv, "--ack-public-ip", "prepare"])
+
+    assert stopped.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err

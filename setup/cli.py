@@ -98,7 +98,7 @@ def _show(event: Event) -> None:
 
 def _prepare_host(args: argparse.Namespace, layout: Layout):
     """Refuse an unsuitable or claimed host, then install and configure it. Safe to repeat; a rerun changes nothing."""
-    preflight(acknowledge_public_ip=args.ack_public_ip, check_ports=layout.mode() is None)
+    preflight(check_ports=layout.mode() is None)
     ops = make_ops()
     _guard(layout, ops)
     # Claim before the first package or host-file mutation. claim() rechecks owner markers.
@@ -188,11 +188,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the homelab checkout or release",
     )
     parser.add_argument("--plugin", type=_plugin, action="append", default=[], help="NAME=DIR")
-    parser.add_argument(
-        "--ack-public-ip",
-        action="store_true",
-        help="acknowledge that this host has a globally routable address",
-    )
     parser.add_argument("command", choices=sorted(COMMANDS), help="start: prepare this host, then begin guided setup")
     args = parser.parse_args(argv)
     if args.command in ("apply", "status") and args.site is None:

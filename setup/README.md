@@ -18,6 +18,9 @@ python3 -m setup.cli --site /path/to/local-site apply
 `apply` performs a read-only host preflight and ownership check before installing pinned host packages. Artifact
 downloads are verified against `setup/pins.json` before installation. The local Docker unit requires and starts after
 Tailscale and the secrets readiness unit, so a missing required secret prevents Docker from starting on reboot.
+Preflight refuses a host with a globally addressed interface; there is no acknowledgement override while service
+listeners are not yet bound to a validated interface. This check cannot detect router port forwarding to a private
+host, so scoped bind validation is still required before preview apply is safe.
 Review the generated site before continuing. The renderer enforces the platform Compose policy and image pins. Local
 apply does not authenticate a downloaded
 platform version: signed release verification belongs to the WS-13 release/update contract. This engine is not a
