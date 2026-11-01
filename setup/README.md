@@ -63,8 +63,8 @@ Local files live under `/srv/homelab/setup/`: `checkpoints.json`, `setup.lock` a
 it does not relocate the host backup utility's data tree. A `local-setup.owner` marker is written at both the
 chosen root and `/srv/homelab`, so the signed installer refuses even an alternate-root local installation. Secret files use the site's `HOMELAB_SECRET_DIR` and
 are written atomically in a 0700 directory. Generated secrets survive reruns; provider-issued secrets are never invented.
-If a generated secret is missing after a service has started, setup stops and asks for the original file to be
-restored. It never creates a new password for existing data.
+Setup records generated secret names and stops if one disappears. If checkpoints are lost, it also checks Docker
+and persistent data before generating a secret. Docker inspection errors stop this check.
 
 Owner trust, tooling (including a partial installation), current release or controller units refuse local commands
 before rendering or writing, regardless of `--root`. Containers in the reserved Compose projects must point to
@@ -82,9 +82,9 @@ cannot start a tunnel until integration wiring supplies a forward-auth gate.
 
 Each service starts explicitly with `--no-deps`, after pulling, and waits for health. A container without a healthcheck
 must remain running without restarts for ten seconds; this is process readiness, not proof of application wiring.
-The owner's `homelab-backup` has fixed paths and credentials, so local setup does not invoke it. Until local backup
-is configured, changing existing stateful data requires explicit acknowledgment that no snapshot will be taken.
-Stateful edge recreation is refused. Restore is always manual.
+The owner's `homelab-backup` has fixed paths and credentials, so local setup does not invoke it. Until a local-safe
+snapshot is configured, setup refuses to recreate existing stateful data. Stateful edge recreation is refused.
+Restore is always manual.
 Services explicitly configured stopped are created without starting. Exited containers remain stopped regardless
 of checkpoint history, unless setup recorded that it stopped them for a snapshot. That restart intent survives a
 killed update and is cleared after health succeeds. Containers that failed to start in the created state may retry.

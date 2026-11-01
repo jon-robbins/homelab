@@ -76,9 +76,6 @@ class Checkpoints:
         entry = self._data["steps"].get(step, {})
         return entry.get("completed", entry.get("status") == "done")
 
-    def phase_attempted(self) -> bool:
-        return any(step.startswith("phase.") for step in self._data["steps"])
-
     def message(self, step: str) -> str:
         return self._data["steps"].get(step, {}).get("message", "")
 

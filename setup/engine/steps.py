@@ -9,7 +9,7 @@ from typing import Any
 
 from scripts.controller.planner import Plan, compose_commands, plan
 
-from .contract import Confirm, Context, Result, State
+from .contract import Context, Result, State
 from .ops import NETWORK
 
 MARKER = ".homelab-mounted"
@@ -145,32 +145,45 @@ class Secrets:
 
     def check(self, ctx: Context) -> State:
         missing = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
-        if missing and self._started(ctx):
+        lost = [n for n in missing if self._started(ctx, n)]
+        if lost:
             return State.blocked(
-                f"generated secret(s) missing after first start: {', '.join(missing)}; restore the original files"
+                f"generated secret(s) missing after first start: {', '.join(lost)}; restore the original files"
             )
         return State.needed() if missing else State.done()
 
-    def _started(self, ctx: Context) -> bool:
-        if ctx.checkpoints.phase_attempted():
+    def _started(self, ctx: Context, name: str) -> bool:
+        if ctx.checkpoints.facts().get(f"secret.created.{name}"):
             return True
-        missing = {name for name in self._wanted(ctx) if not ctx.secrets.exists(name)}
-        return any(
-            (view := self.ops.container(project, service)) is not None and view.status != "created"
-            for project, model in (("homelab", self.release.app), ("homelab-edge", self.release.edge))
-            for service, config in model.get("services", {}).items()
-            if any(secret["source"] in missing for secret in config.get("secrets", ()))
-        )
+        for project, model in (("homelab", self.release.app), ("homelab-edge", self.release.edge)):
+            files = model.get("secrets", {})
+            for service, config in model.get("services", {}).items():
+                if not any(Path(files[entry["source"]]["file"]).name == name for entry in config.get("secrets", ())):
+                    continue
+                inspected = self.ops.inspect(service, project)  # an inspection error must abort, never mean absent
+                if inspected and inspected.get("State", {}).get("Status") != "created":
+                    return True
+                for volume in config.get("volumes", ()):
+                    if volume.get("type") != "bind" or volume.get("read_only"):
+                        continue
+                    path = Path(volume["source"])
+                    if (path.is_file() and path.stat().st_size) or (path.is_dir() and any(path.iterdir())):
+                        return True
+        return False
 
     def apply(self, ctx: Context) -> Result:
         made = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
-        if made and self._started(ctx):
+        lost = [n for n in made if self._started(ctx, n)]
+        if lost:
             return Result.failure(
-                f"generated secret(s) missing after first start: {', '.join(made)}; restore the original files"
+                f"generated secret(s) missing after first start: {', '.join(lost)}; restore the original files"
             )
         for name in made:
             ctx.secrets.ensure(name)
-        return Result.success(f"generated {len(made)} secret(s): {', '.join(made)}")
+        return Result.success(
+            f"generated {len(made)} secret(s): {', '.join(made)}",
+            {f"secret.created.{name}": True for name in made},
+        )
 
     def verify(self, ctx: Context) -> Result:
         missing = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
@@ -206,6 +219,15 @@ class Phase:
             **self.release.app.get("services", {}),
             **self.release.edge.get("services", {}),
         }[service]
+
+    def _has_data(self, service: str) -> bool:
+        for volume in self._service(service).get("volumes", ()):
+            if volume.get("type") != "bind" or volume.get("read_only"):
+                continue
+            path = Path(volume["source"])
+            if (path.is_file() and path.stat().st_size) or (path.is_dir() and any(path.iterdir())):
+                return True
+        return False
 
     def _stale(self, service: str) -> bool:
         view = self.ops.container(self._project(service), service)
@@ -285,7 +307,11 @@ class Phase:
     def _snapshot(self, ctx: Context, service: str, enabled: bool) -> None:
         if self._service(service).get("labels", {}).get("homelab.state") != "stateful":
             return
-        if self.ops.container(self._project(service), service) is None:
+        if self.ops.inspect(service, self._project(service)) is None:
+            if self._has_data(service):
+                raise RuntimeError(
+                    f"{service} has existing data but no container; take a manual snapshot before apply"
+                )
             return
         if self.release.tier(service) != "app":
             raise RuntimeError("stateful edge changes require a manual snapshot before apply")
@@ -299,15 +325,14 @@ class Phase:
         todo, stopped = self._split(ctx)
         if stopped:
             return Result.failure(f"owner-stopped services: {stopped}")
-        snapshot = any(
-            self._service(s).get("labels", {}).get("homelab.state") == "stateful"
-            and self.ops.container(self._project(s), s) is not None
-            for s in todo
-        )
+        stateful = [s for s in todo if self._service(s).get("labels", {}).get("homelab.state") == "stateful"]
+        existing = [s for s in stateful if self.ops.inspect(s, self._project(s)) is not None or self._has_data(s)]
+        if any(self.release.tier(s) == "edge" for s in existing):
+            return Result.failure("stateful edge changes require a manual snapshot before apply")
+        snapshot = bool(existing)
         can_snapshot = self.ops.can_snapshot()
-        key = f"skip-snapshot-{self.release.directory.name}"
-        if snapshot and not can_snapshot and ctx.answers.get(key) is not True:
-            return Result.ask(Confirm(key, "No snapshot utility is installed. Proceed without a snapshot?"))
+        if snapshot and not can_snapshot:
+            return Result.failure("no local snapshot is configured; existing stateful data will not be changed")
         for tier in ("app", "edge"):
             self.ops.pull(
                 self.release.directory,

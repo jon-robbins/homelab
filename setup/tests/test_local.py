@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from setup.engine.checkpoints import Checkpoints
-from setup.engine.contract import Confirm, Result, State
+from setup.engine.contract import Result, State
 from setup.engine.local import Release, build_steps
 from setup.engine.runner import run, status
 from setup.engine.steps import Dirs
@@ -338,19 +338,36 @@ def test_the_first_start_of_a_stateful_service_takes_no_snapshot(steps, ctx, ops
     assert ops.events == []
 
 
-def test_recreating_stateful_data_without_backups_asks_first_and_touches_nothing(steps, ctx, ops):
+def test_recreating_stateful_data_without_backups_stays_blocked(steps, ctx, ops):
     provide_web_key(ctx)
     provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     changed(ops, "db")
     ops.backups = False
     outcome = converge(steps, ctx)
-    assert not outcome.ok and "snapshot" in outcome.reason and "input" in outcome.reason
+    assert not outcome.ok and "snapshot" in outcome.reason
     assert ops.events == [] and ops.ups() == []
-    asked = []
-    outcome = converge(steps, ctx, ask=lambda prompt: asked.append(prompt) or True)
-    assert outcome.ok and isinstance(asked[0], Confirm) and ("homelab", "db") in ops.ups()
-    assert ops.events == []  # nothing to snapshot with; the person accepted that
+    assert not converge(steps, ctx, ask=lambda prompt: True).ok
+    assert ops.events == [] and ops.ups() == []
+
+
+def test_existing_stateful_data_without_a_container_requires_a_manual_snapshot(steps, ctx, ops, world):
+    provide_web_key(ctx)
+    provide_existing_db_password(ctx)
+    (world["data"] / "db").mkdir()
+    (world["data"] / "db" / "existing.db").write_text("existing data")
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "snapshot" in outcome.reason
+    assert ("homelab", "db") not in ops.ups()
+
+
+def test_stateful_recreation_stops_when_docker_cannot_be_inspected(steps, ctx, ops):
+    provide_web_key(ctx)
+    provide_existing_db_password(ctx)
+    ops.inspect = lambda service, project="homelab": (_ for _ in ()).throw(OSError("Docker unavailable"))
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "Docker unavailable" in outcome.reason
+    assert ops.ups() == []
 
 
 def test_a_run_killed_after_the_snapshot_stopped_a_service_finishes_the_restart(steps, ctx, ops):
@@ -482,6 +499,45 @@ def test_a_generated_secret_lost_after_first_start_is_never_regenerated(steps, c
     outcome = converge(steps, ctx)
     assert not outcome.ok and outcome.stopped_at == "engine.secrets" and "DB_PASSWORD" in outcome.reason
     assert not ctx.secrets.exists("DB_PASSWORD")
+
+
+def test_lost_secret_is_blocked_when_checkpoints_and_container_are_gone_but_data_remains(steps, ctx, ops, world):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    (ctx.layout.setup_dir / "checkpoints.json").unlink()
+    ctx.checkpoints = Checkpoints(ctx.layout.setup_dir)
+    ops.containers.pop(("homelab", "db"))
+    (world["data"] / "db" / "existing.db").write_text("existing data")
+    (world["secrets"] / "DB_PASSWORD").unlink()
+    outcome = converge(steps, ctx)
+    assert outcome.stopped_at == "engine.secrets" and not ctx.secrets.exists("DB_PASSWORD")
+
+
+def test_docker_inspection_error_never_means_a_missing_secret_is_safe_to_replace(steps, ctx, ops, world):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    (ctx.layout.setup_dir / "checkpoints.json").unlink()
+    ctx.checkpoints = Checkpoints(ctx.layout.setup_dir)
+    (world["secrets"] / "DB_PASSWORD").unlink()
+    ops.inspect = lambda service, project="homelab": (_ for _ in ()).throw(OSError("Docker unavailable"))
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "Docker unavailable" in outcome.reason
+    assert not ctx.secrets.exists("DB_PASSWORD")
+
+
+def test_new_service_can_generate_its_first_secret_after_other_phases_ran(steps, ctx, ops, models, world):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    app, edge, site = models
+    app["services"]["new"] = {"image": "new@sha256:" + "e" * 64, "secrets": [{"source": "NEW_PASSWORD"}]}
+    app["secrets"]["NEW_PASSWORD"] = {"file": str(world["secrets"] / "NEW_PASSWORD")}
+    site["managed"].append("new")
+    added = build_steps(
+        ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES,
+        generated=("DB_PASSWORD", "NEW_PASSWORD"),
+    )
+    assert converge(added, ctx).ok
+    assert ctx.secrets.exists("NEW_PASSWORD")
 
 
 def test_a_stopped_service_with_a_restart_marker_and_current_config_is_restarted(steps, ctx, ops):

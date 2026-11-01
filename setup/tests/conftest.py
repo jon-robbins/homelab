@@ -33,6 +33,10 @@ class FakeOps:
         state = self.containers.get((project, service))
         return ContainerView(f"{project}/{service}", state, "boom" if service in self.errors else "") if state else None
 
+    def inspect(self, service, project="homelab"):
+        state = self.containers.get((project, service))
+        return {"State": {"Status": state}} if state else None
+
     def path_exists(self, path):
         return Path(path).exists()
 
