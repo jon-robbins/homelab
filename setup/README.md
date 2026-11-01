@@ -1,5 +1,8 @@
 # Local setup engine
 
+**Status: engine component of an incomplete security/bootstrap preview.** This branch does not provide a finished
+guided setup or a working media-server onboarding flow. Do not use it as the installation path for a new host.
+
 This is the engine foundation for the guided local setup in [0018](../docs/decisions/0018-local-setup-path.md).
 It has no screens or provider wiring yet. It is separate from the signed owner pipeline and never calls its admission,
 materialize or reconcile functions. Nothing in the platform depends on this directory.
