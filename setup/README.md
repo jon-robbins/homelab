@@ -79,13 +79,13 @@ cannot start a tunnel until integration wiring supplies a forward-auth gate.
 
 Each service starts explicitly with `--no-deps`, after pulling, and waits for health. A container without a healthcheck
 must remain running without restarts for ten seconds; this is process readiness, not proof of application wiring.
-Existing stateful app services are stopped and snapshotted through `homelab-backup` before recreation. A failed
-snapshot leaves the service stopped and halts; restore is always manual. Stateful edge recreation is refused.
+The owner's `homelab-backup` has fixed paths and credentials, so local setup does not invoke it. Until local backup
+is configured, changing existing stateful data requires explicit acknowledgment that no snapshot will be taken.
+Stateful edge recreation is refused. Restore is always manual.
 Services explicitly configured stopped are created without starting. Exited containers remain stopped regardless
 of checkpoint history, unless setup recorded that it stopped them for a snapshot. That restart intent survives a
 killed update and is cleared after health succeeds. Containers that failed to start in the created state may retry.
 Running containers with matching configuration are waited for without stopping or snapshotting them again.
-If the snapshot utility is absent, apply requires explicit acknowledgment before changing existing stateful data.
 Disk markers must already exist, including when the mount point is absent; mount and mark the correct disk first.
 New writable bind directories use the service's numeric user/group or PUID/PGID. Existing directories are not chowned.
 Dependencies within phases are ordered before dependents; missing or later-phase dependencies are rejected.

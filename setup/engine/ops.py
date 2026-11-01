@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -86,7 +85,9 @@ class LocalOps(SubprocessOps):
             raise RuntimeError(f"command failed ({result.returncode}): {result.stderr.strip()}")
 
     def can_snapshot(self):
-        return shutil.which("homelab-backup") is not None
+        # The owner's backup command has fixed owner paths and credentials. Its presence on PATH
+        # does not make it safe for a locally generated site.
+        return False
 
     def pull(self, release_dir, services, tier="app"):
         if tier == "app":
