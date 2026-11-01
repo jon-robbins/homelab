@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (2026-10-31; implements the settled storage/modules work package, pending integration review)
 - **Code:** `modules/`, `scripts/release/modules.py` (`MEDIA_DIR`, `MEDIA_BIND_IP`, `PEER_BIND_IP`, `exposed`),
-  `scripts/release/compose_policy.py` (`_ports`)
+  `scripts/release/compose_policy.py` (`_ports`), `scripts/release/compare.py` (pre-merge render comparison)
 - **Related:** [0001](0001-compose-modules.md), [0007](0007-disk-markers.md), [0008](0008-compose-policy.md),
   [0015](0015-exposure-policy.md), [0018](0018-local-setup-path.md), [modules guide](../modules.md), [migration prerequisites](../module-migration.md)
 

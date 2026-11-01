@@ -194,3 +194,9 @@ def test_exposure_is_per_service_port_and_protocol():
 
 def test_an_exposed_declaration_does_not_excuse_an_explicit_address_elsewhere():
     check({"svc": service(ports=[port(8096, "192.0.2.10"), port(9000, "0.0.0.0")])}, exposed={"svc:9000/tcp"})
+
+
+def test_caddy_can_keep_its_image_bind_capability():
+    check({"caddy": service(image="ghcr.io/jon-robbins/homelab/caddy" + DIGEST,
+                             cap_drop=["ALL"], cap_add=["NET_BIND_SERVICE"])},
+          tiers={"caddy": "edge"})

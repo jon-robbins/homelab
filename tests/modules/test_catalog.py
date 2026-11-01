@@ -47,6 +47,8 @@ def test_catalog_render_has_production_limits_and_service_settings():
     services = render(ROOT, SITE, {}).app["services"]
     edge = render(ROOT, SITE, {}).edge["services"]
     assert edge["caddy"]["user"] == "1000:1000"
+    assert edge["caddy"]["cap_drop"] == ["ALL"]
+    assert edge["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
     assert services["overseerr"]["user"] == "1000:1000"
     for name in ("sonarr", "radarr", "lidarr", "bazarr", "qbittorrent"):
         assert services[name]["environment"]["UMASK"] == "002"

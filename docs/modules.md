@@ -43,6 +43,9 @@ Published ports bind an address from `site.env`: `MEDIA_BIND_IP` for Jellyfin's 
 interface (no address, `0.0.0.0` or `::`) fails policy unless the site lists it under `exposed` in `site.yaml`, as
 `service:port/proto`. Overrides can add ports but not replace them, so a module publishes only what every site wants.
 
+Caddy retains `NET_BIND_SERVICE` alongside `cap_drop: [ALL]`: the pinned executable carries that file capability
+and cannot execute under the module's non-root UID without it. Its published listeners still follow the site policy.
+
 GPU access isn't in any module. A site that has a GPU adds it in `overrides/<service>.yml` (`gpus: all` for NVIDIA,
 `devices: ["/dev/dri:/dev/dri"]` and `group_add` for Intel and AMD); policy checks it as usual. Compose rejects a
 `gpus` setting in both a module and an override, which is why the module can't carry one.

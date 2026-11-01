@@ -4,6 +4,8 @@ services:
     image: ghcr.io/jon-robbins/homelab/caddy@sha256:5ec9de2201fe98cbf4bf97e32664a594e419b89aaa7169a5e9aa2efe165ab82f
     user: "${PUID}:${PGID}"
     cap_drop: [ALL]
+    # The pinned executable carries this file capability; Docker must retain it to exec as non-root.
+    cap_add: [NET_BIND_SERVICE]
     security_opt: ["no-new-privileges:true"]
     command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     environment:

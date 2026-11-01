@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-10-15)
 - **Code:** `scripts/release/compose_policy.py`, `scripts/release/render.py`, `config/release/cap-allowlist.json`,
-  `config/release/gpu-allowlist.json`
+  `config/release/gpu-allowlist.json`, `modules/edge/caddy.compose.yml` (retained file capability)
 - **Related:** [0001](0001-compose-modules.md), [0006](0006-host-layout.md), [security](../security.md)
 
 ## Decision
@@ -19,6 +19,9 @@ The release renders every module with stock `docker compose config` and then rej
 
 Files a module needs from a repo (Caddyfile, scripts) are Compose `configs` whose content the
 renderer inlines, so a release never points back into a git checkout. Binds are only for data and media.
+
+NET_BIND_SERVICE is permitted for the pinned Caddy executable, which carries that file capability. Its module
+retains it alongside `cap_drop: [ALL]` so a non-root process can execute it. This does not publish additional ports.
 
 ## Consequences
 
