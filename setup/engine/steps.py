@@ -309,9 +309,7 @@ class Phase:
             return
         if self.ops.inspect(service, self._project(service)) is None:
             if self._has_data(service):
-                raise RuntimeError(
-                    f"{service} has existing data but no container; take a manual snapshot before apply"
-                )
+                raise RuntimeError(f"{service} has existing data but no container; take a manual snapshot before apply")
             return
         if self.release.tier(service) != "app":
             raise RuntimeError("stateful edge changes require a manual snapshot before apply")

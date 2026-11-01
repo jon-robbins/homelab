@@ -533,7 +533,10 @@ def test_new_service_can_generate_its_first_secret_after_other_phases_ran(steps,
     app["secrets"]["NEW_PASSWORD"] = {"file": str(world["secrets"] / "NEW_PASSWORD")}
     site["managed"].append("new")
     added = build_steps(
-        ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES,
+        ctx,
+        Release.from_models(ctx.layout, app, edge, site),
+        ops,
+        phases=PHASES,
         generated=("DB_PASSWORD", "NEW_PASSWORD"),
     )
     assert converge(added, ctx).ok
