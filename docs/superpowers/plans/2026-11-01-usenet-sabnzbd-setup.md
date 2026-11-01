@@ -53,12 +53,12 @@ flowchart TD
 
 ## Global Constraints
 
-- One service per Compose file in `modules/<tier>/<service>.compose.yml` ([0001](file:///Users/jon.robbins/GitHub/homelab/docs/decisions/0001-compose-modules.md)).
-- Zero private values (no real domains, private IPs, credentials) in git repos ([0002](file:///Users/jon.robbins/GitHub/homelab/docs/decisions/0002-public-platform-private-site.md)).
-- Digest-pinned images only ([0009](file:///Users/jon.robbins/GitHub/homelab/docs/decisions/0009-image-trust.md)).
-- Secrets rendered into tmpfs from `${HOMELAB_SECRET_DIR}`; never in `environment:`, `site.env`, or git ([0010](file:///Users/jon.robbins/GitHub/homelab/docs/decisions/0010-secrets.md)).
-- No unallowlisted WAN port binds ([0015](file:///Users/jon.robbins/GitHub/homelab/docs/decisions/0015-exposure-policy.md)).
-- Zero manual UI steps: configuration must be automated via runbook scripts ([feedback-script-dont-click.md](file:///Users/jon.robbins/.claude/projects/-Users-jon-robbins-GitHub-homelab/memory/feedback-script-dont-click.md)).
+- One service per Compose file in `modules/<tier>/<service>.compose.yml` ([0001](../../decisions/0001-compose-modules.md)).
+- Zero private values (no real domains, private IPs, credentials) in git repos ([0002](../../decisions/0002-public-platform-private-site.md)).
+- Digest-pinned images only ([0009](../../decisions/0009-image-trust.md)).
+- Secrets rendered into tmpfs from `${HOMELAB_SECRET_DIR}`; never in `environment:`, `site.env`, or git ([0010](../../decisions/0010-secrets.md)).
+- No unallowlisted WAN port binds ([0015](../../decisions/0015-exposure-policy.md)).
+- Zero manual UI steps: configuration must be automated via runbook scripts.
 - `scripts/dev/gate` must pass in `homelab`.
 
 ---
