@@ -18,6 +18,15 @@ from setup import cli
 ROOT = Path(__file__).parents[2]
 
 
+@pytest.fixture(autouse=True)
+def host_preparation_is_outside_engine_e2e(monkeypatch):
+    """These tests exercise the engine against Docker, not privileged host preparation."""
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "install_pinned_packages", lambda: None)
+    monkeypatch.setattr(cli, "ensure_service_user", lambda: None)
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: None)
+
+
 def docker(*argv: str) -> str:
     return subprocess.run(["docker", *argv], check=True, capture_output=True, text=True).stdout.strip()
 

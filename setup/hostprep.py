@@ -134,7 +134,9 @@ def install_pinned_packages() -> None:
     _run(["apt-get", "update"])
     _run(
         [
-            "apt-get", "install", "-y",
+            "apt-get",
+            "install",
+            "-y",
             f"docker-ce={docker['engine']}",
             f"docker-ce-cli={docker['engine']}",
             f"containerd.io={docker['containerd']}",
@@ -180,8 +182,16 @@ def ensure_service_user() -> None:
     if subprocess.run(["getent", "passwd", "homelab-secrets"], capture_output=True).returncode:
         _run(
             [
-                "useradd", "--system", "--no-create-home", "--home-dir", "/nonexistent",
-                "--shell", "/usr/sbin/nologin", "--gid", "homelab", "homelab-secrets",
+                "useradd",
+                "--system",
+                "--no-create-home",
+                "--home-dir",
+                "/nonexistent",
+                "--shell",
+                "/usr/sbin/nologin",
+                "--gid",
+                "homelab",
+                "homelab-secrets",
             ]
         )
     groups = subprocess.run(["id", "-nG", "homelab-secrets"], capture_output=True, text=True, check=True).stdout.split()
@@ -200,8 +210,11 @@ def wait_for_secrets(config: Path, secret_dir: Path, timeout_s: int = 120) -> No
         raise ValueError("Infisical agent config has no rendered secret destinations")
     deadline = time.monotonic() + timeout_s
     while True:
-        missing = [Path(path).name for path in paths if not (secret_dir / Path(path).name).is_file()
-                   or (secret_dir / Path(path).name).stat().st_size == 0]
+        missing = [
+            Path(path).name
+            for path in paths
+            if not (secret_dir / Path(path).name).is_file() or (secret_dir / Path(path).name).stat().st_size == 0
+        ]
         if not missing:
             return
         if time.monotonic() >= deadline:
@@ -241,7 +254,9 @@ def apply_local_host_config() -> None:
     _run(["sysctl", "--load", str(sysctl)])
 
 
-def validate_target(os_release: Mapping[str, str], machine: str, memory_mib: int, public_ip: bool, *, acknowledged=False):
+def validate_target(
+    os_release: Mapping[str, str], machine: str, memory_mib: int, public_ip: bool, *, acknowledged=False
+):
     if os_release.get("ID") != "ubuntu" or os_release.get("VERSION_ID") != "24.04" or machine != "x86_64":
         raise ValueError("only Ubuntu 24.04 amd64 is supported")
     if memory_mib < 4096:
@@ -257,7 +272,8 @@ def preflight(*, acknowledge_public_ip: bool = False) -> None:
         if separator:
             release[key] = value.strip('"')
     memory_kib = next(
-        int(line.split()[1]) for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+        int(line.split()[1])
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
         if line.startswith("MemTotal:")
     )
     addresses = subprocess.run(["ip", "-j", "address"], capture_output=True, text=True, check=True)
