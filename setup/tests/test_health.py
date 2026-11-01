@@ -58,8 +58,16 @@ def test_foreign_container_check_rejects_prefix_siblings_and_mixed_files(tmp_pat
     from setup.engine.ops import LocalOps
 
     root = tmp_path / "releases"
-    output = (
-        f"ours\t{root}/abc/app.json\nforeign\t{root}-other/app.json\nmixed\t{root}/abc/app.json,/elsewhere/app.json\n"
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, output))
+    by_project = {
+        "homelab": f"ours\t{root}/abc/app.json\nforeign\t{root}-other/app.json\n",
+        "homelab-edge": f"mixed\t{root}/abc/app.json,/elsewhere/app.json\n",
+    }
+
+    def fake_docker(argv, **kwargs):
+        # Docker ANDs repeated label filters: two project filters would match nothing.
+        projects = [a.rpartition("=")[2] for a in argv if a.startswith("label=com.docker.compose.project=")]
+        assert len(projects) == 1
+        return subprocess.CompletedProcess(argv, 0, by_project[projects[0]])
+
+    monkeypatch.setattr(subprocess, "run", fake_docker)
     assert LocalOps().foreign_containers(root) == ["foreign", "mixed"]

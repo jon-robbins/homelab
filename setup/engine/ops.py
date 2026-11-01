@@ -57,20 +57,23 @@ class LocalOps(SubprocessOps):
     def foreign_containers(self, releases: Path) -> list[str]:
         """Containers in the owner's Compose projects whose Compose files are not under our release directory."""
         label = "com.docker.compose.project.config_files"
-        argv = [
-            "docker",
-            "ps",
-            "-a",
-            "--format",
-            f'{{{{.Names}}}}\t{{{{.Label "{label}"}}}}',
-        ]
+        rows = []
         for project in ("homelab", "homelab-edge"):
-            argv += ["--filter", f"label=com.docker.compose.project={project}"]
-        listed = subprocess.run(argv, capture_output=True, text=True)
-        if listed.returncode != 0:
-            raise RuntimeError("cannot inspect Docker ownership; restore Docker access before applying")
+            # Docker ANDs repeated label filters, so each project needs its own query.
+            argv = [
+                "docker",
+                "ps",
+                "-a",
+                "--format",
+                f'{{{{.Names}}}}\t{{{{.Label "{label}"}}}}',
+                "--filter",
+                f"label=com.docker.compose.project={project}",
+            ]
+            listed = subprocess.run(argv, capture_output=True, text=True)
+            if listed.returncode != 0:
+                raise RuntimeError("cannot inspect Docker ownership; restore Docker access before applying")
+            rows += [line.partition("\t")[::2] for line in listed.stdout.splitlines() if line]
         root = Path(releases).resolve()
-        rows = [line.partition("\t")[::2] for line in listed.stdout.splitlines() if line]
         return [
             name
             for name, files in rows
