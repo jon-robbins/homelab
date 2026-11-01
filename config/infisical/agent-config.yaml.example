@@ -25,3 +25,15 @@ templates:
   - source-path: /srv/homelab/infisical/templates/SLSKD_API_KEY.tmpl
     destination-path: /run/homelab-secrets/SLSKD_API_KEY
     polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/EWEKA_USERNAME.tmpl
+    destination-path: /run/homelab-secrets/EWEKA_USERNAME
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/EWEKA_PASSWORD.tmpl
+    destination-path: /run/homelab-secrets/EWEKA_PASSWORD
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/SABNZBD_API_KEY.tmpl
+    destination-path: /run/homelab-secrets/SABNZBD_API_KEY
+    polling-interval: 60s
+  - source-path: /srv/homelab/infisical/templates/NZBGEEK_API_KEY.tmpl
+    destination-path: /run/homelab-secrets/NZBGEEK_API_KEY
+    polling-interval: 60s
