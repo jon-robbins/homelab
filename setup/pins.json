@@ -19,7 +19,8 @@
     "compose": "5.6.1-1~ubuntu.24.04~noble",
     "containerd": "2.4.2-3~ubuntu.24.04~noble",
     "buildx": "0.38.1-1~ubuntu.24.04~noble",
-    "signing_key_fingerprint": "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+    "key_url": "https://download.docker.com/linux/ubuntu/gpg",
+    "key_sha256": "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
   },
   "ubuntu_packages": {
     "restic": "0.16.4-2ubuntu0.24.04.3",

@@ -123,3 +123,75 @@ def test_status_lists_a_cut_short_step_so_the_person_knows(wired, ops, capsys):
     capsys.readouterr()
     cli.main([*wired, "status"])
     assert "interrupted" in capsys.readouterr().out
+
+
+@pytest.fixture
+def prep(wired, monkeypatch, world, tmp_path):
+    """`wired` with the host-preparation steps recorded, and no site argument (the host comes first)."""
+    calls = []
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: calls.append(("preflight", kwargs)))
+    monkeypatch.setattr(cli, "install_pinned_packages", lambda: calls.append(("packages", {})))
+    monkeypatch.setattr(cli, "ensure_service_user", lambda: calls.append(("user", {})))
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: calls.append(("config", {})))
+    return calls, ["--root", str(world["root"]), "--platform", str(tmp_path)]
+
+
+def test_prepare_readies_the_host_without_a_site_and_claims_it(prep, world):
+    calls, argv = prep
+
+    assert cli.main([*argv, "prepare"]) == 0
+
+    assert [name for name, _ in calls] == ["preflight", "packages", "user", "config"]
+    assert (world["root"] / "local-setup.owner").read_text().strip() == "local-setup"
+
+
+def test_prepare_refuses_an_owner_host_before_installing_anything(prep, world, capsys):
+    calls, argv = prep
+    (world["root"] / "trust").mkdir(parents=True)
+    (world["root"] / "trust" / "policy.json").write_text("{}")
+
+    assert cli.main([*argv, "prepare"]) == 2
+
+    assert "signed-release" in capsys.readouterr().err
+    assert [name for name, _ in calls] == ["preflight"]
+
+
+def test_rerunning_on_a_host_setup_already_serves_does_not_object_to_its_own_web_ports(prep):
+    calls, argv = prep
+
+    cli.main([*argv, "prepare"])
+    cli.main([*argv, "prepare"])
+
+    checks = [kwargs["check_ports"] for name, kwargs in calls if name == "preflight"]
+    assert checks == [True, False]
+
+
+def test_start_asks_the_first_question_at_a_terminal(prep, monkeypatch, capsys):
+    _, argv = prep
+    asked = []
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "ask", lambda prompt: asked.append(prompt) or "/srv/homelab/site")
+
+    assert cli.main([*argv, "start"]) == 0
+
+    assert [type(p).__name__ for p in asked] == ["Text"]
+    assert "host is ready" in capsys.readouterr().out
+
+
+def test_start_without_a_terminal_prepares_and_does_not_prompt(prep, monkeypatch, capsys):
+    _, argv = prep
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(cli, "ask", lambda prompt: pytest.fail("prompted without a terminal"))
+
+    assert cli.main([*argv, "start"]) == 0
+    assert "host is ready" in capsys.readouterr().out
+
+
+def test_apply_and_status_still_need_a_site(prep, capsys):
+    _, argv = prep
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main([*argv, "apply"])
+
+    assert stopped.value.code == 2
+    assert "--site" in capsys.readouterr().err

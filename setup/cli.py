@@ -1,4 +1,4 @@
-"""`apply` and `status` for a locally set-up host. Plain terminal I/O only; the TUI replaces `ask` and the printing."""
+"""`start`, `prepare`, `apply` and `status` for a locally set-up host. Plain terminal I/O only; the TUI replaces `ask` and the printing."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from .engine.contract import (
     Prompt,
     Secret,
     Status,
+    Text,
 )
 from .engine.layout import HostClaimed, Layout, SetupError
 from .engine.local import Release, build_steps, defaults
@@ -58,7 +59,8 @@ def ask(prompt: Prompt) -> Answer:
         return input(f"{prompt.label} [y/N] ").strip().lower() in ("y", "yes")
     if isinstance(prompt, Choice):
         return input(f"{prompt.label} ({'/'.join(prompt.options)}): ").strip()
-    return input(f"{prompt.label}: ").strip()
+    default = getattr(prompt, "default", None)
+    return input(f"{prompt.label}{f' [{default}]' if default else ''}: ").strip() or default or ""
 
 
 def _context(args: argparse.Namespace, layout: Layout, secrets: Path) -> Context:
@@ -94,13 +96,38 @@ def _show(event: Event) -> None:
         print(f"{event.step}: {event.kind}{(' - ' + event.message) if event.message else ''}")
 
 
-def _apply(args: argparse.Namespace, layout: Layout) -> int:
-    preflight(acknowledge_public_ip=args.ack_public_ip)
+def _prepare_host(args: argparse.Namespace, layout: Layout):
+    """Refuse an unsuitable or claimed host, then install and configure it. Safe to repeat; a rerun changes nothing."""
+    preflight(acknowledge_public_ip=args.ack_public_ip, check_ports=layout.mode() is None)
     ops = make_ops()
     _guard(layout, ops)
+    # Claim before the first package or host-file mutation. claim() rechecks owner markers.
+    layout.claim()
     install_pinned_packages()
     ensure_service_user()
     apply_local_host_config()
+    return ops
+
+
+def _prepare(args: argparse.Namespace, layout: Layout) -> int:
+    _prepare_host(args, layout)
+    print("host is ready")
+    return 0
+
+
+def _start(args: argparse.Namespace, layout: Layout) -> int:
+    """What the one-line bootstrap runs. WS-09 SEAM: the wizard's first screen replaces the plain prompt below."""
+    _prepare(args, layout)
+    if not sys.stdin.isatty():
+        print("Run `python3 -m setup.cli start` in a terminal to continue.")
+        return 0
+    folder = ask(Text("site", "Folder for your local site", default=str(layout.root / "site")))
+    print(f"The guided screens will build your site in {folder}.")
+    return 0
+
+
+def _apply(args: argparse.Namespace, layout: Layout) -> int:
+    ops = _prepare_host(args, layout)
     network_spec = ops.network_spec(layout.setup_dir)
     release, secrets = open_site(args, layout, network_spec)
     layout.claim()
@@ -136,6 +163,9 @@ def _status(args: argparse.Namespace, layout: Layout) -> int:
     return 0 if all(s.status is Status.DONE for s in report.values()) else 1
 
 
+COMMANDS = {"start": _start, "prepare": _prepare, "apply": _apply, "status": _status}
+
+
 def _plugin(value: str) -> tuple[str, Path]:
     name, _, folder = value.partition("=")
     if not (name and folder):
@@ -150,7 +180,7 @@ def _interrupt(signum, frame):
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python3 -m setup.cli", description="Set up this host locally.")
     parser.add_argument("--root", type=Path, default=Path(DEFAULT_ROOT))
-    parser.add_argument("--site", type=Path, required=True, help="your local site directory")
+    parser.add_argument("--site", type=Path, help="your local site directory (apply and status)")
     parser.add_argument(
         "--platform",
         type=Path,
@@ -163,15 +193,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="acknowledge that this host has a globally routable address",
     )
-    parser.add_argument("command", choices=("apply", "status"))
+    parser.add_argument("command", choices=sorted(COMMANDS), help="start: prepare this host, then begin guided setup")
     args = parser.parse_args(argv)
+    if args.command in ("apply", "status") and args.site is None:
+        parser.error("--site is required for apply and status")
     for name in (
         "SIGHUP",
         "SIGTERM",
     ):  # a dropped SSH session ends the run cleanly; apply resumes from checks
         signal.signal(getattr(signal, name), _interrupt)
     try:
-        return (_apply if args.command == "apply" else _status)(args, Layout(args.root))
+        return COMMANDS[args.command](args, Layout(args.root))
     except SetupError as error:
         print(
             f"{'refused' if isinstance(error, HostClaimed) else 'cannot continue'}: {error}",
