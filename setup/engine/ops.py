@@ -6,7 +6,10 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import ipaddress
+import json
 from pathlib import Path
+import secrets
 
 from scripts.controller.reconcile import SubprocessOps
 
@@ -110,9 +113,85 @@ class LocalOps(SubprocessOps):
     def network_exists(self, name):
         return subprocess.run(["docker", "network", "inspect", name], capture_output=True).returncode == 0
 
-    def ensure_network(self, name):
+    def _network_conflicts(self, candidate):
+        routes = subprocess.run(["ip", "-j", "route"], capture_output=True, text=True, check=True)
+        for route in json.loads(routes.stdout):
+            destination = route.get("dst")
+            if destination and destination != "default" and candidate.overlaps(ipaddress.ip_network(destination)):
+                return True
+        listed = subprocess.run(["docker", "network", "ls", "-q"], capture_output=True, text=True, check=True)
+        if listed.stdout.strip():
+            inspected = subprocess.run(
+                ["docker", "network", "inspect", *listed.stdout.split()],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for network in json.loads(inspected.stdout):
+                for config in network.get("IPAM", {}).get("Config") or ():
+                    subnet = config.get("Subnet")
+                    if subnet and candidate.overlaps(ipaddress.ip_network(subnet)):
+                        return True
+        return False
+
+    def network_spec(self, state_dir):
+        path = Path(state_dir) / "network.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        for _ in range(256):
+            family = secrets.randbelow(3)
+            if family == 0:
+                octets = bytes((10, secrets.randbelow(256), 0, 0))
+            elif family == 1:
+                octets = bytes((172, 16 + secrets.randbelow(16), 0, 0))
+            else:
+                octets = bytes((192, 168, 0, 0))
+            candidate = ipaddress.ip_network((int.from_bytes(octets, "big"), 16))
+            if self._network_conflicts(candidate):
+                continue
+            return {
+                "subnet": str(candidate),
+                "gateway": str(candidate.network_address + 1),
+                "caddy_address": str(candidate.network_address + 2),
+                "ip_range": str(ipaddress.ip_network((int(candidate.network_address) + 256, 24))),
+            }
+        raise RuntimeError("could not find a non-conflicting private subnet")
+
+    def network_ready(self, name, state_dir):
+        path = Path(state_dir) / "network.json"
+        if not path.exists() or not self.network_exists(name):
+            return False
+        expected = json.loads(path.read_text(encoding="utf-8"))
+        inspected = subprocess.run(
+            ["docker", "network", "inspect", name], capture_output=True, text=True, check=True
+        )
+        configs = json.loads(inspected.stdout)[0].get("IPAM", {}).get("Config", ())
+        return any(
+            config.get("Subnet") == expected["subnet"]
+            and config.get("Gateway") == expected["gateway"]
+            and config.get("IPRange") == expected["ip_range"]
+            for config in configs
+        )
+
+    def ensure_network(self, name, state_dir, spec):
+        path = Path(state_dir) / "network.json"
+        if self.network_exists(name):
+            if self.network_ready(name, state_dir):
+                return
+            raise RuntimeError(f"existing {name} network is not owned by local setup or does not match its saved plan")
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(spec, sort_keys=True) + "\n", encoding="utf-8")
+            temporary.replace(path)
         if not self.network_exists(name):
-            self.run(["docker", "network", "create", name])
+            self.run(
+                [
+                    "docker", "network", "create", "--driver", "bridge",
+                    "--subnet", spec["subnet"], "--gateway", spec["gateway"],
+                    "--ip-range", spec["ip_range"], name,
+                ]
+            )
 
     def wait_healthy(self, project, service, timeout_s):
         deadline = time.monotonic() + timeout_s

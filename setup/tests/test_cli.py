@@ -19,7 +19,7 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     monkeypatch.setattr(
         cli,
         "open_site",
-        lambda args, layout: (
+        lambda args, layout, network_spec: (
             Release.from_models(layout, app, edge, site),
             world["secrets"],
         ),

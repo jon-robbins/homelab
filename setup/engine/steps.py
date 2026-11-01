@@ -52,18 +52,26 @@ class WriteRelease:
 @dataclass(frozen=True)
 class Network:
     ops: Any
+    planned: Any = None
     id: str = "engine.network"
     needs: tuple[str, ...] = ()
 
     def check(self, ctx: Context) -> State:
-        return State.done() if self.ops.network_exists(NETWORK) else State.needed()
+        if self.ops.network_exists(NETWORK):
+            return State.done() if self.ops.network_ready(NETWORK, ctx.layout.setup_dir) else State.blocked(
+                f"existing {NETWORK} is not owned by local setup or does not match its saved network plan"
+            )
+        return State.needed()
 
     def apply(self, ctx: Context) -> Result:
-        self.ops.ensure_network(NETWORK)
+        spec = self.planned or self.ops.network_spec(ctx.layout.setup_dir)
+        self.ops.ensure_network(NETWORK, ctx.layout.setup_dir, spec)
         return Result.success(f"network {NETWORK} ready")
 
     def verify(self, ctx: Context) -> Result:
-        return Result.success() if self.ops.network_exists(NETWORK) else Result.failure(f"{NETWORK} was not created")
+        return Result.success() if self.ops.network_ready(NETWORK, ctx.layout.setup_dir) else Result.failure(
+            f"{NETWORK} does not match its saved local setup network plan"
+        )
 
 
 @dataclass(frozen=True)
