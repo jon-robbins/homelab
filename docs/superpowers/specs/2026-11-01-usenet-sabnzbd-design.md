@@ -100,12 +100,21 @@ Templates are stored in `config/infisical/templates/` and copied to `/srv/homela
   {{- end -}}
   {{- end -}}
   ```
+- `config/infisical/templates/NZBGEEK_API_KEY.tmpl`:
+  ```gotemplate
+  {{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/mcp" -}}
+  {{- range . -}}
+  {{- if eq .Key "NZBGEEK_API_KEY" -}}{{ .Value }}{{ end -}}
+  {{- end -}}
+  {{- end -}}
+  ```
 
 ### 3.2 Infisical Agent Configuration
 Update `config/infisical/agent-config.yaml.example` to include the destination paths in `/run/homelab-secrets/`:
 - `/run/homelab-secrets/EWEKA_USERNAME`
 - `/run/homelab-secrets/EWEKA_PASSWORD`
 - `/run/homelab-secrets/SABNZBD_API_KEY`
+- `/run/homelab-secrets/NZBGEEK_API_KEY`
 
 Secrets remain strictly in tmpfs (`/run/homelab-secrets`), with `0640` permissions, and are never committed to git, releases, or environment blocks.
 
@@ -154,7 +163,7 @@ ssh -t jon-server 'bash /tmp/d10-sabnzbd-setup.sh apply'
 
 ### 6.2 Operations Performed
 1. **Pre-flight & Secrets Verification**:
-   - Confirms `/run/homelab-secrets/EWEKA_USERNAME`, `/run/homelab-secrets/EWEKA_PASSWORD`, and `/run/homelab-secrets/SABNZBD_API_KEY` exist and are non-empty.
+   - Confirms `/run/homelab-secrets/EWEKA_USERNAME`, `/run/homelab-secrets/EWEKA_PASSWORD`, `/run/homelab-secrets/SABNZBD_API_KEY`, and `/run/homelab-secrets/NZBGEEK_API_KEY` exist and are non-empty.
 2. **SABnzbd Configuration Seeding**:
    - If `/srv/homelab/data/sabnzbd/sabnzbd.ini` does not exist or lacks the Eweka configuration:
      - Generates/patches `sabnzbd.ini` before SABnzbd starts, setting:
@@ -163,7 +172,10 @@ ssh -t jon-server 'bash /tmp/d10-sabnzbd-setup.sh apply'
        - `[categories]`: categories for `tv`, `movies`, `music` with relative/absolute completed paths.
      - Sets ownership to `${PUID}:${PGID}`.
      - This ensures SABnzbd launches with the setup wizard already complete.
-3. **Download Client Automation in *arr Stack**:
+3. **Prowlarr Usenet Indexer (NZBGeek) Provisioning**:
+   - Reads `NZBGEEK_API_KEY` and adds NZBGeek as a Usenet indexer in Prowlarr via its REST API (`/api/v1/indexer`).
+   - Enables sync profile so NZBGeek is automatically propagated to Sonarr, Radarr, and Lidarr.
+4. **Download Client Automation in *arr Stack**:
    - Queries each *arr API (`sonarr:8989`, `radarr:7878`, `lidarr:8686`) using their local API keys.
    - Idempotently adds SABnzbd as a Usenet Download Client:
      - Host: `sabnzbd`
