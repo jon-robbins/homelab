@@ -4,3 +4,9 @@ useDefault = true
 [[allowlists]]
 description = "Synthetic release signing key used only by policy tests"
 paths = ['tests/release/test_checks.py']
+
+[[allowlists]]
+description = "Public checksum pin for the Docker signing key file"
+paths = ['setup/pins.json']
+regexTarget = "line"
+regexes = ['key_sha256']
