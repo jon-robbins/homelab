@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/media" -}}
+{{- range . -}}
+{{- if eq .Key "EWEKA_USERNAME" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}

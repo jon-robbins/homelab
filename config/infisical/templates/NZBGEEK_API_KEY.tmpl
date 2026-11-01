@@ -1,0 +1,5 @@
+{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/mcp" -}}
+{{- range . -}}
+{{- if eq .Key "NZBGEEK_API_KEY" -}}{{ .Value }}{{ end -}}
+{{- end -}}
+{{- end -}}
