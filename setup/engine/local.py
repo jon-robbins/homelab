@@ -138,7 +138,7 @@ def build_steps(
         WriteRelease(release),
         Network(ops),
         Dirs(release),
-        Secrets(release, tuple(default_generated if generated is None else generated)),
+        Secrets(release, tuple(default_generated if generated is None else generated), ops),
     ]
     previous: tuple[str, ...] = foundation
     for name, services in chosen:

@@ -42,6 +42,10 @@ def provide_web_key(ctx):
     ctx.secrets.put("WEB_KEY", "provided-by-a-provider-step")
 
 
+def provide_existing_db_password(ctx):
+    ctx.secrets.put("DB_PASSWORD", "existing-database-password")
+
+
 def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):
     provide_web_key(ctx)
     outcome = converge(steps, ctx)
@@ -255,6 +259,7 @@ def test_repeated_apply_never_restarts_an_owner_stopped_service(steps, ctx, ops)
 
 def test_existing_stateful_service_is_snapshotted_before_recreation(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     original = ops.config_hash
     ops.config_hash = lambda directory, project, service: (
@@ -276,6 +281,7 @@ def test_existing_stateful_service_is_snapshotted_before_recreation(steps, ctx, 
 
 def test_snapshot_failure_prevents_recreation(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     original = ops.config_hash
     ops.config_hash = lambda directory, project, service: (
@@ -319,6 +325,7 @@ def changed(ops, service):
 
 def test_a_stateful_service_that_is_still_starting_is_waited_for_not_stopped(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"  # a killed run left it mid-start
     ops.starting.add("db")
     assert converge(steps, ctx).ok
@@ -333,6 +340,7 @@ def test_the_first_start_of_a_stateful_service_takes_no_snapshot(steps, ctx, ops
 
 def test_recreating_stateful_data_without_backups_asks_first_and_touches_nothing(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     changed(ops, "db")
     ops.backups = False
@@ -418,6 +426,7 @@ def test_a_requires_entry_for_a_step_that_does_not_exist_is_an_error_not_ignored
 
 def test_killed_update_after_start_waits_without_another_snapshot(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     ops.starting.add("db")
     ctx.layout.set_restart_pending("db", True)
@@ -429,6 +438,7 @@ def test_killed_update_after_start_waits_without_another_snapshot(steps, ctx, op
 
 def test_resumed_stateful_boot_gets_the_full_health_timeout(steps, ctx, ops):
     provide_web_key(ctx)
+    provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     ops.starting.add("db")
     waits = []
@@ -459,3 +469,26 @@ def test_existing_stateful_edge_is_never_recreated_without_manual_backup(ctx, mo
     outcome = converge(steps, ctx, ask=lambda prompt: True)
     assert not outcome.ok and "stateful edge" in outcome.reason
     assert ("homelab-edge", "caddy") not in ops.ups()
+
+
+@pytest.mark.parametrize("lost_checkpoint", [False, True])
+def test_a_generated_secret_lost_after_first_start_is_never_regenerated(steps, ctx, ops, world, lost_checkpoint):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    if lost_checkpoint:
+        (ctx.layout.setup_dir / "checkpoints.json").unlink()
+        ctx.checkpoints = Checkpoints(ctx.layout.setup_dir)
+    (world["secrets"] / "DB_PASSWORD").unlink()  # the secret directory is tmpfs: a reboot empties it
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and outcome.stopped_at == "engine.secrets" and "DB_PASSWORD" in outcome.reason
+    assert not ctx.secrets.exists("DB_PASSWORD")
+
+
+def test_a_stopped_service_with_a_restart_marker_and_current_config_is_restarted(steps, ctx, ops):
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
+    ops.containers[("homelab", "db")] = "exited"  # config hash unchanged: only the marker says setup stopped it
+    ctx.layout.set_restart_pending("db", True)
+    assert status(steps, ctx)["phase.database"].status.value == "needed"
+    assert converge(steps, ctx).ok and ops.containers[("homelab", "db")] == "running"
+    assert not ctx.layout.restart_pending("db")

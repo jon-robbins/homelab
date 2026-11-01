@@ -60,6 +60,8 @@ Local files live under `/srv/homelab/setup/`: `checkpoints.json`, `setup.lock` a
 it does not relocate the host backup utility's data tree. A `local-setup.owner` marker is written at both the
 chosen root and `/srv/homelab`, so the signed installer refuses even an alternate-root local installation. Secret files use the site's `HOMELAB_SECRET_DIR` and
 are written atomically in a 0700 directory. Generated secrets survive reruns; provider-issued secrets are never invented.
+If a generated secret is missing after a service has started, setup stops and asks for the original file to be
+restored. It never creates a new password for existing data.
 
 Owner trust, tooling (including a partial installation), current release or controller units refuse local commands
 before rendering or writing, regardless of `--root`. Containers in the reserved Compose projects must point to

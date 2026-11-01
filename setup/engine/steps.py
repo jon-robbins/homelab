@@ -131,6 +131,7 @@ class Secrets:
 
     release: Any
     generated: tuple[str, ...]
+    ops: Any
     id: str = "engine.secrets"
     needs: tuple[str, ...] = ("engine.release",)
 
@@ -143,10 +144,30 @@ class Secrets:
         return sorted(names & set(self.generated))
 
     def check(self, ctx: Context) -> State:
-        return State.needed() if any(not ctx.secrets.exists(n) for n in self._wanted(ctx)) else State.done()
+        missing = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
+        if missing and self._started(ctx):
+            return State.blocked(
+                f"generated secret(s) missing after first start: {', '.join(missing)}; restore the original files"
+            )
+        return State.needed() if missing else State.done()
+
+    def _started(self, ctx: Context) -> bool:
+        if ctx.checkpoints.phase_attempted():
+            return True
+        missing = {name for name in self._wanted(ctx) if not ctx.secrets.exists(name)}
+        return any(
+            (view := self.ops.container(project, service)) is not None and view.status != "created"
+            for project, model in (("homelab", self.release.app), ("homelab-edge", self.release.edge))
+            for service, config in model.get("services", {}).items()
+            if any(secret["source"] in missing for secret in config.get("secrets", ()))
+        )
 
     def apply(self, ctx: Context) -> Result:
         made = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
+        if made and self._started(ctx):
+            return Result.failure(
+                f"generated secret(s) missing after first start: {', '.join(made)}; restore the original files"
+            )
         for name in made:
             ctx.secrets.ensure(name)
         return Result.success(f"generated {len(made)} secret(s): {', '.join(made)}")
