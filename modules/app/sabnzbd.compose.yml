@@ -1,0 +1,35 @@
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:5.1.3-ls279@sha256:a7cfba459929f73b83c98b476a845076dc72524af80b24fcb4200684e6b1b675
+    pids_limit: 500
+    networks: [homelab_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - UMASK=002
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/sabnzbd
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind: {create_host_path: false}
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api?mode=version >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  homelab_net:
+    external: true
