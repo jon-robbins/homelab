@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import shutil
 import sys
 from collections.abc import Sequence
 from getpass import getpass
@@ -27,6 +28,7 @@ from .engine.local import Release, build_steps, defaults
 from .engine.ops import LocalOps
 from .engine.runner import Event, run, status
 from .engine.secrets import SecretStore
+from .hostprep import apply_local_host_config, ensure_service_user, install_pinned_packages, preflight
 
 DEFAULT_ROOT = "/srv/homelab"
 
@@ -78,6 +80,8 @@ def _steps(ctx: Context, release: Release, ops, network_spec):
 def _guard(layout: Layout, ops) -> None:
     """Refuse, before any write, a host that the owner's pipeline has claimed or has containers running on."""
     layout.refuse_owner_host()
+    if shutil.which("docker") is None:
+        return
     if foreign := ops.foreign_containers(layout.releases):
         raise HostClaimed(
             f"containers in the owner's Compose projects that setup did not create: {', '.join(sorted(foreign))}. "
@@ -91,8 +95,12 @@ def _show(event: Event) -> None:
 
 
 def _apply(args: argparse.Namespace, layout: Layout) -> int:
+    preflight(acknowledge_public_ip=args.ack_public_ip)
     ops = make_ops()
     _guard(layout, ops)
+    install_pinned_packages()
+    ensure_service_user()
+    apply_local_host_config()
     network_spec = ops.network_spec(layout.setup_dir)
     release, secrets = open_site(args, layout, network_spec)
     layout.claim()
@@ -150,6 +158,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the homelab checkout or release",
     )
     parser.add_argument("--plugin", type=_plugin, action="append", default=[], help="NAME=DIR")
+    parser.add_argument(
+        "--ack-public-ip",
+        action="store_true",
+        help="acknowledge that this host has a globally routable address",
+    )
     parser.add_argument("command", choices=("apply", "status"))
     args = parser.parse_args(argv)
     for name in (

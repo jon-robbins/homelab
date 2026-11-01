@@ -58,8 +58,12 @@ class Network:
 
     def check(self, ctx: Context) -> State:
         if self.ops.network_exists(NETWORK):
-            return State.done() if self.ops.network_ready(NETWORK, ctx.layout.setup_dir) else State.blocked(
-                f"existing {NETWORK} is not owned by local setup or does not match its saved network plan"
+            return (
+                State.done()
+                if self.ops.network_ready(NETWORK, ctx.layout.setup_dir)
+                else State.blocked(
+                    f"existing {NETWORK} is not owned by local setup or does not match its saved network plan"
+                )
             )
         return State.needed()
 
@@ -69,8 +73,10 @@ class Network:
         return Result.success(f"network {NETWORK} ready")
 
     def verify(self, ctx: Context) -> Result:
-        return Result.success() if self.ops.network_ready(NETWORK, ctx.layout.setup_dir) else Result.failure(
-            f"{NETWORK} does not match its saved local setup network plan"
+        return (
+            Result.success()
+            if self.ops.network_ready(NETWORK, ctx.layout.setup_dir)
+            else Result.failure(f"{NETWORK} does not match its saved local setup network plan")
         )
 
 

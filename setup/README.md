@@ -7,16 +7,21 @@ This is the engine foundation for the guided local setup in [0018](../docs/decis
 It has no screens or provider wiring yet. It is separate from the signed owner pipeline and never calls its admission,
 materialize or reconcile functions. Nothing in the platform depends on this directory.
 
-Install `setup/requirements.txt` in a Python 3.12 environment. From the platform root:
+Install `setup/requirements.txt` in a Python 3.12 environment. From the platform root, run local setup as root on
+Ubuntu 24.04 amd64:
 
 ```sh
 python3 -m setup.cli --site /path/to/local-site status
 python3 -m setup.cli --site /path/to/local-site apply
 ```
 
-Run apply as the host administrator after reviewing the generated site. The renderer enforces the platform Compose
-policy and image pins. Local apply does not authenticate a downloaded platform version: signed download/update
-verification belongs to the update command. This engine is not a replacement for signed admission on owner hosts.
+`apply` performs a read-only host preflight and ownership check before installing pinned host packages. Artifact
+downloads are verified against `setup/pins.json` before installation. The local Docker unit requires and starts after
+Tailscale and the secrets readiness unit, so a missing required secret prevents Docker from starting on reboot.
+Review the generated site before continuing. The renderer enforces the platform Compose policy and image pins. Local
+apply does not authenticate a downloaded
+platform version: signed release verification belongs to the WS-13 release/update contract. This engine is not a
+replacement for signed admission on owner hosts.
 
 ## Step contract
 
