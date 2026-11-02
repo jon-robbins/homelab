@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import signal
 import shutil
+import signal
+import subprocess
 import sys
 from collections.abc import Sequence
 from getpass import getpass
@@ -128,7 +129,7 @@ def _start(args: argparse.Namespace, layout: Layout) -> int:
 
 def _apply(args: argparse.Namespace, layout: Layout) -> int:
     ops = _prepare_host(args, layout)
-    network_spec = ops.network_spec(layout.setup_dir)
+    network_spec = ops.plan_network(layout.setup_dir)
     release, secrets = open_site(args, layout, network_spec)
     release.require_loopback_published_ports()
     layout.claim()
@@ -205,6 +206,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{'refused' if isinstance(error, HostClaimed) else 'cannot continue'}: {error}",
             file=sys.stderr,
         )
+        return 2
+    except subprocess.CalledProcessError as error:
+        print(f"cannot continue: {' '.join(map(str, error.cmd))} exited {error.returncode}", file=sys.stderr)
         return 2
     except (OSError, ValueError, RuntimeError) as error:
         print(f"cannot continue: {error}", file=sys.stderr)

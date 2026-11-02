@@ -58,21 +58,25 @@ fetch_release() {
   local target=$INSTALL_DIR/releases/$RELEASE_SHA256
   if [[ ! -d $target ]]; then
     fetch "$RELEASE_URL" "$RELEASE_SHA256" "$work/release.tar.gz"
-    mkdir -p "$work/unpacked"
-    tar -xzf "$work/release.tar.gz" -C "$work/unpacked" --strip-components=1 --no-same-owner
     mkdir -p "$INSTALL_DIR/releases"
-    mv "$work/unpacked" "$target"
+    # Unpack beside the target and rename: an interrupted copy never leaves a partial $target to trust next run.
+    local staging
+    rm -rf "$INSTALL_DIR"/releases/.staging.*  # left by an interrupted run
+    staging=$(mktemp -d "$INSTALL_DIR/releases/.staging.XXXXXX")
+    tar -xzf "$work/release.tar.gz" -C "$staging" --strip-components=1 --no-same-owner
+    mv -T "$staging" "$target"
   fi
   platform=$target
 }
 
 make_venv() {
   local venv=$INSTALL_DIR/venv
-  if [[ ! -x $venv/bin/python ]]; then
-    python3 -m venv "$venv" 2>/dev/null || {
+  # Test pip, not python: a venv that failed for lack of python3-venv still leaves bin/python behind.
+  if [[ ! -x $venv/bin/pip ]]; then
+    python3 -m venv --clear "$venv" 2>/dev/null || {
       apt-get update -qq >&2
       apt-get install -y python3-venv >&2
-      python3 -m venv "$venv"
+      python3 -m venv --clear "$venv"
     }
   fi
   "$venv/bin/pip" install --quiet --disable-pip-version-check --only-binary=:all: --require-hashes -r "$platform/config/release/requirements.txt"
