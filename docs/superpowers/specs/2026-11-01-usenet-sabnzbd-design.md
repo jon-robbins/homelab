@@ -41,8 +41,8 @@ services:
         target: /config
         bind: {create_host_path: false}
       - type: bind
-        source: ${DOWNLOADS_DIR}
-        target: /downloads
+        source: ${MEDIA_DIR}/downloads
+        target: /data/downloads
         bind: {create_host_path: false}
     labels:
       homelab.state: stateful
@@ -66,7 +66,7 @@ networks:
   - Image is pinned with full sha256 digest (`lscr.io/linuxserver/` is on the allowlist).
   - Explicit capabilities dropped (`ALL`) and minimal allowed set added (`CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE`, `FOWNER`).
   - `pids_limit` set to 500.
-  - Binds are strictly under `${APP_DATA_DIR}/sabnzbd` and `${DOWNLOADS_DIR}` (declared bind roots).
+  - Binds are strictly under `${APP_DATA_DIR}/sabnzbd` and `${MEDIA_DIR}/downloads` (declared bind roots).
   - Stateful label `homelab.state: stateful` ensures `homelab-backup` snapshots `${APP_DATA_DIR}/sabnzbd`.
 - **[0015] Exposure policy**: No ports are published to host interfaces. Admin UI is reachable internally via `homelab_net` and externally only through Caddy on LAN/Tailscale.
 
@@ -140,14 +140,14 @@ Secrets remain strictly in tmpfs (`/run/homelab-secrets`), with `0640` permissio
 
 ## 5. Storage & Shared Download Layout
 
-SABnzbd will use standard download paths inside `${DOWNLOADS_DIR}`:
-- Complete downloads: `/downloads/complete`
-  - Movies: `/downloads/complete/movies` (Category `movies`)
-  - TV: `/downloads/complete/tv` (Category `tv`)
-  - Music: `/downloads/complete/music` (Category `music`)
-- Incomplete downloads: `/downloads/incomplete`
+SABnzbd will use standard download paths inside `${MEDIA_DIR}/downloads`:
+- Complete downloads: `/data/downloads/complete`
+  - Movies: `/data/downloads/complete/movies` (Category `movies`)
+  - TV: `/data/downloads/complete/tv` (Category `tv`)
+  - Music: `/data/downloads/complete/music` (Category `music`)
+- Incomplete downloads: `/data/downloads/incomplete`
 
-Because `${DOWNLOADS_DIR}` is mounted at `/downloads` across SABnzbd, Sonarr, Radarr, and Lidarr on the same underlying filesystem, moving completed downloads into the final media paths is an atomic hardlink / instant rename with no slow disk-to-disk duplication.
+Because the shared `${MEDIA_DIR}` is mounted at `/data` by Sonarr, Radarr and Lidarr and its `downloads/` at `/data/downloads` by SABnzbd (decision 0019) on the same underlying filesystem, moving completed downloads into the final media paths is an atomic hardlink / instant rename with no slow disk-to-disk duplication.
 
 ---
 
