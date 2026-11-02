@@ -18,14 +18,23 @@ COMPOSE_UP = ["up", "-d", "--no-deps", "--no-build", "--pull", "never"]
 
 
 def _binds(release: Any) -> list[dict[str, Any]]:
-    models = (release.app, release.edge)
-    return [
-        v
-        for m in models
-        for s in m.get("services", {}).values()
-        for v in s.get("volumes", ())
-        if v.get("type") == "bind"
-    ]
+    return [v for s in release.services.values() for v in s.get("volumes", ()) if v.get("type") == "bind"]
+
+
+def _writable_binds(service: dict[str, Any]) -> list[Path]:
+    return [Path(v["source"]) for v in service.get("volumes", ()) if v.get("type") == "bind" and not v.get("read_only")]
+
+
+def _holds_data(path: Path) -> bool:
+    return (path.is_file() and path.stat().st_size > 0) or (path.is_dir() and any(path.iterdir()))
+
+
+def _owner(service: dict[str, Any]) -> tuple[int, int]:
+    """uid:gid the service runs as: its `user:`, else PUID/PGID, else whoever runs setup."""
+    env = service.get("environment", {})
+    user = service.get("user", f"{env.get('PUID', os.geteuid())}:{env.get('PGID', os.getegid())}")
+    uid, _, gid = str(user).partition(":")
+    return int(uid), int(gid or uid)
 
 
 def _is_marker(path: str) -> bool:
@@ -97,22 +106,11 @@ class Dirs:
         return State.needed() if dirs else State.done()
 
     def _owners(self) -> dict[Path, tuple[int, int]]:
-        owners = {}
-        for model in (self.release.app, self.release.edge):
-            for service in model.get("services", {}).values():
-                env = service.get("environment", {})
-                user = service.get(
-                    "user",
-                    f"{env.get('PUID', os.geteuid())}:{env.get('PGID', os.getegid())}",
-                )
-                uid, _, gid = str(user).partition(":")
-                identity = (int(uid), int(gid or uid))
-                for volume in service.get("volumes", ()):
-                    if volume.get("type") == "bind" and not volume.get("read_only"):
-                        path = Path(volume["source"])
-                        if path in owners and owners[path] != identity:
-                            raise ValueError(f"conflicting directory owners: {path}")
-                        owners[path] = identity
+        owners: dict[Path, tuple[int, int]] = {}
+        for service in self.release.services.values():
+            for path in _writable_binds(service):
+                if owners.setdefault(path, _owner(service)) != _owner(service):
+                    raise ValueError(f"conflicting directory owners: {path}")
         return owners
 
     def apply(self, ctx: Context) -> Result:
@@ -146,11 +144,8 @@ class Secrets:
     needs: tuple[str, ...] = ("engine.release",)
 
     def _wanted(self, ctx: Context) -> list[str]:
-        files = {
-            **self.release.app.get("secrets", {}),
-            **self.release.edge.get("secrets", {}),
-        }
-        names = {Path(f["file"]).name for f in files.values() if Path(f["file"]).parent == ctx.secrets.directory}
+        files = self.release.secrets.values()
+        names = {Path(f["file"]).name for f in files if Path(f["file"]).parent == ctx.secrets.directory}
         return sorted(names & set(self.generated))
 
     def check(self, ctx: Context) -> State:
@@ -163,22 +158,18 @@ class Secrets:
         return State.needed() if missing else State.done()
 
     def _started(self, ctx: Context, name: str) -> bool:
+        """Whether a service using secret `name` has already run or written data, so a new value would break it."""
         if ctx.checkpoints.facts().get(f"secret.created.{name}"):
             return True
-        for project, model in (("homelab", self.release.app), ("homelab-edge", self.release.edge)):
-            files = model.get("secrets", {})
-            for service, config in model.get("services", {}).items():
-                if not any(Path(files[entry["source"]]["file"]).name == name for entry in config.get("secrets", ())):
-                    continue
-                inspected = self.ops.inspect(service, project)  # an inspection error must abort, never mean absent
-                if inspected and inspected.get("State", {}).get("Status") != "created":
-                    return True
-                for volume in config.get("volumes", ()):
-                    if volume.get("type") != "bind" or volume.get("read_only"):
-                        continue
-                    path = Path(volume["source"])
-                    if (path.is_file() and path.stat().st_size) or (path.is_dir() and any(path.iterdir())):
-                        return True
+        files = self.release.secrets
+        for service, config in self.release.services.items():
+            if name not in {Path(files[e["source"]]["file"]).name for e in config.get("secrets", ())}:
+                continue
+            inspected = self.ops.inspect(service, self.release.project(service))  # an error aborts, never "absent"
+            if inspected and inspected.get("State", {}).get("Status") != "created":
+                return True
+            if any(map(_holds_data, _writable_binds(config))):
+                return True
         return False
 
     def apply(self, ctx: Context) -> Result:
@@ -211,33 +202,21 @@ class Phase:
     ops: Any
 
     def _project(self, service: str) -> str:
-        return "homelab" if self.release.tier(service) == "app" else "homelab-edge"
+        return self.release.project(service)
 
     def _wanted_running(self, service: str) -> bool:
         return self.release.site.get("services", {}).get(service, {}).get("state", "running") == "running"
 
     def _missing_secrets(self, ctx: Context) -> list[str]:
-        models = {
-            **self.release.app.get("secrets", {}),
-            **self.release.edge.get("secrets", {}),
-        }
+        models = self.release.secrets
         files = [models[e["source"]]["file"] for s in self.services for e in self._service(s).get("secrets", ())]
         return sorted({Path(f).name for f in files if not (Path(f).is_file() and Path(f).stat().st_size)})
 
     def _service(self, service: str) -> dict[str, Any]:
-        return {
-            **self.release.app.get("services", {}),
-            **self.release.edge.get("services", {}),
-        }[service]
+        return self.release.services[service]
 
     def _has_data(self, service: str) -> bool:
-        for volume in self._service(service).get("volumes", ()):
-            if volume.get("type") != "bind" or volume.get("read_only"):
-                continue
-            path = Path(volume["source"])
-            if (path.is_file() and path.stat().st_size) or (path.is_dir() and any(path.iterdir())):
-                return True
-        return False
+        return any(map(_holds_data, _writable_binds(self._service(service))))
 
     def _stale(self, service: str) -> bool:
         view = self.ops.container(self._project(service), service)
@@ -256,15 +235,13 @@ class Phase:
         todo, stopped = [], []
         for service in self.services:
             view = self.ops.container(self._project(service), service)
-            if view and view.status == "exited" and not ctx.layout.restart_pending(service):
-                if self._wanted_running(service):
-                    stopped.append(service)
-            elif (
-                self._stale(service)
-                or (ctx.layout.restart_pending(service) and view.status != "running")
-                or self._wanted_running(service)
-                and view.status == "created"
-            ):
+            pending, running = ctx.layout.restart_pending(service), self._wanted_running(service)
+            if view and view.status == "exited" and not pending:
+                if running:
+                    stopped.append(service)  # the owner stopped it; never restart it
+                continue
+            # _stale is true when there is no container, so `view` is set for the two status checks.
+            if self._stale(service) or (pending and view.status != "running") or (running and view.status == "created"):
                 todo.append(service)
         return todo, stopped
 
@@ -292,27 +269,12 @@ class Phase:
         return State.needed() if unhealthy else State.done()
 
     def _command(self, service: str) -> list[str]:
-        directory = self.release.directory
+        running, directory = self._wanted_running(service), self.release.directory
         if self.release.tier(service) == "app":
-            stopped = not self._wanted_running(service)
-            return compose_commands(
-                Plan((), (service,), (), ()) if stopped else Plan((service,), (), (), ()),
-                directory,
-            )[0]
-        return [
-            "docker",
-            "compose",
-            "-p",
-            "homelab-edge",
-            "-f",
-            str(directory / "edge.json"),
-            *(
-                COMPOSE_UP
-                if self._wanted_running(service)
-                else ["up", "--no-deps", "--no-start", "--no-build", "--pull", "never"]
-            ),
-            service,
-        ]
+            plan_ = Plan((service,), (), (), ()) if running else Plan((), (service,), (), ())
+            return compose_commands(plan_, directory)[0]
+        up = COMPOSE_UP if running else ["up", "--no-deps", "--no-start", "--no-build", "--pull", "never"]
+        return ["docker", "compose", "-p", "homelab-edge", "-f", str(directory / "edge.json"), *up, service]
 
     def _snapshot(self, ctx: Context, service: str, enabled: bool) -> None:
         if self._service(service).get("labels", {}).get("homelab.state") != "stateful":
@@ -337,9 +299,8 @@ class Phase:
         existing = [s for s in stateful if self.ops.inspect(s, self._project(s)) is not None or self._has_data(s)]
         if any(self.release.tier(s) == "edge" for s in existing):
             return Result.failure("stateful edge changes require a manual snapshot before apply")
-        snapshot = bool(existing)
         can_snapshot = self.ops.can_snapshot()
-        if snapshot and not can_snapshot:
+        if existing and not can_snapshot:
             return Result.failure("no local snapshot is configured; existing stateful data will not be changed")
         for tier in ("app", "edge"):
             self.ops.pull(

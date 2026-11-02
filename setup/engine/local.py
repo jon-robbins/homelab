@@ -72,27 +72,35 @@ class Release:
                 caddy["networks"] = {"homelab_net": {"ipv4_address": network_spec["caddy_address"]}}
         return cls.from_models(layout, rendered.app, rendered.edge, site)
 
+    @property
+    def services(self) -> dict[str, dict[str, Any]]:
+        """Every service definition, both tiers."""
+        return {**self.app.get("services", {}), **self.edge.get("services", {})}
+
+    @property
+    def secrets(self) -> dict[str, dict[str, Any]]:
+        """Every top-level Compose secret, both tiers."""
+        return {**self.app.get("secrets", {}), **self.edge.get("secrets", {})}
+
     def tier(self, service: str) -> str:
         return "app" if service in self.app.get("services", {}) else "edge"
 
+    def project(self, service: str) -> str:
+        return "homelab" if self.tier(service) == "app" else "homelab-edge"
+
     def require_loopback_published_ports(self) -> None:
         """Incomplete-preview guard: only explicitly numeric loopback binds may publish host ports."""
-        ports = (
-            (tier, service, port)
-            for tier, model in (("app", self.app), ("edge", self.edge))
-            for service, defn in model.get("services", {}).items()
-            for port in defn.get("ports", ())
-        )
-        for tier, service, port in ports:
+        ports = ((service, port) for service, defn in self.services.items() for port in defn.get("ports", ()))
+        for service, port in ports:
             host_ip = port.get("host_ip") if isinstance(port, Mapping) else None
             try:
                 address = ipaddress.ip_address(host_ip)
             except (ValueError, TypeError):
                 raise ValueError(
-                    f"{tier} service {service} publishes a port without an explicit numeric loopback bind"
+                    f"{self.tier(service)} service {service} publishes a port without an explicit numeric loopback bind"
                 ) from None
             if str(address) not in ("127.0.0.1", "::1"):
-                raise ValueError(f"{tier} service {service} publishes a port outside loopback")
+                raise ValueError(f"{self.tier(service)} service {service} publishes a port outside loopback")
 
     def complete(self) -> bool:
         return all((self.directory / name).is_file() for name in FILES)
@@ -124,7 +132,7 @@ def defaults() -> tuple[Sequence[tuple[str, Sequence[str]]], Sequence[str]]:
 
 def _phases(release: Release, phases: Iterable[tuple[str, Sequence[str]]]) -> list[tuple[str, tuple[str, ...]]]:
     """Keep only services this site runs and manages; `*` takes every other one, so nothing is left unstarted."""
-    models = {**release.app.get("services", {}), **release.edge.get("services", {})}
+    models = release.services
     present = set(models) & set(release.site["managed"])
     named = {service for _, services in phases for service in services}
     done: set[str] = set()
