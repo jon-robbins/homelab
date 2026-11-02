@@ -1,21 +1,33 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "host/homelab-edge-update"
 
-# A fake docker: logs every call; `up --wait` fails with $FAKE_HEALTH=unhealthy, except for the last good edge.
-DOCKER = """#!/bin/sh
-printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
-case "$*" in
-  *" pull"*) exit "${FAKE_PULL_STATUS:-0}" ;;
-  *edge-good.json*" up "*) ;;
-  *" up "*) [ "${FAKE_HEALTH:-healthy}" = healthy ] ;;
-esac
+# A fake docker that models the compose project: it logs every call and keeps the set of running services in
+# $FAKE_RUNNING. `up` starts the file's services and, only with --remove-orphans, stops the ones the file lacks.
+# `up --wait` fails with $FAKE_HEALTH=unhealthy, except for the last good edge.
+DOCKER = f"""#!{sys.executable}
+import json, os, sys
+args = sys.argv[1:]
+line = " ".join(args)
+open(os.environ["FAKE_DOCKER_LOG"], "a").write(line + "\\n")
+if line.endswith(" pull"):
+    sys.exit(int(os.environ.get("FAKE_PULL_STATUS", "0")))
+if " up " in line:
+    wanted = set(json.load(open(args[args.index("-f") + 1])).get("services", {{}}))
+    path = os.environ["FAKE_RUNNING"]
+    running = set(open(path).read().split()) if os.path.exists(path) else set()
+    running = wanted if "--remove-orphans" in args else running | wanted
+    open(path, "w").write(" ".join(sorted(running)))
+    healthy = os.environ.get("FAKE_HEALTH", "healthy") == "healthy" or "edge-good.json" in line
+    sys.exit(0 if healthy else 1)
 """
 
 
@@ -36,6 +48,7 @@ def setup(tmp_path: Path, edge: str, *, good: str | None = None) -> dict[str, st
         "HOMELAB": str(home),
         "EDGE_HEALTH_TIMEOUT": "5",
         "FAKE_DOCKER_LOG": str(tmp_path / "docker.log"),
+        "FAKE_RUNNING": str(tmp_path / "running"),
     }
 
 
@@ -50,6 +63,15 @@ def calls(tmp_path: Path) -> list[str]:
 
 def ups(tmp_path: Path) -> list[str]:
     return [call for call in calls(tmp_path) if " up -d --no-deps --wait " in call]
+
+
+def running(tmp_path: Path) -> set[str]:
+    path = tmp_path / "running"
+    return set(path.read_text().split()) if path.exists() else set()
+
+
+def edge(*services: str) -> str:
+    return json.dumps({"services": {name: {} for name in services}})
 
 
 def state(tmp_path: Path, name: str) -> Path:
@@ -121,3 +143,26 @@ def test_observe_only_and_missing_release_do_nothing(tmp_path: Path):
     (tmp_path / "srv/releases/current/edge.json").unlink()
     assert run(env).returncode == 0
     assert calls(tmp_path) == []
+
+
+def test_apply_removes_a_service_the_release_dropped(tmp_path: Path):
+    # The proxy swap: caddy holds the port, so a release that replaces it must stop it or the new one cannot bind.
+    env = setup(tmp_path, edge("traefik", "cloudflared"), good=edge("caddy", "cloudflared"))
+    (tmp_path / "running").write_text("caddy cloudflared")
+    assert run(env).returncode == 0
+    assert running(tmp_path) == {"traefik", "cloudflared"}
+
+
+def test_rollback_removes_the_service_the_failed_release_added(tmp_path: Path):
+    env = setup(tmp_path, edge("traefik", "cloudflared"), good=edge("caddy", "cloudflared"))
+    (tmp_path / "running").write_text("caddy cloudflared")
+    assert run(env, FAKE_HEALTH="unhealthy").returncode == 1
+    assert running(tmp_path) == {"caddy", "cloudflared"}
+    assert state(tmp_path, "edge-good.json").read_text() == edge("caddy", "cloudflared")
+
+
+def test_failed_pull_leaves_the_running_services_alone(tmp_path: Path):
+    env = setup(tmp_path, edge("traefik", "cloudflared"), good=edge("caddy", "cloudflared"))
+    (tmp_path / "running").write_text("caddy cloudflared")
+    assert run(env, FAKE_PULL_STATUS="1").returncode == 1
+    assert running(tmp_path) == {"caddy", "cloudflared"}

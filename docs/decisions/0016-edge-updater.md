@@ -1,6 +1,7 @@
 # 0016: The edge tier updates itself, with rollback
 
-- **Status:** Accepted (2026-10-25)
+- **Status:** Accepted (2026-10-25); amended by [0020](0020-traefik-edge.md) (2026-11-02): applies remove services
+  the release dropped
 - **Supersedes:** the edge row and the first **Don't** of [0003](0003-tiers.md); the **Don't** of
   [0014](0014-dependabot-automerge.md)
 - **Code:** `host/homelab-edge-update`, `host/install.sh`, `.github/workflows/dependabot-automerge.yml`
