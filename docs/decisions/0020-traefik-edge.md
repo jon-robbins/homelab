@@ -4,9 +4,10 @@
 - **Supersedes:** in [0009](0009-image-trust.md), "the only first-party image is caddy" and the Caddy build,
   attestation and digest injection for the edge; in [0008](0008-compose-policy.md), the `NET_BIND_SERVICE`
   exception for the Caddy executable; in [0016](0016-edge-updater.md), "Caddy's admin API answers" as the edge
-  health signal; in [0015](0015-exposure-policy.md) step 3, "the Caddy admin API" and "a `remote_ip` guard"
+  health signal, decision 2 (`up` now also removes services the release dropped) and decision 5 for Traefik minor
+  bumps (patch only); in [0015](0015-exposure-policy.md) step 3, "the Caddy admin API" and "a `remote_ip` guard"
 - **Code:** `host/homelab-edge-update`, `config/release/image-policy.json`, `config/release/cap-allowlist.json`,
-  `.github/dependabot.yml`, `.github/workflows/dependabot-automerge.yml`
+  `.github/dependabot.yml`, `.github/workflows/dependabot-automerge.yml` (P4 adds the module and config/traefik/)
 - **Related:** [0001](0001-compose-modules.md), [0003](0003-tiers.md), [0004](0004-signed-full-state-releases.md),
   [0005](0005-slim-controller.md), [0010](0010-secrets.md), [0011](0011-complexity-budgets.md),
   [0018](0018-local-setup-path.md), [0019](0019-shared-media-mount.md), [ingress](../ingress.md),
@@ -73,7 +74,7 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
    unattended, because minors have flipped security defaults; patch bumps still are. The updater's `up` adds
    `--remove-orphans`, so applying an `edge.json` gives the edge project exactly that file's services, on apply and
    on rollback. A proxy swap and its rollback then work like any other edge change. Rollback keeps both proxies'
-   certificates, because each keeps its own data directory. The controller still never applies the edge tier,
+   certificates, because each keeps its own certificate store. The controller still never applies the edge tier,
    starts nothing the owner stopped and uses `--no-deps`. Ping only shows that Traefik is running, not that its
    routes loaded, so route correctness is checked outside the updater (owner: a verify runbook after the merge, with
    rollback by revert; setup: its edge phase verify and GATE-1).
@@ -116,7 +117,7 @@ script).
   `asDefault` keeps routers without `entryPoints` off `tunnel`.
 - **G3 Token and ACME:** lego in the pinned version reads `CF_DNS_API_TOKEN_FILE`, tolerates a trailing newline, and
   needs no more than DNS edit and zone read on one zone. It issues from the staging CA with no email. `acme.json` is
-  created 0600 by the non-root user on the data bind.
+  created 0600 by the non-root user on the acme bind.
 - **G4 Header stripping:** forged `X-Authentik-*`, `Remote-User` and their underscore and dot aliases never reach the
   upstream through the gate chain.
 - **G5 Probe:** `traefik/whoami` behind the chain shows only Authentik's identity. With Authentik stopped, every gated
