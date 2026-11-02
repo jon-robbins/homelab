@@ -35,7 +35,7 @@ flowchart TD
         P1["Prowlarr (NZBGeek)"] --> A1["Sonarr / Radarr / Lidarr"]
         A1 -->|Push .nzb| S2["SABnzbd:8080"]
         S2 -->|50 SSL conn| E1["Eweka (news.eweka.nl:563)"]
-        S2 -->|Unpacks to /downloads| A1
+        S2 -->|Unpacks to /data/downloads| A1
         A1 -->|Hardlink / Import| J1["Navidrome / Jellyfin / Plex"]
     end
 
@@ -70,7 +70,7 @@ flowchart TD
 - Test: `scripts/dev/gate`
 
 **Interfaces:**
-- Consumes: Environment variables `${PUID}`, `${PGID}`, `${TZ}`, `${APP_DATA_DIR}`, `${DOWNLOADS_DIR}`.
+- Consumes: Environment variables `${PUID}`, `${PGID}`, `${TZ}`, `${APP_DATA_DIR}`, `${MEDIA_DIR}`.
 - Produces: Service `sabnzbd` listening internally on `homelab_net` at port 8080.
 
 - [ ] **Step 1: Create `modules/app/sabnzbd.compose.yml`**
@@ -97,8 +97,8 @@ services:
         target: /config
         bind: {create_host_path: false}
       - type: bind
-        source: ${DOWNLOADS_DIR}
-        target: /downloads
+        source: ${MEDIA_DIR}/downloads
+        target: /data/downloads
         bind: {create_host_path: false}
     labels:
       homelab.state: stateful
@@ -335,8 +335,8 @@ ssl_cert = ""
 ssl_key = ""
 ssl_chain = ""
 auto_browser = 0
-complete_dir = /downloads/complete
-incomplete_dir = /downloads/incomplete
+complete_dir = /data/downloads/complete
+incomplete_dir = /data/downloads/incomplete
 permissions = 775
 
 [logging]

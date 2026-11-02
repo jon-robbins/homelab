@@ -1,0 +1,26 @@
+services:
+  jellyfin:
+    gpus: all
+    group_add: [video]
+    devices: ["/dev/dri:/dev/dri"]
+    environment:
+      JELLYFIN_PublishedServerUrl: https://jellyfin.home.example.test
+    volumes:
+      - type: bind
+        source: ${MOVIES_DIR}
+        target: /movies
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TV_DIR}
+        target: /tv
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        read_only: true
+        bind:
+          create_host_path: false

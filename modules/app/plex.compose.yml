@@ -5,25 +5,19 @@ services:
     memswap_limit: 16g
     pids_limit: 500
     networks: [homelab_net]
-    ports: ["32400:32400/tcp"]
+    ports: ["${MEDIA_BIND_IP}:32400:32400/tcp"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
     environment: ["PUID=${PUID}", "PGID=${PGID}", "TZ=${TZ}", "VERSION=docker"]
-    gpus: all
     volumes:
       - type: bind
         source: ${APP_DATA_DIR}/plex
         target: /config
         bind: {create_host_path: false}
       - type: bind
-        source: ${MOVIES_DIR}
-        target: /movies
-        read_only: true
-        bind: {create_host_path: false}
-      - type: bind
-        source: ${TV_DIR}
-        target: /tv
+        source: ${MEDIA_DIR}
+        target: /data
         read_only: true
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}

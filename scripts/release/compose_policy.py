@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cache
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,7 @@ class Context:
     namespaces: Mapping[str, str | None]  # service -> its code plugin's image namespace, if any
     env: Mapping[str, str]  # site.env
     roots: tuple[str, ...]  # values of the site's declared bind roots
+    exposed: frozenset[str] = frozenset()  # site.yaml `exposed`: service:port/proto allowed on every interface
 
 
 @cache
@@ -112,6 +114,21 @@ def _data_dir(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[s
             yield f"stateful bind {source} must sit under {own}, which homelab-backup snapshots"
 
 
+def _every_interface(host_ip: str | None) -> bool:
+    try:
+        return not host_ip or ipaddress.ip_address(host_ip).is_unspecified
+    except ValueError:
+        return True  # not an address Docker can bind: treat as unscoped, so it still has to be declared
+
+
+def _ports(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    """0015: a published port binds an explicit address unless the site declares it exposed."""
+    for port in service.get("ports") or []:
+        key = f"{name}:{port.get('published')}/{port.get('protocol', 'tcp')}"
+        if _every_interface(port.get("host_ip")) and key not in ctx.exposed:
+            yield f"port {key} listens on every interface: bind a site.env address or list it under site.yaml exposed"
+
+
 def _caps(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
     allowed = set(_allowlist("cap-allowlist.json")["capabilities"])
     yield from (
@@ -144,7 +161,7 @@ def _gpu(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
         yield "deploy GPU request is not on the allowlist"
 
 
-RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _data_dir, _caps, _gpu)
+RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _data_dir, _ports, _caps, _gpu)
 
 
 # --- rules on the site and the whole model ----------------------------------------------------------------

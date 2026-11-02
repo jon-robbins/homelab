@@ -1,0 +1,22 @@
+services:
+  lidarr:
+    environment:
+      LIDARR__AUTH__METHOD: External
+    # /media-nvme is the mount Lidarr imports through. /music and /downloads are the module's old binds, kept until
+    # nothing is configured against them.
+    volumes:
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_DIR}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_NVME_PATH}
+        target: /media-nvme
+        bind:
+          create_host_path: false

@@ -11,7 +11,6 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    secrets: [TMDB_API_KEY]
     environment: ["LOG_LEVEL=info", "TZ=${TZ}", "PORT=5055"]
     ports: ["127.0.0.1:5055:5055"]
     volumes:
@@ -34,7 +33,5 @@ services:
 configs:
   overseerr-entrypoint:
     file: config/seerr/entrypoint.sh
-secrets:
-  TMDB_API_KEY: {file: "${HOMELAB_SECRET_DIR}/TMDB_API_KEY"}
 networks:
   homelab_net: {external: true}

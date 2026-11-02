@@ -1,7 +1,7 @@
 contract: 1
 site_id: catalog-test
-bind_roots: [APP_DATA_DIR, MEDIA_HDD_PATH, MEDIA_NVME_PATH, MEDIA_PLEX_PATH]
-marker_roots: []
+bind_roots: [APP_DATA_DIR, MEDIA_DIR]
+marker_roots: [MEDIA_DIR]
 plugins: {}
 services:
   caddy: {}

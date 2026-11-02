@@ -21,6 +21,8 @@ services:
 managed: [sonarr, autobrr, my-service] # what the controller may change
 ```
 
+- `exposed` (optional) lists the ports that may listen on every interface, as `service:published-port/proto`, for
+  example `jellyfin:8096/tcp`. Anything else on a wildcard address fails policy ([0015](decisions/0015-exposure-policy.md)).
 - `services` decides what is in a release. `managed` decides what the controller applies; services not in it are
   only reported.
 - `state: stopped` means "keep this created and stopped". The controller never starts a service the owner
@@ -33,8 +35,10 @@ Non-secret values only. Modules may interpolate only keys defined here.
 | Key | Meaning |
 |---|---|
 | `APP_DATA_DIR` | app data root, normally `/srv/homelab/data` |
-| `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH` | media disk mount points |
-| `MOVIES_DIR`, `TV_DIR`, `DOWNLOADS_DIR` | media role paths, each below a bind root (linuxserver convention: `/movies`, `/tv`, `/downloads` in containers) |
+| `MEDIA_DIR` | the one media directory (`downloads/`, `tv/`, `movies/`, `music/` below it); a bind root, normally a marker root |
+| `MEDIA_BIND_IP`, `PEER_BIND_IP` | addresses for the media servers' direct ports and for the torrent and Soulseek peer ports; an IP, `0.0.0.0` means every interface and needs `exposed` |
+| `MEDIA_HDD_PATH`, `MEDIA_NVME_PATH` | media disk mount points, for sites whose media spans disks |
+| `MOVIES_DIR`, `TV_DIR`, `MUSIC_DIR`, `DOWNLOADS_DIR` | per-role paths for such sites, each below a bind root; modules don't use them, overrides and plugins may |
 | `MEDIA_PLEX_PATH` | optional extra media tree for Plex |
 | `PUID`, `PGID` | the user and group the services run as |
 | `TZ` | time zone |
@@ -68,9 +72,13 @@ agent drop-in that creates the directory and waits for every rendered file (`hos
 Docker after the agent so containers never start without them. The site sets
 `HOMELAB_SECRET_DIR=/run/homelab-secrets`.
 
-Current names: `TMDB_API_KEY`, `LIDARR_API_KEY`, `CLOUDFLARE_TOKEN`,
+Current names: `LIDARR_API_KEY`, `CLOUDFLARE_TOKEN`,
 `SLSKD_SLSK_USERNAME`, `SLSKD_SLSK_PASSWORD` (the Soulseek account; slskd registers it on first login),
 `SLSKD_WEB_PASSWORD` (slskd's web UI, user `slskd`), `SLSKD_API_KEY` (shared by slskd and Soularr).
+
+Seerr needs no TMDB key (it ships a shared one). A site that wants its own adds `TMDB_API_KEY` to the `overseerr`
+override as an ordinary secret (`secrets: [TMDB_API_KEY]` plus the top-level `{file: ...}` entry); the entrypoint uses
+it when the file exists.
 
 After rotating a secret, force-recreate the services that mount it
 ([operations](operations.md#rotate-a-secret)). See [0010](decisions/0010-secrets.md).

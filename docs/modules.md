@@ -24,12 +24,31 @@ The rules:
 
 Variables are only `${NAME}`, with `NAME` defined in the site's `site.env` (no `${NAME:-default}`, no `$NAME`).
 
-Modules are a template for any homelab, so they never encode one site's disk layout. Media binds use role keys,
-the linuxserver convention: `${MOVIES_DIR}:/movies`, `${TV_DIR}:/tv`, `${MUSIC_DIR}:/music`,
-`${DOWNLOADS_DIR}:/downloads`. Each site maps them in `site.env` (e.g. movies, TV and music on a large HDD,
-downloads staged on an NVMe disk), and each must sit under a declared bind root, so disk markers still follow the
-disk. Anything specific to one site's workflow (a seeding folder, Plex's symlink tree, a two-disk post-import
-mapping) belongs in that site's `overrides/<service>.yml`.
+Modules are a template for any homelab, so they never encode one site's disk layout. Media lives under one
+directory, `MEDIA_DIR` in `site.env` (a bind root, and normally a marker root), with `downloads/`, `tv/`, `movies/`
+and `music/` below it ([0019](decisions/0019-shared-media-mount.md)). The apps that import (Sonarr, Radarr, Lidarr,
+Bazarr) mount all of it as `/data`, so a download and its library copy are on one mount and an import is a hardlink.
+Jellyfin and Plex mount `/data` read-only; Navidrome mounts `music/` read-only; qBittorrent, slskd and Soularr mount
+only `downloads/`, at `/data/downloads`. Apps are configured with `/data/tv`, `/data/movies`, `/data/downloads`.
+
+A site with media on several disks can't hardlink across them and keeps its own paths. It points `MEDIA_DIR` at an
+empty directory and restores the per-role mounts it wants (`MOVIES_DIR`, `TV_DIR`, `MUSIC_DIR`, `DOWNLOADS_DIR`) in
+`overrides/<service>.yml`: an override entry with the same target replaces the module's. Anything specific to one
+site's workflow (a seeding folder, Plex's symlink tree) belongs in the same place.
+
+Existing split-disk sites must complete the [migration prerequisites](module-migration.md) before adopting this catalog.
+
+Published ports bind an address from `site.env`: `MEDIA_BIND_IP` for Jellyfin's and Plex's direct ports,
+`PEER_BIND_IP` for the torrent and Soulseek peer ports, `TAILSCALE_IP` for Caddy. A port that listens on every
+interface (no address, `0.0.0.0` or `::`) fails policy unless the site lists it under `exposed` in `site.yaml`, as
+`service:port/proto`. Overrides can add ports but not replace them, so a module publishes only what every site wants.
+
+Caddy retains `NET_BIND_SERVICE` alongside `cap_drop: [ALL]`: the pinned executable carries that file capability
+and cannot execute under the module's non-root UID without it. Its published listeners still follow the site policy.
+
+GPU access isn't in any module. A site that has a GPU adds it in `overrides/<service>.yml` (`gpus: all` for NVIDIA,
+`devices: ["/dev/dri:/dev/dri"]` and `group_add` for Intel and AMD); policy checks it as usual. Compose rejects a
+`gpus` setting in both a module and an override, which is why the module can't carry one.
 
 Where each rule runs: `scripts/release/modules.py` checks the file layout and variables (what Compose would
 erase); `scripts/release/compose_policy.py` checks everything else on the rendered model, after

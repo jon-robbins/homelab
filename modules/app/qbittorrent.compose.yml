@@ -5,7 +5,7 @@ services:
     memswap_limit: 8g
     pids_limit: 200
     networks: [homelab_net]
-    ports: ["51423:51423/tcp", "51423:51423/udp"]
+    ports: ["${PEER_BIND_IP}:51423:51423/tcp", "${PEER_BIND_IP}:51423:51423/udp"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
@@ -20,16 +20,8 @@ services:
         target: /torrent-trackers
         bind: {create_host_path: false}
       - type: bind
-        source: ${DOWNLOADS_DIR}
-        target: /downloads
-        bind: {create_host_path: false}
-      - type: bind
-        source: ${MOVIES_DIR}
-        target: /movies
-        bind: {create_host_path: false}
-      - type: bind
-        source: ${TV_DIR}
-        target: /tv
+        source: ${MEDIA_DIR}/downloads
+        target: /data/downloads
         bind: {create_host_path: false}
     labels: {homelab.state: stateful}
     healthcheck:

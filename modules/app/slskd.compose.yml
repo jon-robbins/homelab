@@ -3,9 +3,8 @@ services:
     image: ghcr.io/slskd/slskd:0.26.2@sha256:d0963a3e5b16facd295bf4f2156dad0182f246b1b21a032cae12f5494c694843
     pids_limit: 500
     networks: [homelab_net]
-    # The Soulseek peer port, allowlisted for all interfaces like qBittorrent's (docs/security.md). The web UI is
-    # not published; Caddy proxies it.
-    ports: ["50300:50300/tcp"]
+    # The Soulseek peer port, on PEER_BIND_IP (docs/security.md). The web UI is not published; Caddy proxies it.
+    ports: ["${PEER_BIND_IP}:50300:50300/tcp"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
@@ -19,8 +18,8 @@ services:
       - TZ=${TZ}
       - SLSKD_UMASK=002
       - SLSKD_URL_BASE=/slskd
-      - SLSKD_DOWNLOADS_DIR=/downloads/soulseek
-      - SLSKD_INCOMPLETE_DIR=/downloads/soulseek-incomplete
+      - SLSKD_DOWNLOADS_DIR=/data/downloads/soulseek
+      - SLSKD_INCOMPLETE_DIR=/data/downloads/soulseek-incomplete
     # Shares nothing by default. To share a library, a site override mounts it read-only and sets SLSKD_SHARED_DIR.
     volumes:
       - type: bind
@@ -28,8 +27,8 @@ services:
         target: /app
         bind: {create_host_path: false}
       - type: bind
-        source: ${DOWNLOADS_DIR}
-        target: /downloads
+        source: ${MEDIA_DIR}/downloads
+        target: /data/downloads
         bind: {create_host_path: false}
     configs:
       - source: slskd-start

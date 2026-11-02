@@ -21,8 +21,9 @@ Certificates: Caddy uses the ACME DNS-01 challenge with `CLOUDFLARE_TOKEN`, so i
 `*.BASE_DOMAIN` without port 80 or 443 being reachable from the internet. In the site's Caddyfile, a site block
 uses a `tls` block with `dns <provider> {env.CLOUDFLARE_TOKEN}`, or the equivalent global `acme_dns` option.
 
-Binds: Caddy listens on the host's Tailscale address for 443 (`${TAILSCALE_IP}:443`). The `80` and `8443`
-listeners in the module are on all interfaces today; see [0015](decisions/0015-exposure-policy.md).
+Binds: the module publishes only the host's Tailscale address for 443 (`${TAILSCALE_IP}:443`). Any other listener
+(LAN HTTP, a loopback port for `cloudflared`) is added in the site's `overrides/caddy.yml`, and one on every
+interface must be listed under `exposed` in `site.yaml` ([0015](decisions/0015-exposure-policy.md)).
 
 ### Caddy routes
 

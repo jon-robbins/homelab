@@ -33,10 +33,10 @@ def service(**extra):
     return {**base, **extra}
 
 
-def check(services, *, tiers=None, namespaces=None, roots=ROOTS, secrets=None, env=ENV):
+def check(services, *, tiers=None, namespaces=None, roots=ROOTS, secrets=None, env=ENV, exposed=()):
     model = {"services": services, **({"secrets": secrets} if secrets else {})}
     tiers = {name: "app" for name in services} if tiers is None else tiers
-    ctx = Context(tiers=tiers, namespaces=namespaces or {}, env=env, roots=roots)
+    ctx = Context(tiers=tiers, namespaces=namespaces or {}, env=env, roots=roots, exposed=frozenset(exposed))
     check_policy(model, ctx)
 
 
@@ -161,3 +161,42 @@ def test_every_violation_is_reported_at_once():
     with pytest.raises(ValidationError) as error:
         check({"a": service(privileged=True), "b": service(cap_add=["NET_ADMIN"])})
     assert len(error.value.errors) == 2
+
+
+# --- published ports -------------------------------------------------------------------------------------
+
+
+def port(published, host_ip=None, protocol="tcp"):
+    return {"mode": "ingress", "target": published, "published": str(published), "protocol": protocol,
+            **({"host_ip": host_ip} if host_ip else {})}
+
+
+@pytest.mark.parametrize("address", ["192.0.2.10", "127.0.0.1", "2001:db8::1"])
+def test_a_port_on_an_explicit_address_needs_no_declaration(address):
+    check({"svc": service(ports=[port(8096, address)])})
+
+
+@pytest.mark.parametrize("host_ip", [None, "", "0.0.0.0", "::"])
+def test_a_port_on_every_interface_must_be_declared_exposed(host_ip):
+    with pytest.raises(ValidationError, match=r"svc:8096/tcp listens on every interface"):
+        check({"svc": service(ports=[port(8096, host_ip)])})
+    check({"svc": service(ports=[port(8096, host_ip)])}, exposed={"svc:8096/tcp"})
+
+
+def test_exposure_is_per_service_port_and_protocol():
+    ports = [port(51423, "0.0.0.0", "tcp"), port(51423, "0.0.0.0", "udp")]
+    with pytest.raises(ValidationError, match=r"svc:51423/udp listens"):
+        check({"svc": service(ports=ports)}, exposed={"svc:51423/tcp"})
+    with pytest.raises(ValidationError, match=r"other:51423/tcp listens"):
+        check({"other": service(ports=ports[:1])}, exposed={"svc:51423/tcp"})
+    check({"svc": service(ports=ports)}, exposed={"svc:51423/tcp", "svc:51423/udp"})
+
+
+def test_an_exposed_declaration_does_not_excuse_an_explicit_address_elsewhere():
+    check({"svc": service(ports=[port(8096, "192.0.2.10"), port(9000, "0.0.0.0")])}, exposed={"svc:9000/tcp"})
+
+
+def test_caddy_can_keep_its_image_bind_capability():
+    check({"caddy": service(image="ghcr.io/jon-robbins/homelab/caddy" + DIGEST,
+                             cap_drop=["ALL"], cap_add=["NET_BIND_SERVICE"])},
+          tiers={"caddy": "edge"})

@@ -30,7 +30,7 @@ budget. The owner also uses this repository to publish signed releases for the o
   and never raise the budget in the same change. ([0011])
 - The wizard is a separate entity in `setup/`, with its own 2,000-line budget. It may call platform interfaces; nothing
   in `scripts/`, `host/` or `modules/` may depend on it. ([0011], [0018])
-- A published port binds an explicit interface unless it is on the exposure allowlist. ([0015], proposed)
+- A published port binds an explicit interface unless the site lists it as exposed. ([0015], [0019])
 
 [0001]: docs/decisions/0001-compose-modules.md
 [0002]: docs/decisions/0002-public-platform-private-site.md
@@ -43,6 +43,7 @@ budget. The owner also uses this repository to publish signed releases for the o
 [0015]: docs/decisions/0015-exposure-policy.md
 [0016]: docs/decisions/0016-edge-updater.md
 [0018]: docs/decisions/0018-local-setup-path.md
+[0019]: docs/decisions/0019-shared-media-mount.md
 
 ## Where to look when something breaks
 

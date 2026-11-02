@@ -17,7 +17,7 @@ services:
         target: /data
         bind: {create_host_path: false}
       - type: bind
-        source: ${MUSIC_DIR}
+        source: ${MEDIA_DIR}/music
         target: /music
         read_only: true
         bind: {create_host_path: false}

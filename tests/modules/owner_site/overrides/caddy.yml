@@ -1,0 +1,8 @@
+services:
+  caddy:
+    # Appended to the module's tailnet port: the tunnel-only loopback listener, and the LAN and direct-media
+    # listeners this site has always had (all declared in site.yaml exposed).
+    ports:
+      - "127.0.0.1:9443:5443"
+      - "80:80"
+      - "8443:443"

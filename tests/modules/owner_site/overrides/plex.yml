@@ -1,0 +1,22 @@
+services:
+  plex:
+    gpus: all
+    volumes:
+      - type: bind
+        source: ${MOVIES_DIR}
+        target: /movies
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TV_DIR}
+        target: /tv
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_HDD_PATH}/Extras
+        target: /mnt/media-hdd/Extras
+        read_only: true
+        bind:
+          create_host_path: false

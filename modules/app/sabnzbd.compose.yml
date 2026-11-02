@@ -17,8 +17,8 @@ services:
         target: /config
         bind: {create_host_path: false}
       - type: bind
-        source: ${DOWNLOADS_DIR}
-        target: /downloads
+        source: ${MEDIA_DIR}/downloads
+        target: /data/downloads
         bind: {create_host_path: false}
     labels:
       homelab.state: stateful

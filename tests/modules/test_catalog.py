@@ -47,6 +47,8 @@ def test_catalog_render_has_production_limits_and_service_settings():
     services = render(ROOT, SITE, {}).app["services"]
     edge = render(ROOT, SITE, {}).edge["services"]
     assert edge["caddy"]["user"] == "1000:1000"
+    assert edge["caddy"]["cap_drop"] == ["ALL"]
+    assert edge["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
     assert services["overseerr"]["user"] == "1000:1000"
     for name in ("sonarr", "radarr", "lidarr", "bazarr", "qbittorrent"):
         assert services[name]["environment"]["UMASK"] == "002"
@@ -78,7 +80,6 @@ def test_catalog_render_has_production_limits_and_service_settings():
         "sonarr": 500,
     }
     assert {name: services[name]["pids_limit"] for name in expected_pids} == expected_pids
-    assert services["jellyfin"]["group_add"] == ["video"]
 
 
 def test_catalog_authentik_modules():
@@ -97,3 +98,72 @@ def test_catalog_authentik_modules():
         assert "ports" not in service
     assert server["depends_on"]["authentik-postgres"]["condition"] == "service_healthy"
     assert worker["depends_on"]["authentik-postgres"]["condition"] == "service_healthy"
+
+
+# --- one disk: the shared media mount, explicit ports, no GPU ------------------------------------------------
+
+
+def _mounts(service):
+    return {v["target"]: v for v in service.get("volumes", []) if v["type"] == "bind"}
+
+
+def test_importing_apps_see_downloads_and_library_through_one_mount():
+    """A hardlink can't cross mounts, so an import only hardlinks when both paths sit under one /data mount."""
+    services = render(ROOT, SITE, {}).app["services"]
+    media = ENV["MEDIA_DIR"]
+    for name in ("sonarr", "radarr", "lidarr", "bazarr"):
+        mounts = _mounts(services[name])
+        assert mounts["/data"]["source"] == media and not mounts["/data"].get("read_only"), name
+        assert not {"/tv", "/movies", "/music", "/downloads"} & set(mounts), name
+    assert _mounts(services["qbittorrent"])["/data/downloads"]["source"] == f"{media}/downloads"
+    assert {"/tv", "/movies", "/downloads"}.isdisjoint(_mounts(services["qbittorrent"]))
+
+
+def test_library_readers_mount_read_only_and_downloaders_only_see_downloads():
+    services = render(ROOT, SITE, {}).app["services"]
+    for name in ("jellyfin", "plex"):
+        assert _mounts(services[name])["/data"]["read_only"] is True
+    assert _mounts(services["navidrome"])["/music"]["read_only"] is True
+    for name in ("qbittorrent", "slskd", "soularr"):
+        assert _mounts(services[name])["/data/downloads"]["source"] == f"{ENV['MEDIA_DIR']}/downloads"
+        assert "/data" not in _mounts(services[name]) or name == "soularr"  # soularr's /data is its own state
+
+
+def test_media_mounts_carry_the_disk_marker_once():
+    services = render(ROOT, SITE, {}).app["services"]
+    for name in ("sonarr", "qbittorrent", "jellyfin"):
+        markers = [v for v in services[name]["volumes"] if v["target"] == "/homelab-markers/MEDIA_DIR"]
+        assert len(markers) == 1 and markers[0]["read_only"] is True
+
+
+def test_published_ports_bind_the_site_addresses():
+    result = render(ROOT, SITE, {})
+    published = {
+        (name, port["published"], port["protocol"]): port["host_ip"]
+        for model in (result.app, result.edge)
+        for name, service in model["services"].items()
+        for port in service.get("ports", [])
+    }
+    media, peer, tailnet = ENV["MEDIA_BIND_IP"], ENV["PEER_BIND_IP"], ENV["TAILSCALE_IP"]
+    assert published == {
+        ("jellyfin", "8096", "tcp"): media,
+        ("plex", "32400", "tcp"): media,
+        ("qbittorrent", "51423", "tcp"): peer,
+        ("qbittorrent", "51423", "udp"): peer,
+        ("slskd", "50300", "tcp"): peer,
+        ("overseerr", "5055", "tcp"): "127.0.0.1",
+        ("caddy", "443", "tcp"): tailnet,
+    }
+
+
+def test_seerr_needs_no_tmdb_key():
+    app = render(ROOT, SITE, {}).app
+    assert "secrets" not in app["services"]["overseerr"]
+    assert "TMDB_API_KEY" not in app.get("secrets", {})
+
+
+def test_stranger_catalog_needs_no_gpu_runtime_or_devices():
+    for service in render(ROOT, SITE, {}).app["services"].values():
+        assert not service.get("gpus")
+        assert not service.get("devices")
+        assert not service.get("deploy", {}).get("resources", {}).get("reservations", {}).get("devices")
