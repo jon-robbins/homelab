@@ -105,6 +105,10 @@ Compose output is captured and stdin is closed, so engine steps do not interact 
 
 `nox -s wizard` covers failure paths, ordering, checkpoint/resume, secret handles and platform independence.
 `nox -s wizard_e2e` renders and applies the synthetic example against Docker with guards against existing projects.
+The Authentik fixture starts Caddy through the engine with the catalog image and security settings, except that it
+adds back `NET_BIND_SERVICE`: the pinned image's binary still carries that file capability and cannot exec under
+`cap_drop: [ALL]` (register row CF-12). It publishes only a synthetic loopback HTTPS listener. The Docker daemon must
+support that pinned image's architecture (linux/amd64).
 Run `scripts/dev/gate` before proposing integration. The setup budget excludes tests and keeps every platform budget
 unchanged; ruff formatting and C901 checks include setup code.
 
@@ -113,7 +117,8 @@ unchanged; ruff formatting and C901 checks include setup code.
 
 `setup.wiring.authentik` supplies first boot, generated blueprints, secret reapplication and setup-page closure. These are integration components: the standalone CLI does
 not assemble them. Copy `config/authentik/override.authentik-worker.yml` into the generated site's overrides,
-then add `Secrets`, `FirstBoot`, `Blueprints`, `Applied` and `SetupClosed` through `build_steps(extra=...)`.
+then add `Secrets`, `FirstBoot`, `Blueprints`, `Applied` and `SetupClosed` through `build_steps(extra=...)`,
+then supply `Gate` with the release, HTTPS origins, and the complete application path list.
 `build_steps` always requires AK-1 before starting the server and AK-0/AK-2 before starting the worker,
 even with custom phases. Missing wiring refuses the run before effects. Supply pre-created household users.
 The worker alone mounts the provider secret files and blueprints. Google credentials must come from the user's
@@ -126,6 +131,23 @@ test for every image upgrade. Provider-secret rotation requires restarting the w
 blueprints, because replacing a single-file bind mount leaves its old inode mounted until restart.
 Blueprints manage the listed users; removing a user from the input does not delete their database account.
 Revoke access explicitly in Authentik when a household member leaves.
+
+Import `config/authentik/gate.caddy` snippets into the generated Caddyfile. Keep the catch-all inside the gated
+`route`: a site-level `handle` sorts before `route`. `Gate` checks anonymous and forged-header requests, actual
+family/admin sessions and fail-closed responses while Authentik is briefly stopped. It must run on the private
+route before enabling the tunnel. Its probe paths report identity for verification and must remain gated.
+Pass every actual application path to its required, nonempty `paths` argument. List the admin-only ones again in
+`admin_paths`: the proof fails if a family member reaches any of them. Probe users left by a killed proof are
+deleted by the next one. GATE-1 requires both applied
+blueprints and AK-9 setup-page closure. Its cached proof includes the rendered release (including Caddy configuration),
+applied blueprint revision, probe address, origins, paths and TLS mode; changes rerun the complete proof.
+Before re-proving, it stops a running tunnel; a failed final verification also stops the tunnel. Restart intent
+for that stop and the Authentik outage test survives interruption and is cleared after engine health checks.
+It never marks an already stopped tunnel for restart. Failures in earlier steps can still leave an existing
+tunnel running; early tunnel quarantine belongs at the WS-06/WS-01 integration boundary, before host
+preparation and engine mutations.
+Google login and unknown-email refusal need a real
+OAuth client and remain separate from the local-session proof.
 
 Keep the admin password outside the host. With Google or the tunnel unavailable, reach Authentik through the
 private route; in the server container, `ak create_recovery_key 1 akadmin` produces a one-time sign-in link.

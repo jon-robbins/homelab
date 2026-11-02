@@ -1,0 +1,40 @@
+# Caddy side of the forward-auth gate. Put these snippets at the top of the generated Caddyfile, and for each
+# browser site block write:
+#
+#     import strip_identity
+#     route {
+#         import authentik_gate
+#         import gate_probe
+#         handle /sonarr* {
+#             import admins_only
+#             reverse_proxy sonarr:8989
+#         }
+#         handle { respond "Not Found" 404 }   # inside the route: a site-level handle sorts before route and ungates it
+#     }
+#
+# Everything that is not under the outpost path needs a session. `copy_headers` is the only source of identity.
+(strip_identity) {
+	request_header -Remote-User
+	request_header -X-Authentik-*
+}
+(authentik_gate) {
+	reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
+	forward_auth authentik-server:9000 {
+		uri /outpost.goauthentik.io/auth/caddy
+		copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Email X-Authentik-Name X-Authentik-Uid
+	}
+}
+(admins_only) {
+	@not_admin not header_regexp X-Authentik-Groups (^|\|)admins(\||$)
+	respond @not_admin "Forbidden" 403
+}
+# What GATE-1 asks: who the upstream would see, and whether the admin check holds.
+(gate_probe) {
+	handle /.homelab/whoami {
+		respond "{http.request.header.X-Authentik-Username}|{http.request.header.X-Authentik-Groups}|{http.request.header.Remote-User}" 200
+	}
+	handle /.homelab/admin {
+		import admins_only
+		respond "admin" 200
+	}
+}

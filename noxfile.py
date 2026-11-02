@@ -126,4 +126,4 @@ def wizard_e2e(session: nox.Session) -> None:
         session.skip("setup/ is not present; the owner's pipeline does not need it")
     install(session, "pytest", "PyYAML")
     session.env["PYTHONPATH"] = str(ROOT)
-    session.run("pytest", "-q", "setup/tests/e2e_docker.py")
+    session.run("pytest", "-q", "setup/tests/e2e_docker.py", "setup/tests/e2e_authentik.py")

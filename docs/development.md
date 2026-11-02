@@ -35,7 +35,9 @@ when that project already exists on the daemon. That keeps it from touching a re
 The independent setup engine (`setup/README.md`) has its own dependencies and 2,000-line budget.
 `nox -s wizard` runs its unit and platform boundary tests; `nox -s wizard_e2e` applies a synthetic site
 against real Docker. The latter refuses any existing `homelab` or `homelab-edge` project or `homelab_net`
-network, including on CI. It removes only the synthetic resources it created. Neither test needs provider accounts.
+network, including on CI. It removes only the synthetic resources it created. The Authentik integration also boots an empty database, checks identity-header stripping and fail-closed routing,
+then checks rerun and secret rotation. It uses synthetic Google values; a real Google login is a separate credentialed check.
+Neither test needs provider accounts.
 Deleting `setup/` skips those sessions and leaves the owner pipeline tests working.
 
 ## What makes a useful test
