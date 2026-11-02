@@ -123,9 +123,8 @@ def test_docker_waits_for_secrets_only_once_an_agent_config_exists(tmp_path):
     unit = (tmp_path / "etc/systemd/system/homelab-infisical-agent.service").read_text()
     dropin = (tmp_path / "etc/systemd/system/docker.service.d/10-homelab-local.conf").read_text()
     assert "ConditionPathExists=/etc/infisical-agent/config.yaml" in unit
-    assert "Wants=tailscaled.service" in dropin
     assert "Requires=homelab-infisical-agent.service" in dropin
-    assert "After=tailscaled.service homelab-infisical-agent.service" in dropin
+    assert "After=homelab-infisical-agent.service" in dropin
 
 
 def test_merging_docker_defaults_reports_whether_it_changed_anything(tmp_path):
@@ -157,19 +156,3 @@ LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*
     monkeypatch.setattr(hostprep.subprocess, "run", lambda *args, **kwargs: type("Result", (), {"stdout": output})())
 
     assert hostprep._listening_web_ports() == {"80", "443"}
-
-
-def test_rerun_reenables_and_starts_the_pinned_tailscale_service(monkeypatch):
-    calls = []
-    monkeypatch.setattr(hostprep, "artifact_pin", lambda name: {"version": "1.2.3"})
-    monkeypatch.setattr(hostprep, "_tailscale_version", lambda: "1.2.3")
-    monkeypatch.setattr(
-        hostprep.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append(command) or type("Result", (), {"returncode": 0})(),
-    )
-    monkeypatch.setattr(hostprep, "_run", lambda command: calls.append(command))
-
-    hostprep._install_tailscale()
-
-    assert ["systemctl", "enable", "--now", "tailscaled"] in calls

@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tarfile
 from collections.abc import Callable
 from typing import Mapping
 from urllib.request import urlopen
@@ -96,9 +95,19 @@ def _run(command: list[str]) -> None:
     )
 
 
-def _dpkg_version(package: str) -> str | None:
-    result = subprocess.run(["dpkg-query", "-W", "-f=${Version}", package], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else None
+DOCKER_PACKAGES = [
+    "docker-ce",
+    "docker-ce-cli",
+    "containerd.io",
+    "docker-buildx-plugin",
+    "docker-compose-plugin",
+]
+UBUNTU_PACKAGES = ["restic", "sqlite3", "python3-venv"]
+ALL_PACKAGES = [*DOCKER_PACKAGES, *UBUNTU_PACKAGES]
+
+
+def _package_installed(package: str) -> bool:
+    return subprocess.run(["dpkg-query", "-W", package], capture_output=True).returncode == 0
 
 
 def _install_docker_key(destination: Path) -> None:
@@ -108,16 +117,7 @@ def _install_docker_key(destination: Path) -> None:
 
 
 def _install_apt_packages() -> None:
-    docker, ubuntu = artifact_pin("docker"), artifact_pin("ubuntu_packages")
-    wanted = {
-        "docker-ce": docker["engine"],
-        "docker-ce-cli": docker["engine"],
-        "containerd.io": docker["containerd"],
-        "docker-buildx-plugin": docker["buildx"],
-        "docker-compose-plugin": docker["compose"],
-        **ubuntu,
-    }
-    if all(_dpkg_version(name) == version for name, version in wanted.items()):
+    if all(_package_installed(name) for name in ALL_PACKAGES):
         return
     _run(["apt-get", "update"])
     _run(["apt-get", "install", "-y", "ca-certificates", "curl"])
@@ -128,79 +128,23 @@ def _install_apt_packages() -> None:
     )
     replace_file(Path("/etc/apt/sources.list.d/docker.sources"), source.encode(), 0o644)
     _run(["apt-get", "update"])
-    _run(
-        [
-            "apt-get",
-            "install",
-            "-y",
-            *(f"{name}={version}" for name, version in wanted.items()),
-        ]
-    )
+    _run(["apt-get", "install", "-y", *ALL_PACKAGES])
 
 
 def _install_infisical() -> None:
     pin = artifact_pin("infisical")
-    if _dpkg_version("infisical") == pin["version"]:
+    if _package_installed("infisical"):
         return
     with tempfile.TemporaryDirectory() as temporary:
         os.chmod(temporary, 0o755)  # apt downloads as an unprivileged user
         _run(["apt-get", "install", "-y", str(download_verified(pin["url"], pin["sha256"], Path(temporary) / "i.deb"))])
 
 
-def _tailscale_version() -> str | None:
-    try:
-        result = subprocess.run(["/usr/sbin/tailscale", "version"], capture_output=True, text=True)
-    except OSError:
-        return None
-    return result.stdout.split("\n", 1)[0] if result.returncode == 0 else None
-
-
-def _install_tailscale() -> None:
-    pin = artifact_pin("tailscale")
-    if _tailscale_version() != pin["version"]:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive = download_verified(pin["url"], pin["sha256"], Path(temporary) / "tailscale.tgz")
-            with tarfile.open(archive, "r:gz") as package:
-                prefix = f"tailscale_{pin['version']}_amd64/"
-                files = [
-                    (Path(target), _member(package, prefix + member), mode)
-                    for member, target, mode in (
-                        ("tailscale", "/usr/sbin/tailscale", 0o755),
-                        ("tailscaled", "/usr/sbin/tailscaled", 0o755),
-                        (
-                            "systemd/tailscaled.service",
-                            "/etc/systemd/system/tailscaled.service",
-                            0o644,
-                        ),
-                        (
-                            "systemd/tailscaled.defaults",
-                            "/etc/default/tailscaled",
-                            0o644,
-                        ),
-                    )
-                ]
-        if subprocess.run(["systemctl", "is-active", "--quiet", "tailscaled"]).returncode == 0:
-            _run(["systemctl", "stop", "tailscaled"])
-        for destination, content, mode in files:
-            replace_file(destination, content, mode)
-        _run(["systemctl", "daemon-reload"])
-    _run(["systemctl", "enable", "--now", "tailscaled"])
-
-
-def _member(package: tarfile.TarFile, name: str) -> bytes:
-    stream = package.extractfile(name)
-    if stream is None:
-        raise ValueError(f"Tailscale archive is missing {name}")
-    return stream.read()
-
-
 def install_pinned_packages() -> None:
-    """Install every pinned host dependency. Anything already at its pin is left alone, so a rerun changes nothing."""
-    # Establish the pinned bootstrap verifier before retrieving package metadata or payloads.
+    """Install host dependencies. Anything already installed is left alone, so a rerun changes nothing."""
     install_cosign(Path("/usr/local/bin/cosign"))
     _install_apt_packages()
     _install_infisical()
-    _install_tailscale()
 
 
 def ensure_service_user() -> None:
@@ -265,10 +209,9 @@ RestartSec=5
 WantedBy=multi-user.target
 """
 DOCKER_DROPIN = """[Unit]
-# Wants, not Requires: updating tailscaled must not stop Docker. Only a missing secret holds Docker back.
-Wants=tailscaled.service
+# Only a missing secret holds Docker back.
 Requires=homelab-infisical-agent.service
-After=tailscaled.service homelab-infisical-agent.service
+After=homelab-infisical-agent.service
 """
 WAIT_HELPER = "#!/bin/sh\nexec /usr/bin/python3 /usr/local/libexec/homelab_hostprep.py --wait-for-secrets\n"
 

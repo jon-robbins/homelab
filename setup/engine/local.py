@@ -1,7 +1,11 @@
-"""Local apply: a rendered site becomes a content-addressed release directory, then ordered, health-checked phases.
+"""Local apply: turn a rendered site into a release and the ordered steps that start it.
 
-Never uses the controller's `materialize()` or `reconcile()`: those assume a signed release was verified, and
-nothing here is signed. The steps read and write only paths under the person's own site, state and data directories.
+  Release     the app and edge Compose models plus site.yaml, stored in a directory named by their content hash.
+  build_steps the steps `homelab setup` runs, in order: write the release, create the network, make data
+              directories, generate secrets, then start services phase by phase (see config/phases.json).
+
+Not signed, so it never uses the controller's `materialize()` or `reconcile()`. It reads and writes only the
+person's own site, state and data directories.
 """
 
 from __future__ import annotations
@@ -120,31 +124,29 @@ def defaults() -> tuple[Sequence[tuple[str, Sequence[str]]], Sequence[str]]:
 
 def _phases(release: Release, phases: Iterable[tuple[str, Sequence[str]]]) -> list[tuple[str, tuple[str, ...]]]:
     """Keep only services this site runs and manages; `*` takes every other one, so nothing is left unstarted."""
-    managed = set(release.site["managed"])
-    present = (set(release.app.get("services", {})) | set(release.edge.get("services", {}))) & managed
-    named = {service for _, services in phases for service in services}
-    chosen = []
-    for name, services in phases:
-        picked = sorted(present - named) if "*" in services else [s for s in services if s in present]
-        if picked:
-            chosen.append((name, tuple(picked)))
     models = {**release.app.get("services", {}), **release.edge.get("services", {})}
-    done = set()
+    present = set(models) & set(release.site["managed"])
+    named = {service for _, services in phases for service in services}
+    done: set[str] = set()
     ordered = []
-    for name, services in chosen:
-        pending, result = list(services), []
-        while pending:
-            ready = next(
-                (s for s in pending if set(models[s].get("depends_on", ())) <= done),
-                None,
-            )
-            if ready is None:
-                raise ValueError(f"dependencies missing, cyclic or in a later phase: {pending}")
-            pending.remove(ready)
-            result.append(ready)
-            done.add(ready)
-        ordered.append((name, tuple(result)))
+    for name, services in phases:
+        wanted = sorted(present - named) if "*" in services else [s for s in services if s in present]
+        if wanted:
+            ordered.append((name, _start_order(wanted, models, done)))
     return ordered
+
+
+def _start_order(services: list[str], models: Mapping[str, Any], done: set[str]) -> tuple[str, ...]:
+    """Order one phase so each service follows its depends_on; `done` collects everything already placed."""
+    pending, result = list(services), []
+    while pending:
+        ready = next((s for s in pending if set(models[s].get("depends_on", ())) <= done), None)
+        if ready is None:
+            raise ValueError(f"dependencies missing, cyclic or in a later phase: {pending}")
+        pending.remove(ready)
+        result.append(ready)
+        done.add(ready)
+    return tuple(result)
 
 
 def build_steps(
