@@ -28,7 +28,7 @@ entryPoints:
       <<: *http
       tls: {}
   tunnel:
-    address: ":5443"                # the Cloudflare tunnel's origin; plain HTTP, TLS ends at Cloudflare
+    address: ":5443"                # the Cloudflare tunnel's origin; a router sets `tls` if the origin is HTTPS
     forwardedHeaders: {trustedIPs: []}
     http: *http
   lan:

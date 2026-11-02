@@ -82,7 +82,8 @@ http:
         permanent: true
     private-only:
       ipAllowList:
-        sourceRange: ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"]
+        # Placeholders (documentation ranges): replace the two documentation ranges with your LAN range and your Tailscale range.
+        sourceRange: ["127.0.0.0/8", "192.0.2.0/24", "198.51.100.0/24"]
     # Removes anything a client sent that the gate would otherwise trust. An empty value deletes the header.
     strip-identity:
       headers:
