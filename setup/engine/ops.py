@@ -41,6 +41,12 @@ def judge(inspected: dict | None, settle_s: float, now: datetime) -> Verdict:
     return Verdict("ok") if age >= settle_s else Verdict("wait", f"up for {age:.0f}s of {settle_s:.0f}s")
 
 
+def _random_private_network() -> ipaddress.IPv4Network:
+    """A random /16 inside 10/8, 172.16/12 or 192.168/16."""
+    first, second = secrets.choice([(10, secrets.randbelow(256)), (172, 16 + secrets.randbelow(16)), (192, 168)])
+    return ipaddress.ip_network(f"{first}.{second}.0.0/16")
+
+
 class LocalOps(SubprocessOps):
     def __init__(self, settle_s: float = 10):
         self.settle_s = settle_s
@@ -113,40 +119,27 @@ class LocalOps(SubprocessOps):
     def network_exists(self, name):
         return subprocess.run(["docker", "network", "inspect", name], capture_output=True).returncode == 0
 
-    def _network_conflicts(self, candidate):
+    def _taken_subnets(self):
+        """Every subnet already routed on this host or used by a Docker network."""
         routes = subprocess.run(["ip", "-j", "route"], capture_output=True, text=True, check=True)
-        for route in json.loads(routes.stdout):
-            destination = route.get("dst")
-            if destination and destination != "default" and candidate.overlaps(ipaddress.ip_network(destination)):
-                return True
+        subnets = [r["dst"] for r in json.loads(routes.stdout) if r.get("dst") not in (None, "default")]
         listed = subprocess.run(["docker", "network", "ls", "-q"], capture_output=True, text=True, check=True)
         if listed.stdout.strip():
-            inspected = subprocess.run(
-                ["docker", "network", "inspect", *listed.stdout.split()],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+            argv = ["docker", "network", "inspect", *listed.stdout.split()]
+            inspected = subprocess.run(argv, capture_output=True, text=True, check=True)
             for network in json.loads(inspected.stdout):
-                for config in network.get("IPAM", {}).get("Config") or ():
-                    subnet = config.get("Subnet")
-                    if subnet and candidate.overlaps(ipaddress.ip_network(subnet)):
-                        return True
-        return False
+                subnets += [c["Subnet"] for c in network.get("IPAM", {}).get("Config") or () if c.get("Subnet")]
+        return [ipaddress.ip_network(s) for s in subnets]
+
+    def _network_conflicts(self, candidate):
+        return any(candidate.overlaps(taken) for taken in self._taken_subnets())
 
     def network_spec(self, state_dir):
         path = Path(state_dir) / "network.json"
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
         for _ in range(256):
-            family = secrets.randbelow(3)
-            if family == 0:
-                octets = bytes((10, secrets.randbelow(256), 0, 0))
-            elif family == 1:
-                octets = bytes((172, 16 + secrets.randbelow(16), 0, 0))
-            else:
-                octets = bytes((192, 168, 0, 0))
-            candidate = ipaddress.ip_network((int.from_bytes(octets, "big"), 16))
+            candidate = _random_private_network()
             if self._network_conflicts(candidate):
                 continue
             return {
@@ -172,33 +165,25 @@ class LocalOps(SubprocessOps):
         )
 
     def ensure_network(self, name, state_dir, spec):
-        path = Path(state_dir) / "network.json"
+        """Create the bridge network from the saved plan; refuse a same-named network we did not make."""
         if self.network_exists(name):
-            if self.network_ready(name, state_dir):
-                return
-            raise RuntimeError(f"existing {name} network is not owned by local setup or does not match its saved plan")
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(spec, sort_keys=True) + "\n", encoding="utf-8")
-            temporary.replace(path)
-        if not self.network_exists(name):
-            self.run(
-                [
-                    "docker",
-                    "network",
-                    "create",
-                    "--driver",
-                    "bridge",
-                    "--subnet",
-                    spec["subnet"],
-                    "--gateway",
-                    spec["gateway"],
-                    "--ip-range",
-                    spec["ip_range"],
-                    name,
-                ]
-            )
+            if not self.network_ready(name, state_dir):
+                raise RuntimeError(f"existing {name} network is not owned by local setup or does not match its saved plan")
+            return
+        self._save_network_plan(Path(state_dir) / "network.json", spec)
+        self.run(
+            ["docker", "network", "create", "--driver", "bridge", "--subnet", spec["subnet"]]
+            + ["--gateway", spec["gateway"], "--ip-range", spec["ip_range"], name]
+        )
+
+    @staticmethod
+    def _save_network_plan(path, spec):
+        if path.exists():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(spec, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.replace(path)
 
     def wait_healthy(self, project, service, timeout_s):
         deadline = time.monotonic() + timeout_s
