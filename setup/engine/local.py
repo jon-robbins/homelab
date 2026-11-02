@@ -73,18 +73,22 @@ class Release:
 
     def require_loopback_published_ports(self) -> None:
         """Incomplete-preview guard: only explicitly numeric loopback binds may publish host ports."""
-        for model_name, model in (("app", self.app), ("edge", self.edge)):
-            for service, definition in model.get("services", {}).items():
-                for port in definition.get("ports", ()):
-                    host_ip = port.get("host_ip") if isinstance(port, Mapping) else None
-                    try:
-                        address = ipaddress.ip_address(host_ip)
-                    except (ValueError, TypeError):
-                        raise ValueError(
-                            f"{model_name} service {service} publishes a port without an explicit numeric loopback bind"
-                        ) from None
-                    if str(address) not in ("127.0.0.1", "::1"):
-                        raise ValueError(f"{model_name} service {service} publishes a port outside loopback")
+        ports = (
+            (tier, service, port)
+            for tier, model in (("app", self.app), ("edge", self.edge))
+            for service, defn in model.get("services", {}).items()
+            for port in defn.get("ports", ())
+        )
+        for tier, service, port in ports:
+            host_ip = port.get("host_ip") if isinstance(port, Mapping) else None
+            try:
+                address = ipaddress.ip_address(host_ip)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"{tier} service {service} publishes a port without an explicit numeric loopback bind"
+                ) from None
+            if str(address) not in ("127.0.0.1", "::1"):
+                raise ValueError(f"{tier} service {service} publishes a port outside loopback")
 
     def complete(self) -> bool:
         return all((self.directory / name).is_file() for name in FILES)
