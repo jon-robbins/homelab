@@ -485,3 +485,12 @@ def test_a_homelab_net_that_setup_did_not_create_is_refused(ctx, ops):
     state = Network(ops).check(ctx)
     assert state.status.value == "blocked" and "not created by local setup" in state.reason
     assert not ops.calls
+
+
+@pytest.mark.parametrize("service, required", [("authentik-server", "AK-1"), ("authentik-worker", "AK-0")])
+def test_authentik_cannot_start_without_first_boot_wiring(ctx, ops, service, required):
+    release = Release.from_models(ctx.layout, {"services": {service: {}}}, {}, {})
+    steps = build_steps(ctx, release, ops)
+    with pytest.raises(ValueError, match=required):
+        run(steps, ctx)
+    assert not ops.calls

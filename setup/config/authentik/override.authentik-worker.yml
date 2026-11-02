@@ -1,0 +1,16 @@
+# Copy to <site>/overrides/authentik-worker.yml. The worker applies blueprints, so it alone needs the provider
+# secrets and the blueprint folder. Secrets are Compose secrets (files), never environment values (0010).
+services:
+  authentik-worker:
+    secrets: [AUTHENTIK_ADMIN_PASSWORD_HASH, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, JELLYFIN_OIDC_CLIENT_SECRET]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/authentik-worker/blueprints
+        target: /blueprints/custom
+        read_only: true
+        bind: {create_host_path: false}
+secrets:
+  AUTHENTIK_ADMIN_PASSWORD_HASH: {file: "${HOMELAB_SECRET_DIR}/AUTHENTIK_ADMIN_PASSWORD_HASH"}
+  GOOGLE_OAUTH_CLIENT_ID: {file: "${HOMELAB_SECRET_DIR}/GOOGLE_OAUTH_CLIENT_ID"}
+  GOOGLE_OAUTH_CLIENT_SECRET: {file: "${HOMELAB_SECRET_DIR}/GOOGLE_OAUTH_CLIENT_SECRET"}
+  JELLYFIN_OIDC_CLIENT_SECRET: {file: "${HOMELAB_SECRET_DIR}/JELLYFIN_OIDC_CLIENT_SECRET"}

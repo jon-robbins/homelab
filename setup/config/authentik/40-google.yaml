@@ -1,0 +1,26 @@
+# Google login. Links to an existing user by email and never enrolls a stranger (enrollment_flow: null).
+# Client ID and secret come from files, so rotating them is a file change plus a blueprint reapply (A-14).
+version: 1
+metadata: {name: homelab - google}
+entries:
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {name: Default - Authentication flow}, required: true}
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {name: Default - Source authentication flow}, required: true}
+  - model: authentik_sources_oauth.oauthsource
+    id: source-google
+    state: present
+    identifiers: {slug: google}
+    attrs:
+      name: Google
+      provider_type: google
+      consumer_key: !File /run/secrets/GOOGLE_OAUTH_CLIENT_ID
+      consumer_secret: !File /run/secrets/GOOGLE_OAUTH_CLIENT_SECRET
+      user_matching_mode: email_link
+      enrollment_flow: null
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-source-authentication]]
+  - model: authentik_stages_identification.identificationstage
+    identifiers: {name: default-authentication-identification}
+    attrs:
+      show_source_labels: true
+      sources: [!KeyOf source-google]

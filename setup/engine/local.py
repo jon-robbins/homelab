@@ -184,6 +184,9 @@ def build_steps(
     if unknown := set(wanted) - {s.id for s in steps}:
         raise ValueError(f"requires names unknown steps: {sorted(unknown)}")
     for name, services in chosen:
+        for service, needs in (("authentik-server", ("AK-1",)), ("authentik-worker", ("AK-0", "AK-2"))):
+            if service in services:
+                wanted[f"phase.{name}"] = (*wanted.get(f"phase.{name}", ()), *needs)
         if "cloudflared" in services:
             wanted[f"phase.{name}"] = (*wanted.get(f"phase.{name}", ()), "GATE-1")
     steps = [replace(s, needs=(*s.needs, *wanted[s.id])) if s.id in wanted else s for s in steps]

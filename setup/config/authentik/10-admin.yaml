@@ -1,0 +1,14 @@
+# First administrator. `present`, never `created`: Authentik's own bootstrap blueprint can create `akadmin`
+# with no password first, and `created` would then lose that race (WS-01 evidence, 2026-10-31).
+version: 1
+metadata: {name: homelab - admin}
+entries:
+  - {model: authentik_core.group, id: admin-group, state: present, identifiers: {name: authentik Admins}, attrs: {is_superuser: true}}
+  - model: authentik_core.user
+    state: present
+    identifiers: {username: akadmin}
+    attrs:
+      name: Administrator
+      email: admin@homelab.invalid
+      password_hash: !File /run/secrets/AUTHENTIK_ADMIN_PASSWORD_HASH
+      groups: [!KeyOf admin-group]
