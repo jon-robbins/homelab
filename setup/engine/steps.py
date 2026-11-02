@@ -9,8 +9,8 @@ from typing import Any
 
 from scripts.controller.planner import Plan, compose_commands, plan
 
-from .contract import Context, Result, State
-from .ops import NETWORK
+from .contract import CheckIsProof, Context, Result, State
+from .ops import NETWORK, edge_compose
 
 MARKER = ".homelab-mounted"
 HEALTH_TIMEOUT_S = 180
@@ -42,7 +42,7 @@ def _is_marker(path: str) -> bool:
 
 
 @dataclass(frozen=True)
-class WriteRelease:
+class WriteRelease(CheckIsProof):
     release: Any
     id: str = "engine.release"
     needs: tuple[str, ...] = ()
@@ -54,12 +54,9 @@ class WriteRelease:
         self.release.write()
         return Result.success(f"wrote release {self.release.directory.name}")
 
-    def verify(self, ctx: Context) -> Result:
-        return Result.success() if self.release.complete() else Result.failure("release files are missing")
-
 
 @dataclass(frozen=True)
-class Network:
+class Network(CheckIsProof):
     ops: Any
     planned: Any = None
     id: str = "engine.network"
@@ -77,16 +74,9 @@ class Network:
         self.ops.ensure_network(NETWORK, ctx.layout.setup_dir, spec)
         return Result.success(f"network {NETWORK} ready")
 
-    def verify(self, ctx: Context) -> Result:
-        return (
-            Result.success()
-            if self.ops.network_ready(NETWORK, ctx.layout.setup_dir)
-            else Result.failure(f"{NETWORK} does not match its saved local setup network plan")
-        )
-
 
 @dataclass(frozen=True)
-class Dirs:
+class Dirs(CheckIsProof):
     """Create data directories only after the operator has mounted and marked the disks."""
 
     release: Any
@@ -128,13 +118,9 @@ class Dirs:
                 os.chown(directory, *owners[directory])
         return Result.success(f"created {len(dirs)} directories")
 
-    def verify(self, ctx: Context) -> Result:
-        markers, dirs = self._missing()
-        return Result.failure(f"still missing: {markers + dirs}") if markers or dirs else Result.success()
-
 
 @dataclass(frozen=True)
-class Secrets:
+class Secrets(CheckIsProof):
     """Create the secrets that must be random and fixed at first start. Provider-issued ones are never invented."""
 
     release: Any
@@ -185,10 +171,6 @@ class Secrets:
             f"generated {len(made)} secret(s): {', '.join(made)}",
             {f"secret.created.{name}": True for name in made},
         )
-
-    def verify(self, ctx: Context) -> Result:
-        missing = [n for n in self._wanted(ctx) if not ctx.secrets.exists(n)]
-        return Result.failure(f"not written: {missing}") if missing else Result.success()
 
 
 @dataclass(frozen=True)
@@ -274,7 +256,7 @@ class Phase:
             plan_ = Plan((service,), (), (), ()) if running else Plan((), (service,), (), ())
             return compose_commands(plan_, directory)[0]
         up = COMPOSE_UP if running else ["up", "--no-deps", "--no-start", "--no-build", "--pull", "never"]
-        return ["docker", "compose", "-p", "homelab-edge", "-f", str(directory / "edge.json"), *up, service]
+        return [*edge_compose(directory), *up, service]
 
     def _snapshot(self, ctx: Context, service: str, enabled: bool) -> None:
         if self._service(service).get("labels", {}).get("homelab.state") != "stateful":

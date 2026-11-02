@@ -115,3 +115,13 @@ class Step(Protocol):
 
     def verify(self, ctx: Context) -> Result:
         """Prove it worked, from outside the step."""
+
+
+class CheckIsProof:
+    """Mixin for a step whose check() already observes the host: verify() is check() reporting DONE."""
+
+    def verify(self, ctx: Context) -> Result:
+        state = self.check(ctx)  # type: ignore[attr-defined]
+        if state.status is Status.DONE:
+            return Result.success()
+        return Result.failure(state.reason or f"{self.id} is still not done after apply")  # type: ignore[attr-defined]
