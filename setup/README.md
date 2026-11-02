@@ -4,7 +4,7 @@
 guided setup or a working media-server onboarding flow. Do not use it as the installation path for a new host.
 
 This is the engine foundation for the guided local setup in [0018](../docs/decisions/0018-local-setup-path.md).
-It has no screens or provider wiring yet. It is separate from the signed owner pipeline and never calls its admission,
+It has no screens yet. Authentik wiring is available as opt-in engine steps. It is separate from the signed owner pipeline and never calls its admission,
 materialize or reconcile functions. Nothing in the platform depends on this directory.
 
 Install `config/release/requirements.txt` in a Python 3.12 environment. From the platform root, run local setup as root on
@@ -117,3 +117,26 @@ Compose output is captured and stdin is closed, so engine steps do not interact 
 `nox -s wizard_e2e` renders and applies the synthetic example against Docker with guards against existing projects.
 Run `scripts/dev/gate` before proposing integration. The setup budget excludes tests and keeps every platform budget
 unchanged; ruff formatting and C901 checks include setup code.
+
+
+## Authentik wiring
+
+`setup.wiring.authentik` supplies first boot, generated blueprints, secret reapplication and setup-page closure. These are integration components: the standalone CLI does
+not assemble them. Copy `config/authentik/override.authentik-worker.yml` into the generated site's overrides,
+then add `Secrets`, `FirstBoot`, `Blueprints`, `Applied` and `SetupClosed` through `build_steps(extra=...)`.
+`build_steps` always requires AK-1 before starting the server and AK-0/AK-2 before starting the worker,
+even with custom phases. Missing wiring refuses the run before effects. Supply pre-created household users.
+The worker alone mounts the provider secret files and blueprints. Google credentials must come from the user's
+OAuth client; generated substitutes are only suitable for isolated tests.
+
+First boot hashes the generated admin password over stdin, migrates the empty database, and sets the setup flag
+before starting the server. The admin blueprint uses `state: present` so the default bootstrap cannot leave
+`akadmin` without a password. This uses Authentik's internal `Setup.set` API; rerun the empty-database integration
+test for every image upgrade. Provider-secret rotation requires restarting the worker before applying the
+blueprints, because replacing a single-file bind mount leaves its old inode mounted until restart.
+Blueprints manage the listed users; removing a user from the input does not delete their database account.
+Revoke access explicitly in Authentik when a household member leaves.
+
+Keep the admin password outside the host. With Google or the tunnel unavailable, reach Authentik through the
+private route; in the server container, `ak create_recovery_key 1 akadmin` produces a one-time sign-in link.
+Treat that link as a secret. Admin MFA enrolment is not checked by setup. Invitation links and app-side Jellyfin setup are separate work.

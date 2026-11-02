@@ -21,6 +21,11 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-yaml
+        exclude: ^setup/config/authentik/.*\.yaml$
+      - id: check-yaml
+        name: check Authentik blueprint YAML syntax (custom tags)
+        files: ^setup/config/authentik/.*\.yaml$
+        args: [--unsafe]
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
     hooks:

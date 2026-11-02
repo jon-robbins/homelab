@@ -50,6 +50,10 @@ not the public product's setup path.
 10. `setup/` has its own budget of **2,000 formatted lines**, recorded in [0011](0011-complexity-budgets.md) and
     `config/ci/budgets.json` when the directory is created. The controller, renderer and `host/` budgets don't change.
 
+The optional Authentik implementation lives in `setup/wiring/` and `setup/config/authentik/`;
+its composition and proof contract (mandatory startup ordering, setup closure, and proof tied to the rendered
+release and applied blueprints) are described in `setup/README.md`. These paths disappear with setup.
+
 ## Consequences
 
 - A new user gets a guided setup without creating or publishing a repository. Their local site directory remains theirs

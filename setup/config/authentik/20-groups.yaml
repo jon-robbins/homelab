@@ -1,0 +1,7 @@
+# Who may sign in is decided by group, never by Google. `admins` is a different group from Authentik's own
+# superusers: it opens the admin apps behind the gate, it does not run Authentik.
+version: 1
+metadata: {name: homelab - groups}
+entries:
+  - {model: authentik_core.group, state: present, identifiers: {name: admins}}
+  - {model: authentik_core.group, state: present, identifiers: {name: family}}
