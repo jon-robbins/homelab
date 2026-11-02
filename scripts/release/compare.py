@@ -27,8 +27,6 @@ KEPT = ("ports", "volumes", "secrets", "gpus", "devices", "group_add", "cap_add"
 def _facts(service: Mapping[str, Any]) -> set[tuple[str, str]]:
     facts = set()
     for field, value in service.items():
-        if field == "ports":  # no address and 0.0.0.0 are the same listener
-            value = [{**port, "host_ip": port.get("host_ip") or "0.0.0.0"} for port in value]
         if isinstance(value, dict):
             facts |= {(f"{field}.{key}", json.dumps(item, sort_keys=True)) for key, item in value.items()}
         elif field in KEPT and isinstance(value, list):

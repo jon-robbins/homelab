@@ -38,10 +38,22 @@ def test_moving_a_port_to_another_address_is_a_loss_of_the_old_one():
     assert len(_lost({"plex": PLEX}, {"plex": {**PLEX, "ports": moved}})) == 1
 
 
-def test_a_missing_address_and_the_wildcard_address_are_the_same_listener():
-    bare = {**PLEX, "ports": [{key: value for key, value in PLEX["ports"][0].items() if key != "host_ip"}]}
-    wildcard = {**PLEX, "ports": [{**PLEX["ports"][0], "host_ip": "0.0.0.0"}]}
-    assert compare({"plex": bare}, {"plex": wildcard}) == {}
+def test_omitted_address_to_ipv4_wildcard_is_reported_as_a_listener_change():
+    bare_port = {key: value for key, value in PLEX["ports"][0].items() if key != "host_ip"}
+    wildcard_port = {**PLEX["ports"][0], "host_ip": "0.0.0.0"}
+    report = compare({"plex": {**PLEX, "ports": [bare_port]}},
+                     {"plex": {**PLEX, "ports": [wildcard_port]}})
+    assert report["plex"]["removed"] == [("ports", '{"protocol": "tcp", "published": "32400", "target": 32400}')]
+    assert report["plex"]["added"] == [("ports", '{"host_ip": "0.0.0.0", "protocol": "tcp", "published": "32400", "target": 32400}')]
+    assert _lost({"plex": {**PLEX, "ports": [bare_port]}},
+                 {"plex": {**PLEX, "ports": [wildcard_port]}})
+
+
+def test_scoped_ipv6_and_unscoped_ipv6_addresses_are_distinct_listeners():
+    scoped = {**PLEX["ports"][0], "host_ip": "fe80::1%en0"}
+    plain = {**PLEX["ports"][0], "host_ip": "fe80::1"}
+    assert _lost({"plex": {**PLEX, "ports": [scoped]}},
+                 {"plex": {**PLEX, "ports": [plain]}})
 
 
 def test_port_order_does_not_matter():

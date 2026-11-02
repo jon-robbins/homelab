@@ -89,7 +89,7 @@ python3 -m scripts.release.compare "$OLD_PLATFORM" "$PREPARED_SITE" "$NEW_PLATFO
 Exit 2 means render or policy failure. Exit 1 means a service or protected setting was removed; stop and investigate.
 Exit 0 still requires reviewing **every** reported difference. Stage 1 must report `{}`. Stage 2 should add only empty
 placeholder mounts and Caddy's capability where previously absent, plus the reviewed Soularr config digest change.
-The comparison ignores port and mount ordering and treats omitted IPv4 host addresses as `0.0.0.0`. It reports other
+The comparison ignores port and mount ordering and keeps an omitted host address distinct from explicit `0.0.0.0`: Docker may publish an omitted address on both IPv4 and IPv6, while the explicit address selects IPv4. Treat this transition as a listener loss requiring review. It reports other
 changed settings, including environment, health checks and resource settings; a changed `deploy.resources` is
 conservatively a loss requiring review. It does not prove that application paths, actual permissions or a GPU work.
 Review the inlined Soularr script's fallback paths: the site must keep its old path through `SOULARR_DOWNLOAD_DIR`.
