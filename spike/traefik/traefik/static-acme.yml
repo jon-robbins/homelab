@@ -1,0 +1,32 @@
+# Same as static.yml plus an ACME resolver: Cloudflare DNS-01 against a local Pebble test CA (item 3).
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: DEBUG
+ping:
+  entryPoint: ping
+entryPoints:
+  ping:
+    address: "127.0.0.1:8082"
+  websecure:
+    address: ":4443"
+    http:
+      tls:
+        certResolver: cf
+        domains:
+          - main: spike.example.com
+            sans: ["*.spike.example.com"]
+certificatesResolvers:
+  cf:
+    acme:
+      email: spike@example.invalid
+      storage: /acme/acme.json
+      caServer: https://pebble:14000/dir
+      dnsChallenge:
+        provider: cloudflare
+        resolvers: ["1.1.1.1:53"]   # lego's zone lookup (SOA) bypasses the container resolver
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true

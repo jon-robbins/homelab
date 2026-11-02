@@ -1,0 +1,17 @@
+http:
+  routers:
+    sonarr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
+      service: sonarr
+    overseerr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/overseerr`)
+      middlewares: [strip-overseerr]
+      service: overseerr
+  middlewares:
+    strip-overseerr:
+      stripPrefix: {prefixes: [/overseerr]}
+  services:
+    sonarr:
+      loadBalancer: {servers: [{url: "http://sonarr:8989"}]}
+    overseerr:
+      loadBalancer: {servers: [{url: "http://overseerr:5055"}]}

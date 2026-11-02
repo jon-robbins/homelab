@@ -1,0 +1,205 @@
+# Traefik equivalent of config/caddy/Caddyfile (BASE_DOMAIN site block + a gated block). Go-templated by the file
+# provider: {{ env "BASE_DOMAIN" }} is read from the container environment.
+http:
+  routers:
+    # --- Caddy: handle /sonarr* { reverse_proxy sonarr:8989 }     (prefix kept)
+    sonarr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
+      entryPoints: [websecure]
+      middlewares: [compress]
+      service: sonarr
+    # --- Caddy: handle_path /overseerr* { reverse_proxy overseerr:5055 }   (prefix stripped)
+    overseerr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/overseerr`)
+      entryPoints: [websecure]
+      middlewares: [compress, strip-overseerr]
+      service: overseerr
+    # --- Caddy: redir /bazarr /bazarr/ 301 ; handle /bazarr* { reverse_proxy bazarr:6767 }
+    bazarr-slash:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && Path(`/bazarr`)
+      entryPoints: [websecure]
+      priority: 100                # default priority is rule length: PathPrefix(`/bazarr`) would otherwise win
+      middlewares: [bazarr-slash]
+      service: noop@internal
+    bazarr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/bazarr`)
+      entryPoints: [websecure]
+      service: bazarr
+    # --- Caddy: handle_path /autobrr* { handle @internal {...} handle { respond "Unauthorized Access" 403 } }
+    autobrr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/autobrr`)
+      entryPoints: [websecure]
+      middlewares: [lan-only, strip-autobrr]
+      service: autobrr
+    # --- Caddy: the 8000 listener has no Host matcher (the ':80' block)
+    sonarr-plain:
+      rule: PathPrefix(`/sonarr`)
+      entryPoints: [web]
+      service: sonarr
+
+    # ---------------- gated block (setup/config/authentik/gate.caddy) ----------------
+    outpost:        # reverse_proxy /outpost.goauthentik.io/* authentik-server:9000   (never gated)
+      rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/outpost.goauthentik.io/`)
+      entryPoints: [websecure]
+      priority: 1000
+      middlewares: [strip-identity]
+      service: authstub
+    gate-whoami:    # handle /.homelab/whoami
+      rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && Path(`/.homelab/whoami`)
+      entryPoints: [websecure]
+      priority: 900
+      middlewares: [strip-identity, authentik-regex, probe-api]
+      service: probe
+    gate-admin:     # handle /.homelab/admin { import admins_only; respond "admin" 200 }
+      rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && Path(`/.homelab/admin`)
+      entryPoints: [websecure]
+      priority: 900
+      middlewares: [strip-identity, authentik-regex, admins-only, probe-api]
+      service: probe
+    gate-sonarr:    # handle /sonarr* { import admins_only; reverse_proxy sonarr:8989 }
+      rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
+      entryPoints: [websecure]
+      priority: 800
+      middlewares: [strip-identity, authentik-regex, admins-only]
+      service: sonarr
+    gate-everything-else:   # handle { respond "Not Found" 404 } -- but still behind the gate
+      rule: Host(`gate.{{ env "BASE_DOMAIN" }}`)
+      entryPoints: [websecure]
+      priority: 1
+      middlewares: [strip-identity, authentik-regex, as-404]
+      service: noop@internal
+    # Config-aware health probe: answers only if THIS file loaded (item 7). `traefik healthcheck --ping` alone stays
+    # green when the dynamic config is invalid, so the compose healthcheck can use busybox wget on this path instead.
+    healthz:
+      rule: Path(`/healthz`)
+      entryPoints: [ping]
+      service: ping@internal
+    # An UNGATED route that only strips (shows spoofed headers are removed when auth is skipped)
+    ungated:
+      rule: Host(`ungated.{{ env "BASE_DOMAIN" }}`)
+      entryPoints: [websecure]
+      middlewares: [strip-identity]
+      service: probe
+    # Variant A: enumerated strip + enumerated authResponseHeaders (exact Caddy parity; unknown X-Authentik-* names survive)
+    explicit:
+      rule: Host(`explicit.{{ env "BASE_DOMAIN" }}`)
+      entryPoints: [websecure]
+      middlewares: [strip-identity, authentik]
+      service: probe
+    # Variant B: authResponseHeadersRegex alone (wildcard strip, but Remote-User is not covered)
+    regex-only:
+      rule: Host(`regex.{{ env "BASE_DOMAIN" }}`)
+      entryPoints: [websecure]
+      middlewares: [authentik-regex]
+      service: probe
+    # Anti-pattern demo: routing on a header that the auth middleware sets afterwards (item 4/10)
+    header-rule-demo:
+      rule: Host(`rule.{{ env "BASE_DOMAIN" }}`) && HeaderRegexp(`X-Authentik-Groups`, `(^|\|)admins(\||$)`)
+      entryPoints: [websecure]
+      middlewares: [strip-identity, authentik]
+      service: probe
+    # Guard for item 6 only: source range of the test client plus nothing else
+    guarded:
+      rule: Host(`guard.{{ env "BASE_DOMAIN" }}`)
+      entryPoints: [websecure]
+      middlewares: [lan-only]
+      service: probe
+
+    # Internal admins-only helper (item 4): reachable only via the loopback `admincheck` entrypoint.
+    admin-ok:
+      rule: HeaderRegexp(`X-Authentik-Groups`, `(^|\|)admins(\||$)`)
+      entryPoints: [admincheck]
+      priority: 100
+      service: probe
+    admin-deny:
+      rule: PathPrefix(`/`)
+      entryPoints: [admincheck]
+      priority: 1
+      middlewares: [as-403]
+      service: noop@internal
+
+  middlewares:
+    compress:                    # Caddy: encode gzip zstd
+      compress:
+        encodings: [gzip, zstd]
+    strip-overseerr:             # Caddy: handle_path
+      stripPrefix:
+        prefixes: [/overseerr]
+    strip-autobrr:
+      stripPrefix:
+        prefixes: [/autobrr]
+    bazarr-slash:                # Caddy: redir /bazarr /bazarr/ 301
+      redirectRegex:
+        regex: ^(https?://[^/]+)/bazarr$
+        replacement: ${1}/bazarr/
+        permanent: true
+    lan-only:                    # Caddy: @internal remote_ip ...
+      ipAllowList:
+        sourceRange: ["198.51.100.48/29", "127.0.0.1/32"]
+    probe-api:                   # GATE-1 probe: whoami's JSON endpoint
+      replacePath:
+        path: /api
+    strip-identity:              # Caddy: request_header -Remote-User / -X-Authentik-*  (no wildcard: enumerate)
+      headers:
+        customRequestHeaders:
+          Remote-User: ""
+          X-Authentik-Username: ""
+          X-Authentik-Groups: ""
+          X-Authentik-Email: ""
+          X-Authentik-Name: ""
+          X-Authentik-Uid: ""
+          X-Authentik-Jwt: ""
+          X-Authentik-Entitlements: ""
+          X-Authentik-Meta-Jwks: ""
+          X-Authentik-Meta-Outpost: ""
+          X-Authentik-Meta-Provider: ""
+          X-Authentik-Meta-App: ""
+          X-Authentik-Meta-Version: ""
+    authentik:                   # Caddy: forward_auth ... copy_headers X-Authentik-Username ...
+      forwardAuth:
+        address: http://authstub:9000/outpost.goauthentik.io/auth/traefik
+        trustForwardHeader: true     # entrypoint forwardedHeaders.trustedIPs=[] strips client X-Forwarded-* first
+        maxResponseBodySize: 65536
+        authResponseHeaders:
+          - X-Authentik-Username
+          - X-Authentik-Groups
+          - X-Authentik-Email
+          - X-Authentik-Name
+          - X-Authentik-Uid
+    authentik-regex:
+      forwardAuth:
+        address: http://authstub:9000/outpost.goauthentik.io/auth/traefik
+        trustForwardHeader: true
+        maxResponseBodySize: 65536
+        authResponseHeadersRegex: (?i)^x-authentik-
+    as-404:                      # noop@internal answers 418; rewrite it (Caddy: respond "Not Found" 404)
+      errors:
+        status: ["418"]
+        statusRewrites: {"418": 404}
+        service: probe
+        query: /health
+    as-403:                      # (Caddy: respond @not_admin "Forbidden" 403)
+      errors:
+        status: ["418"]
+        statusRewrites: {"418": 403}
+        service: probe
+        query: /health
+    admins-only:                 # Caddy: admins_only  -- second forwardAuth into the loopback helper entrypoint
+      forwardAuth:
+        address: http://127.0.0.1:8083
+        trustForwardHeader: true
+        maxResponseBodySize: 1024
+
+  services:
+    sonarr:
+      loadBalancer: {servers: [{url: "http://sonarr:8989"}]}
+    overseerr:
+      loadBalancer: {servers: [{url: "http://overseerr:5055"}]}
+    bazarr:
+      loadBalancer: {servers: [{url: "http://bazarr:6767"}]}
+    autobrr:
+      loadBalancer: {servers: [{url: "http://autobrr:7474"}]}
+    authstub:
+      loadBalancer: {servers: [{url: "http://authstub:9000"}]}
+    probe:
+      loadBalancer: {servers: [{url: "http://probe:8080"}]}

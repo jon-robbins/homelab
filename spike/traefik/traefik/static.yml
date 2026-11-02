@@ -1,0 +1,40 @@
+# Static config. No docker provider, no API, no dashboard, no telemetry. Routes come from the file provider only.
+x-http: &http                       # unknown top-level keys are ignored by Traefik; used only as a YAML anchor
+  aliasHeadersStrategy: delete      # X_Authentik_Username style aliases are dropped (WSGI/CGI backends would read them)
+  encodedCharacters:                # path-confusion hardening; loosen per route family only if an app needs it
+    allowEncodedSlash: false
+    allowEncodedBackSlash: false
+    allowEncodedNullCharacter: false
+    allowEncodedSemicolon: false
+    allowEncodedPercent: false
+    allowEncodedQuestionMark: false
+    allowEncodedHash: false
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: INFO
+accessLog: {}
+ping:
+  entryPoint: ping
+entryPoints:
+  ping:
+    address: "127.0.0.1:8082"      # container-loopback only: healthcheck, never published
+    http: *http
+  web:
+    address: ":8000"               # plain HTTP (the Caddy ':80' block)
+    forwardedHeaders: {trustedIPs: []}   # trust no one: client X-Forwarded-* is stripped
+    http: *http
+  websecure:
+    address: ":4443"               # published as ${TAILSCALE_IP}:443 -> 4443, same as the Caddy module
+    forwardedHeaders: {trustedIPs: []}
+    http:
+      <<: *http
+      tls: {}                      # default (self-signed) cert unless a resolver is configured
+  admincheck:
+    address: "127.0.0.1:8083"      # loopback-only helper entrypoint for the admins-only check (item 4)
+    http: *http
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true

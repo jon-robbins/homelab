@@ -1,0 +1,104 @@
+# Spike stack, project name `traefikspike`. Hardened exactly like the proposed edge module.
+x-hardened: &hardened
+  user: "${PUID}:${PGID}"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+
+x-traefik: &traefik
+  <<: *hardened
+  image: traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+  tmpfs: [/tmp]
+  healthcheck:
+    test: ["CMD", "traefik", "healthcheck", "--ping"]
+    interval: 5s
+    timeout: 5s
+    retries: 3
+    start_period: 3s
+
+x-whoami: &whoami
+  <<: *hardened
+  image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+  labels: {homelab.state: stateless}
+
+services:
+  traefik:
+    <<: *traefik
+    environment: [BASE_DOMAIN=example.homelab.local]
+    ports: ["127.0.0.1:18443:4443", "127.0.0.1:18000:8000"]
+    volumes:
+      - {type: bind, source: ./.work/dynamic, target: /etc/traefik/dynamic, read_only: true}
+    configs: [{source: static, target: /etc/traefik/traefik.yml, mode: 0444}]
+    depends_on: [sonarr, overseerr, bazarr, autobrr, probe, authstub]
+
+  # Same hardening, listens on the privileged port 443 inside the container (item 1: no NET_BIND_SERVICE needed)
+  traefik-443:
+    <<: *traefik
+    profiles: [p443]
+    ports: ["127.0.0.1:18444:443"]
+    configs: [{source: static-443, target: /etc/traefik/traefik.yml, mode: 0444}]
+
+  sonarr:   {<<: *whoami, command: ["-port", "8989", "-name", "sonarr"]}
+  overseerr: {<<: *whoami, command: ["-port", "5055", "-name", "overseerr"]}
+  bazarr:   {<<: *whoami, command: ["-port", "6767", "-name", "bazarr"]}
+  autobrr:  {<<: *whoami, command: ["-port", "7474", "-name", "autobrr"]}
+  probe:    {<<: *whoami, command: ["-port", "8080", "-name", "probe"]}
+
+  authstub:
+    <<: *hardened
+    image: python:3.12-slim
+    command: ["python", "-I", "/stub/authstub.py"]
+    volumes: [{type: bind, source: ./stub, target: /stub, read_only: true}]
+
+  # ---- item 3: lego/Cloudflare secret handling against a local Pebble test CA ----
+  pebble:
+    profiles: [acme]
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: ["-config", "/test/config/pebble-config.json", "-strict=false"]
+    environment: [PEBBLE_VA_NOSLEEP=1, PEBBLE_VA_ALWAYS_VALID=0]
+
+  acme-file:        # token supplied as a file (decision 0010)
+    <<: *traefik
+    profiles: [acme]
+    environment: [CF_DNS_API_TOKEN_FILE=/run/secrets/CLOUDFLARE_TOKEN, "LEGO_CA_CERTIFICATES=/pebble.minica.pem"]
+    volumes:
+      - {type: bind, source: ./.work/acme, target: /acme}
+      - {type: bind, source: ./.work/pebble.minica.pem, target: /pebble.minica.pem, read_only: true}
+      - {type: bind, source: ./.work/dynamic-acme, target: /etc/traefik/dynamic, read_only: true}
+    configs: [{source: static-acme, target: /etc/traefik/traefik.yml, mode: 0444}]
+    secrets: [CLOUDFLARE_TOKEN]
+
+  acme-newline:     # same, token file ends in a newline (what an Infisical-rendered file may look like)
+    <<: *traefik
+    profiles: [acme]
+    environment: [CF_DNS_API_TOKEN_FILE=/run/secrets/CLOUDFLARE_TOKEN_NL, "LEGO_CA_CERTIFICATES=/pebble.minica.pem"]
+    volumes:
+      - {type: bind, source: ./.work/acme-nl, target: /acme}
+      - {type: bind, source: ./.work/pebble.minica.pem, target: /pebble.minica.pem, read_only: true}
+      - {type: bind, source: ./.work/dynamic-acme, target: /etc/traefik/dynamic, read_only: true}
+    configs: [{source: static-acme, target: /etc/traefik/traefik.yml, mode: 0444}]
+    secrets: [CLOUDFLARE_TOKEN_NL]
+
+  acme-nofile:      # no credential at all
+    <<: *traefik
+    profiles: [acme]
+    environment: ["LEGO_CA_CERTIFICATES=/pebble.minica.pem"]
+    volumes:
+      - {type: bind, source: ./.work/acme-none, target: /acme}
+      - {type: bind, source: ./.work/pebble.minica.pem, target: /pebble.minica.pem, read_only: true}
+      - {type: bind, source: ./.work/dynamic-acme, target: /etc/traefik/dynamic, read_only: true}
+    configs: [{source: static-acme, target: /etc/traefik/traefik.yml, mode: 0444}]
+
+configs:
+  static: {file: ./traefik/static.yml}
+  static-acme: {file: ./traefik/static-acme.yml}
+  static-443: {file: ./traefik/static-443.yml}
+
+secrets:
+  CLOUDFLARE_TOKEN: {file: ./.work/secrets/CLOUDFLARE_TOKEN}
+  CLOUDFLARE_TOKEN_NL: {file: ./.work/secrets/CLOUDFLARE_TOKEN_NL}
+
+networks:
+  default:
+    ipam:
+      config: [{subnet: 198.51.100.0/24, gateway: 198.51.100.1}]

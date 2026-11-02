@@ -1,0 +1,6 @@
+# Item 1 variant: the container itself listens on the privileged port 443.
+global: {checkNewVersion: false, sendAnonymousUsage: false}
+ping: {entryPoint: ping}
+entryPoints:
+  ping: {address: "127.0.0.1:8082"}
+  websecure: {address: ":443", http: {tls: {}}}

@@ -1,0 +1,308 @@
+
+
+############ SETUP
+$ docker compose up (traefik + 4 whoami backends + auth stub)
+ Container traefikspike-sonarr-1 Healthy 
+ Container traefikspike-overseerr-1 Healthy 
+ Container traefikspike-traefik-1 Healthy 
+
+
+############ ITEM 1  hardening: digest pin, non-root, cap_drop ALL, no cap_add, read_only, no-new-privileges
+
+--> container security settings
+image=traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+user=502:20 readonlyRootfs=true capDrop=[ALL] capAdd=[] securityOpt=[no-new-privileges:true] privileged=false
+  PASS  read-only rootfs (= true)
+  PASS  cap_add empty (= [])
+
+--> kernel view inside the container (CapEff=0 means no capability at all; uid is not root)
+$ docker exec traefik sh -c 'id; grep -E "^(CapPrm|CapEff|CapBnd|NoNewPrivs)" /proc/1/status'
+uid=502 gid=20(dialout) groups=20(dialout)
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+NoNewPrivs:	1
+  PASS  effective caps (= 0000000000000000)
+
+--> read-only rootfs: writes fail outside tmpfs/volumes
+touch: /etc/x: Read-only file system
+/tmp (tmpfs) writable
+
+--> file capabilities on the binary (the Caddy trap): scan every layer's security.capability xattr
+$ docker save $IMG | python3 -I check-filecaps.py        # positive control: official caddy image
+layers scanned: 3; files with security.capability xattr: 0
+  PASS  traefik image has no file capability (= 0)
+  PASS  control: official caddy image DOES carry one (checker works) (= 1)
+
+--> binds its HTTPS entrypoint (non-root, no caps): listening sockets and a TLS handshake
+tcp        0      0 127.0.0.1:8083          0.0.0.0:*               LISTEN      
+tcp        0      0 127.0.0.1:8082          0.0.0.0:*               LISTEN      
+tcp        0      0 :::4443                 :::*                    LISTEN      
+tcp        0      0 :::8000                 :::*                    LISTEN      
+https via published port: http=404 tls=20(self-signed default cert)
+* SSL connection using TLSv1.3 / AEAD-CHACHA20-POLY1305-SHA256 / [blank] / UNDEF
+* ALPN: server accepted h2
+*  subject: CN=TRAEFIK DEFAULT CERT
+
+--> even port 443 inside the container needs no NET_BIND_SERVICE (Docker sets net.ipv4.ip_unprivileged_port_start=0)
+ Container traefikspike-traefik-443-1 Healthy 
+ip_unprivileged_port_start=0
+CapEff:	0000000000000000
+tcp        0      0 :::443                  :::*                    LISTEN      
+  PASS  TLS on :443 as non-root, cap_drop ALL (= 404)
+
+--> the repo's real compose policy (scripts/release/compose_policy.py) on the proposed module
+POLICY VIOLATIONS:
+  - $.services.traefik: image namespace is not permitted: docker.io/library/traefik:v3.7.17
+(exit=1  -> only the image namespace is rejected)
+POLICY OK: no violations
+  PASS  policy passes once docker.io/library/traefik is allowlisted (= 0)
+
+
+############ ITEM 2  no Docker socket; file provider only; hot reload
+
+--> no socket in the module, the container, or the static config
+  PASS  docker.sock mounts (= 0)
+  PASS  docker.sock in rendered compose (= 0)
+providers started (log):
+INF Starting provider *file.Provider
+INF Starting provider *traefik.Provider
+INF Starting provider *acme.ChallengeTLSALPN
+static providers block:
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+--> hot reload, directory provider on a bind mount (Docker Desktop virtiofs)
+  PASS  /hot before the file exists (= 404)
+  PASS  new file picked up (= 200)
+  PASS    served by sonarr (= Name: sonarr)
+  PASS  in-place edit picked up (= Name: overseerr)
+  PASS  invalid edit: previous config keeps serving (= 200)
+  PASS  invalid edit: other routes unaffected (= 200)
+  PASS  invalid edit: container still healthy (= healthy)
+2026-11-02T12:03:35Z ERR Error occurred during watcher callback error="collecting file configs: /etc/traefik/dynamic/hot.yml: yaml: line 1: did not find expected ',' or ']'" providerName=file
+  PASS  after delete (+touch: virtiofs bind mounts do not deliver unlink events; named volumes do) (= 404)
+
+--> single-file bind mount (what Compose 'configs:' produces)
+  PASS  single file: initial (= Name: sonarr)
+  PASS  single file: in-place rewrite (cat >) reloads (= Name: overseerr)
+single file: replace-by-rename (sed -i, new inode) -> Name: overseerr   (stale: the mount pins the old inode; with 'configs:' the edge updater recreates the container instead)
+
+
+############ ITEM 3  Cloudflare DNS-01 token from a file (lego via CF_DNS_API_TOKEN_FILE), acme.json under read-only rootfs
+
+--> Pebble (local ACME test CA) + three Traefik instances: token file, token file ending in newline, no credential
+ Container traefikspike-pebble-1 Started 
+ Container traefikspike-acme-file-1 Started 
+
+[acme-file] unable to generate a certificate for the domains [spike.example.com *.spike.example.com]: resolver: one or more domains had a problem: [*.spike.example.com: dns01: error presenting token (*.spike.example.com): cloudflare: failed to find zone example.com.: [status code 403] 9109: Invalid access token] [spike.example.com: dns01: error presenting token (spike.example.com): cloudflare: failed to find zone example.com.: [
+
+[acme-newline] unable to generate a certificate for the domains [spike.example.com *.spike.example.com]: resolver: one or more domains had a problem: [*.spike.example.com: dns01: error presenting token (*.spike.example.com): cloudflare: failed to find zone example.com.: [status code 403] 9109: Invalid access token] [spike.example.com: dns01: error presenting token (spike.example.com): cloudflare: failed to find zone example.com.: [
+
+[acme-nofile] cannot get ACME client cloudflare: some credentials information are missing: CLOUDFLARE_EMAIL,CLOUDFLARE_API_KEY or some credentials information are missing: CLOUDFLARE_DNS_API_TOKEN,CLOUDFLARE_ZONE_API_TOKEN
+  PASS  token file: lego reached Cloudflare and was rejected there (file was read) (= yes)
+  PASS  token file with trailing newline: same Cloudflare rejection (newline trimmed, no local 'invalid header' error) (= yes)
+  PASS  no credential: 'credentials information are missing' (so the file is what made the difference) (= yes)
+
+--> acme.json: created 0600 by the non-root user on the bind-mounted volume while the rootfs is read-only
+-rw-------  1 jon.robbins  staff  3569 Nov  2 13:04 .work/acme/acme.json
+  PASS  acme.json mode (= 600)
+  PASS  rootfs read-only (= true)
+
+--> too-open acme.json is refused
+ Container traefikspike-acme-file-1 Started 
+2026-11-02T12:04:06Z ERR github.com/traefik/traefik/v3/cmd/traefik/traefik.go:485 > The ACME resolve is skipped from the resolvers list error="unable to get ACME account: permissions 644 for /acme/acme.json are too open, please use 600" resolver=cf
+  PASS  644 acme.json rejected (= 1)
+
+
+############ ITEM 4  forward auth equal to gate.caddy; spoofed X-Authentik-* never reaches the backend
+
+--> anonymous (with forged identity headers): sent to login, Set-Cookie preserved
+HTTP/2 302 
+location: https://auth.example.invalid/login
+set-cookie: stub_nonce=1; Path=/
+  PASS  anonymous gated path (= 302)
+  PASS  anonymous random path (catch-all is gated too) (= 302)
+
+--> auth succeeds (alice, family), client sends forged identity + Remote-User + an unknown X-Authentik-* + an X_Authentik_ alias
+{"X-Authentik-Email": "alice@example.invalid", "X-Authentik-Groups": "family", "X-Authentik-Name": "Alice", "X-Authentik-Uid": "u-alice", "X-Authentik-Username": "alice"}
+  PASS  backend sees only the auth server's identity (= {"X-Authentik-Email": "alice@example.invalid", "X-Authentik-Groups": "family", "X-Authentik-Name": "Alice", "X-Authentik-Uid": "u-alice", "X-Authentik-Username": "alice"})
+
+--> auth succeeds but the auth response has NO Email header (carol): the forged Email must not survive
+{"X-Authentik-Extra-Added": "from-auth", "X-Authentik-Groups": "family", "X-Authentik-Name": "Carol", "X-Authentik-Uid": "u-carol", "X-Authentik-Username": "carol"}
+  PASS  forged Email absent (= 0)
+
+--> auth skipped: route with only the strip middleware (and the outpost route)
+{"X-Authentik-Future-Thing": "forged"}
+  PASS  ungated: Remote-User/known X-Authentik-* stripped (= {"X-Authentik-Future-Thing": "forged"})
+{"X-Authentik-Future-Thing": "forged"}
+
+--> variants: explicit authResponseHeaders only (A) vs regex only (B) vs recommended = strip-identity + regex
+A explicit : {"X-Authentik-Future-Thing": "forged", "X-Authentik-Groups": "family", "X-Authentik-Name": "Carol", "X-Authentik-Uid": "u-carol", "X-Authentik-Username": "carol"}
+B regex    : {"Remote-User": "akadmin", "X-Authentik-Extra-Added": "from-auth", "X-Authentik-Groups": "family", "X-Authentik-Name": "Carol", "X-Authentik-Uid": "u-carol", "X-Authentik-Username": "carol"}
+  PASS  A leaves unknown X-Authentik-Future-Thing (= 1)
+  PASS  B leaves Remote-User (= 1)
+  PASS  recommended chain leaves neither (= 0)
+
+--> what the auth server itself received (forwarded request headers, forged identity already stripped)
+{
+ "X-Authentik-Future-Thing": "forged",
+ "X-Forwarded-For": "198.51.100.1",
+ "X-Forwarded-Host": "gate.example.homelab.local:18443",
+ "X-Forwarded-Method": "GET",
+ "X-Forwarded-Port": "18443",
+ "X-Forwarded-Proto": "https",
+ "X-Forwarded-Server": "1c527f97375c",
+ "X-Forwarded-Uri": "/.homelab/whoami",
+ "X-Real-Ip": "198.51.100.1"
+}
+
+--> admins_only: second forwardAuth into a loopback-only entrypoint whose routers match HeaderRegexp(X-Authentik-Groups)
+  PASS  alice (family) + forged Groups: admins -> /.homelab/admin (= 403)
+  PASS  bob (admins) -> /.homelab/admin (= 200)
+  PASS  alice -> /sonarr (admins_only route) (= 403)
+  PASS  bob -> /sonarr (= 200)
+  PASS  bob -> unknown path (handle { respond 404 }) (= 404)
+  PASS  helper entrypoint not reachable from outside the container (= 000)
+
+--> anti-pattern: a router rule on a header that forwardAuth sets later cannot work (routing happens first)
+  PASS  real admin (bob) does NOT match a HeaderRegexp router rule (= 404)
+  PASS  forged header DOES match the rule (client-controlled at routing time) (= 302)
+
+--> fail closed: auth server down
+  /.homelab/whoami     -> 500
+  /.homelab/admin      -> 500
+  /sonarr/x            -> 500
+  /zzz                 -> 500
+  PASS  gate.py FAIL_CLOSED=(502,503,504) would NOT accept this status (= 500)
+
+
+############ ITEM 5  GATE-1 /.homelab/whoami probe without a static-response handler
+
+--> traefik/whoami (allowlisted namespace 'traefik/', scratch image, uid 502, cap_drop ALL, read_only) behind replacePath /api
+user=502:20 ro=true capDrop=[ALL] image=traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+alice -> alice|family|
+bob -> bob|family|admins|
+  PASS  pipe-joined body gate.py expects, family member (= alice|family|)
+gate.py today: user, groups, remote = reply.body.decode().split('|')   -> needs 3 lines to read whoami JSON instead
+no CMD healthcheck possible in a scratch image -> use label homelab.probe=http://:8080/health (accepted by compose_policy._health; run policy-check above)
+
+
+############ ITEM 6  ipAllowList = Caddy remote_ip, and what source IP Traefik sees behind Docker NAT
+lan-only middleware:     lan-only:                    # Caddy: @internal remote_ip ...      ipAllowList:        sourceRange: ["198.51.100.48/29", "127.0.0.1/32"]
+
+--> client container INSIDE the allowed range (no NAT, direct bridge): Traefik sees its real address
+  PASS  allowed source 198.51.100.50 (= 200)
+  backend saw X-Forwarded-For = ['198.51.100.50']  X-Real-Ip = ['198.51.100.50']
+
+--> client outside the range, with forged X-Forwarded-For/X-Real-Ip claiming an allowed address or loopback
+  PASS  denied source 198.51.100.100 (= 403)
+  PASS    + X-Forwarded-For: allowed address (= 403)
+  PASS    + X-Forwarded-For: 127.0.0.1 (= 403)
+  PASS    + X-Real-Ip: allowed address (= 403)
+
+--> from the Mac through the published port (Docker Desktop NAT): the client appears as the bridge gateway
+  forged XFF 203.0.113.9 sent; backend saw X-Forwarded-For = ['198.51.100.1']
+  PASS  host via published port is NOT in the allow list (= 403)
+  PASS  autobrr route (lan-only) from NAT'd host (= 403)
+  PASS  autobrr route from allowed container, prefix stripped (= GET /x HTTP/1.1)
+
+
+############ ITEM 7  healthcheck: traefik healthcheck --ping (no extra binaries)
+healthcheck=["CMD","traefik","healthcheck","--ping"] status=healthy
+$ docker exec traefik traefik healthcheck --ping
+OK: http://127.0.0.1:8082/ping
+  PASS  healthcheck exit (= 0)
+ping answers on the loopback-only entrypoint, not on the published ports:
+  PASS  published port has no /ping (= 404)
+
+--> caveat: ping stays green when the dynamic config is INVALID at startup (Caddy would fail to start)
+2026-11-02T12:04:26Z ERR Error while building configuration (for the first time) error="collecting file configs: /etc/traefik/dynamic/bad.yml: yaml: line 1: did not find expected ',' or ']'" providerN
+OK: http://127.0.0.1:8082/ping
+  PASS  ping with broken dynamic config (= 0)
+wget: server returned error: HTTP/1.1 404 Not Found
+  PASS  route-based /healthz probe (config-aware, busybox wget already in the image) (= 1)
+  PASS  same /healthz probe on the good config (= 0)
+
+
+############ ITEM 8  routing: prefix kept vs stripped, host routing, redirect, compress, 404, line counts
+Name: sonarr GET /sonarr/api/v3?x=1 HTTP/1.1    <- /sonarr keeps prefix (Caddy: handle)
+Name: overseerr GET /foo HTTP/1.1    <- /overseerr stripped (Caddy: handle_path)
+  PASS  prefix kept (= GET /sonarr/api/v3?x=1 HTTP/1.1)
+  PASS  prefix stripped (= GET /foo HTTP/1.1)
+  PASS  host routing: wrong Host (= 404)
+  PASS  redir /bazarr -> /bazarr/ (= 301 https://example.homelab.local:18443/bazarr/)
+  PASS  unmatched path: built-in 404 (no catch-all needed) (= 404)
+  PASS  compress zstd (= zstd)
+  PASS  plain HTTP listener (Caddy ':80' block) (= GET /sonarr/x HTTP/1.1)
+
+priority gotcha: Traefik default priority = rule length, so PathPrefix(/bazarr) beat Path(/bazarr) until priority: 100 was set on the redirect router
+
+--> line counts for the two representative routes (/sonarr kept, /overseerr stripped); full YAML is two-routes.example.yml
+Caddy  : 6 lines (3 per route, no skeleton)
+Traefik: 17 lines in block style incl. skeleton (routers/middlewares/services)
+http:
+  routers:
+    sonarr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
+      service: sonarr
+    overseerr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/overseerr`)
+      middlewares: [strip-overseerr]
+      service: overseerr
+  middlewares:
+    strip-overseerr:
+      stripPrefix: {prefixes: [/overseerr]}
+  services:
+    sonarr:
+      loadBalancer: {servers: [{url: "http://sonarr:8989"}]}
+    overseerr:
+      loadBalancer: {servers: [{url: "http://overseerr:5055"}]}
+  PASS  two-routes.example.yml works as-is (keep) (= GET /sonarr/q HTTP/1.1)
+  PASS  two-routes.example.yml works as-is (strip) (= GET /q HTTP/1.1)
+Whole files: Caddyfile       65 lines + gate.caddy 40 lines | routes.yml      205 lines (185 without comments/blank) covering the same routes plus the gate
+
+
+############ ITEM 9  Dependabot docker-compose + multi-arch
+$ docker buildx imagetools inspect traefik:v3.7.17 (index, platforms)
+Digest:    sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+  Platform:    linux/amd64
+  Platform:    linux/arm/v6
+  Platform:    linux/arm64/v8
+  Platform:    linux/ppc64le
+  Platform:    linux/s390x
+  PASS  pinned digest is the multi-arch index (= application/vnd.oci.image.index.v1+json)
+$ Docker Hub tags (what Dependabot sees)
+plain vX.Y.Z tags: ['v3.7.17', 'v3.7.16', 'v3.7.15', 'v3.7.14', 'v3.7.13', 'v3.7.12']
+suffixed variants (windows) are filtered by Dependabot because the current tag has no suffix: ['v3.7.17-windowsservercore-ltsc2025', 'v3.7.17-windowsservercore-ltsc2022']
+repo precedent (git log): docker-compose ecosystem already bumps docker.io official + v-prefixed tags:
+de7e9b7 build(deps): bump cloudflare/cloudflared in /modules/edge (#81)
+f63c299 build(deps): bump autobrr/autobrr in /modules/app (#79)
+107e44e build(deps): bump cloudflare/cloudflared in /modules/edge (#57)
+1886794 build(deps): bump autobrr/autobrr in /modules/app (#55)
+dependabot.yml covers:     directories: ["/modules/app", "/modules/edge"]   (traefik module would live in /modules/edge)
+
+
+############ ITEM 10  what Caddy does that Traefik cannot (see FINDINGS.md section 10)
+static responses: no 'respond'; closest = noop@internal (418) + errors{statusRewrites}, body is whatever the error service returns:
+HTTP/2 404 
+
+env in static config: Go templates work only in the dynamic file (used above); static config needs flags/TRAEFIK_* env
+BASE_DOMAIN visible to dynamic template (count): 1
+
+
+############ SUMMARY
+item 1  PROVEN   digest-pinned v3.7.17, uid 502, CapEff=0, no cap_add, ro rootfs, no file caps, binds 4443 (and even 443); policy passes except image namespace needs an allowlist entry
+item 2  PROVEN   no socket anywhere, providers=file only; watch reloads create/edit in 1-3s, invalid edit keeps old config; delete needs a named volume on Docker Desktop; single-file mounts reload only on in-place writes
+item 3  PROVEN   lego v5.6.0 in Traefik 3.7.17 reads CF_DNS_API_TOKEN_FILE (Cloudflare 6111/auth rejection with file, 'credentials missing' without); newline trimmed; acme.json 0600 works on ro rootfs. Cannot prove a real cert issues (no real token)
+item 4  PROVEN   headers middleware (empty value = delete) before forwardAuth(authResponseHeadersRegex) + aliasHeadersStrategy=delete; gap: unknown X-Authentik-* names on routes with no forwardAuth; fail-closed status is 500 not 50[234]; admins_only needs a loopback helper entrypoint
+item 5  PROVEN   whoami + replacePath=/api returns JSON of request headers; gate.py must parse the JSON (3 lines) instead of splitting on a pipe; behaviour (identity, forged headers dropped, Remote-User empty, 403 admin) matches
+item 6  PARTIAL  ipAllowList works and ignores forged X-Forwarded-For/X-Real-Ip (entrypoint trustedIPs=[]); behind Docker Desktop NAT the client is the bridge gateway. Native-Linux external-client (Tailscale) source preservation cannot be proven on this Mac; Caddy remote_ip has the identical constraint
+item 7  PROVEN   compose healthcheck works with CMD traefik healthcheck --ping; BUT it cannot detect an invalid dynamic file; /healthz router (ping@internal) + busybox wget (already in image) is config-aware
+item 8  PROVEN   keep/strip/host/redirect/compress/404 all behave like Caddy; ~3x more lines (2 routes: 6 Caddy vs 17 YAML in block style); priority must be explicit where rules overlap
+item 9  PARTIAL  tag/digest/multi-arch facts proven; Dependabot itself cannot run locally. Strong precedent: cloudflared, library/postgres, v-prefixed autobrr bumps already merged. Automerge covers /modules/edge patch+minor
+item 10 PROVEN   list in FINDINGS.md
+
+assertions: 66 passed, 0 failed

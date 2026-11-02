@@ -1,0 +1,63 @@
+# Proposed replacement for modules/edge/caddy.compose.yml (spike copy; the real file would live in modules/edge/).
+services:
+  traefik:
+    image: docker.io/library/traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+    user: "${PUID}:${PGID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - CF_DNS_API_TOKEN_FILE=/run/secrets/CLOUDFLARE_TOKEN
+    # Same port strategy as the Caddy module: the container listens on 4443, the host publishes 443 on one address.
+    ports: ["${TAILSCALE_IP}:443:4443"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/traefik/acme
+        target: /acme
+        bind: {create_host_path: false}
+    configs:
+      - {source: traefik_static, target: /etc/traefik/traefik.yml, mode: 0444}
+      - {source: traefik_routes, target: /etc/traefik/dynamic/routes.yml, mode: 0444}
+    secrets: [CLOUDFLARE_TOKEN]
+    networks: [homelab_net]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # GATE-1 probe backend: `/.homelab/whoami` is routed here (replacePath /api). Scratch image: no shell, so no
+  # CMD healthcheck is possible; the platform's `homelab.probe` label is the policy-approved alternative.
+  gate-probe:
+    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    user: "${PUID}:${PGID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    command: ["-port", "8080", "-name", "probe"]
+    networks: [homelab_net]
+    labels:
+      homelab.state: stateless
+      homelab.probe: "http://:8080/health"
+    restart: unless-stopped
+
+configs:
+  traefik_static:
+    file: ../traefik/static.yml
+  traefik_routes:
+    file: ../traefik/dynamic/routes.yml
+
+secrets:
+  CLOUDFLARE_TOKEN:
+    file: ${HOMELAB_SECRET_DIR}/CLOUDFLARE_TOKEN
+
+networks:
+  homelab_net:
+    external: true
