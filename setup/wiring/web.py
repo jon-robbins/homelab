@@ -10,6 +10,8 @@ import ssl
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
+REDIRECTS = (301, 302, 303, 307)
+
 
 @dataclass(frozen=True)
 class Reply:
@@ -66,7 +68,7 @@ class Web:
         """GET, following redirects; returns the final reply and the URL it came from."""
         for _ in range(hops):
             reply = self.send("GET", url, **kwargs)
-            if reply.status not in (301, 302, 303, 307) or not reply.location:
+            if reply.status not in REDIRECTS or not reply.location:
                 return reply, url
             url = urljoin(url, reply.location)
         raise RuntimeError(f"more than {hops} redirects")
