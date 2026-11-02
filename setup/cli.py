@@ -130,6 +130,7 @@ def _apply(args: argparse.Namespace, layout: Layout) -> int:
     ops = _prepare_host(args, layout)
     network_spec = ops.network_spec(layout.setup_dir)
     release, secrets = open_site(args, layout, network_spec)
+    release.require_loopback_published_ports()
     layout.claim()
     ctx = _context(args, layout, secrets)
     outcome = run(

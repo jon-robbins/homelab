@@ -64,6 +64,37 @@ def test_render_reserves_the_host_planned_caddy_address(tmp_path, monkeypatch):
     assert release.edge["services"]["caddy"]["networks"] == {"homelab_net": {"ipv4_address": "planned-address"}}
 
 
+@pytest.mark.parametrize(
+    "port",
+    [
+        {"target": 8080, "published": "8080", "protocol": "tcp"},
+        {"target": 8080, "published": "8080", "host_ip": "0.0.0.0"},
+        {"target": 8080, "published": "8080", "host_ip": "8.8.4.4"},
+    ],
+)
+def test_preview_rejects_published_ports_without_explicit_numeric_loopback(tmp_path, port):
+    release = Release.from_models(
+        Layout(tmp_path),
+        {"services": {"web": {"ports": [port]}}},
+        {"services": {}},
+        {"services": {}},
+    )
+
+    with pytest.raises(ValueError, match="publishes a port"):
+        release.require_loopback_published_ports()
+
+
+def test_preview_accepts_only_explicit_loopback_ports_in_both_models(tmp_path):
+    release = Release.from_models(
+        Layout(tmp_path),
+        {"services": {"web": {"ports": [{"target": 8080, "published": "8080", "host_ip": "127.0.0.1"}]}}},
+        {"services": {"edge": {"ports": [{"target": 8443, "published": "8443", "host_ip": "::1"}]}}},
+        {"services": {}},
+    )
+
+    release.require_loopback_published_ports()
+
+
 def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):
     provide_web_key(ctx)
     outcome = converge(steps, ctx)

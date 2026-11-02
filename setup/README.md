@@ -20,7 +20,10 @@ downloads are verified against `setup/pins.json` before installation. The local 
 Tailscale and the secrets readiness unit, so a missing required secret prevents Docker from starting on reboot.
 Preflight refuses a host with a globally addressed interface; there is no acknowledgement override while service
 listeners are not yet bound to a validated interface. This check cannot detect router port forwarding to a private
-host, so scoped bind validation is still required before preview apply is safe.
+host. As an additional incomplete-preview guard, apply rejects published ports in both rendered Compose models unless
+each has an explicit numeric `127.0.0.1` or `::1` host bind. This intentionally blocks wildcard, missing and private
+LAN binds; router forwarding makes private LAN binds unsafe. Tailscale binds are not allowed in this preview guard.
+Scoped bind validation and verified tailnet binding are required before this restriction can be relaxed.
 Review the generated site before continuing. The renderer enforces the platform Compose policy and image pins. Local
 apply does not authenticate a downloaded
 platform version: signed release verification belongs to the WS-13 release/update contract. This engine is not a
