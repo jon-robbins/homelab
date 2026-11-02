@@ -1,0 +1,7 @@
+# Answers only when this directory's dynamic files loaded, so a broken routes file makes the container unhealthy.
+http:
+  routers:
+    healthz:
+      rule: Path(`/healthz`)
+      entryPoints: [ping]
+      service: ping@internal

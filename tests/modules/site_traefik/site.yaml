@@ -1,0 +1,9 @@
+contract: 1
+site_id: traefik-test
+bind_roots: [APP_DATA_DIR]
+marker_roots: []
+plugins: {}
+services:
+  traefik: {}
+  cloudflared: {}
+managed: []

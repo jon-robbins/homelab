@@ -14,7 +14,8 @@ only for the media server's streaming port.
 
 ## Caddy
 
-Caddy is the edge reverse proxy (`modules/edge/caddy.compose.yml`, image built from `config/caddy/Dockerfile`
+Caddy is being retired in favour of Traefik (decision 0020); a site switches by selecting `traefik` instead of
+`caddy`. Until then Caddy is the edge reverse proxy (`modules/edge/caddy.compose.yml`, image built from `config/caddy/Dockerfile`
 with the Cloudflare DNS module). It joins `homelab_net` and reaches services by container name.
 
 Certificates: Caddy uses the ACME DNS-01 challenge with `CLOUDFLARE_TOKEN`, so it gets real certificates for
@@ -51,6 +52,42 @@ The platform ships an example Caddyfile at `config/caddy/Caddyfile`; your real r
 
 After changing the Caddyfile, merge to the site repo and apply the edge yourself
 ([operations](operations.md#edge)).
+
+## Traefik
+
+Traefik is the replacement edge proxy (`modules/edge/traefik.compose.yml`, the official image). A site selects it
+instead of `caddy`. It joins `homelab_net` and reaches services by container name. Configuration is files only: there
+is no Docker socket, no dashboard and no API.
+
+- **Static configuration** is the platform's (`config/traefik/traefik.yml`). A site cannot change it.
+- **Routes** are the site's `edge/traefik.yml`, inlined into the release. Start from
+  `config/traefik/routes.example.yml`. Hosts use `{{ env "BASE_DOMAIN" }}`.
+- **Certificates** come from the `cloudflare` resolver (DNS-01, `CLOUDFLARE_TOKEN`). Name the domains on one router,
+  as the example does; the wildcard certificate then serves every host below it.
+
+### Entry points decide who can reach a route
+
+| Entry point | Container port | Published by |
+|---|---|---|
+| `tailnet` (default, TLS) | 4443 | the module, as `${TAILSCALE_IP}:443` |
+| `tunnel` (plain HTTP, for `cloudflared`) | 5443 | the site's override, usually on loopback |
+| `lan` (plain HTTP) | 8080 | the site's override |
+| `lan-tls` | 8443 | the site's override |
+
+A router with no `entryPoints` joins only `tailnet`. Only a route meant to be public names `tunnel`. An entry point
+that is not published cannot be reached, and one bound to every interface must be in `exposed`
+([0015](decisions/0015-exposure-policy.md)). `ipAllowList` is a second layer on private routes; never use it to tell
+tunnel traffic from LAN traffic, because tunnel requests arrive from the Docker bridge, a private address.
+
+Where routes overlap, set `priority`: Traefik orders them by rule length, not file order. A route change reaches
+Traefik only through a recreate, so a release is the only way to change routes.
+
+### Health
+
+The healthcheck calls `/healthz`, which exists only when every dynamic file loaded. A syntax or template error in
+the routes file makes the container unhealthy, so the edge updater rolls back. A valid file that routes wrongly
+(for example, a router naming a missing service) still loads: only that router is dropped, so check the routes
+after an edge release.
 
 ## Service names on `homelab_net`
 

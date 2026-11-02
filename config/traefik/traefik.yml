@@ -1,0 +1,58 @@
+# Static configuration. Only the platform sets it; a site's routes live in the dynamic file (0020).
+# The file provider is the only provider: no Docker socket, no API or dashboard, no plugins.
+x-http: &http                       # unknown top-level keys are ignored; this is only a YAML anchor
+  aliasHeadersStrategy: delete      # drops X_Authentik_Username-style aliases that WSGI/CGI backends read as the real header
+  encodedCharacters:                # set explicitly so a Traefik minor release can't flip them
+    allowEncodedSlash: false
+    allowEncodedBackSlash: false
+    allowEncodedNullCharacter: false
+    allowEncodedSemicolon: false
+    allowEncodedPercent: false
+    allowEncodedQuestionMark: false
+    allowEncodedHash: false
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: INFO
+accessLog: {}
+ping:
+  entryPoint: ping
+  manualRouting: true               # no automatic /ping route; health.yml routes /healthz instead
+entryPoints:
+  tailnet:
+    address: ":4443"                # published as ${TAILSCALE_IP}:443
+    asDefault: true                 # a router with no entryPoints joins only this one, never tunnel
+    forwardedHeaders: {trustedIPs: []}   # trust no one: client X-Forwarded-* is replaced
+    http:
+      <<: *http
+      tls: {}
+  tunnel:
+    address: ":5443"                # the Cloudflare tunnel's origin; plain HTTP, TLS ends at Cloudflare
+    forwardedHeaders: {trustedIPs: []}
+    http: *http
+  lan:
+    address: ":8080"
+    forwardedHeaders: {trustedIPs: []}
+    http: *http
+  lan-tls:
+    address: ":8443"
+    forwardedHeaders: {trustedIPs: []}
+    http:
+      <<: *http
+      tls: {}
+  ping:
+    address: "127.0.0.1:8082"       # container loopback only: the healthcheck, never published
+    forwardedHeaders: {trustedIPs: []}
+    http: *http
+certificatesResolvers:
+  cloudflare:
+    acme:
+      storage: /acme/acme.json
+      dnsChallenge:
+        provider: cloudflare        # reads CF_DNS_API_TOKEN_FILE
+        resolvers: ["1.1.1.1:53", "1.0.0.1:53"]   # lego's zone lookup fails against Docker's embedded resolver
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: false                    # a release recreates the container, so reload-in-place is never needed

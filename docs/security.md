@@ -39,6 +39,7 @@ What the catalog publishes today:
 | Module | Published | Recommendation |
 |---|---|---|
 | caddy | `443` on the Tailscale address | a site adds anything else in an override; a wildcard one needs `exposed` |
+| traefik | `443` on the Tailscale address (container `4443`) | the same; a site publishes the `tunnel`, `lan` and `lan-tls` entry points in an override |
 | plex | `32400` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` (remote streaming) needs `exposed`, harden per [ingress](ingress.md#plex-remote-access) |
 | jellyfin | `8096` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` needs `exposed` |
 | qbittorrent | `51423` TCP and UDP on `PEER_BIND_IP` | peer port; `0.0.0.0` needs `exposed`; the web UI is not published |
