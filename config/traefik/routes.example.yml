@@ -38,11 +38,10 @@ http:
       rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/bazarr`)
       service: bazarr
 
-    # A private router: tailnet only, with an address list as a second layer. Never use ipAllowList to tell
-    # tunnel traffic from LAN traffic: tunnel requests reach Traefik from the Docker bridge, a private address.
+    # A private router: tailnet only (the default entry point).
     autobrr:
       rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/autobrr`)
-      middlewares: [private-only, strip-autobrr]
+      middlewares: [strip-autobrr]
       service: autobrr
 
     # A public router: the only kind that names `tunnel`.
@@ -80,27 +79,11 @@ http:
         regex: ^(https?://[^/]+)/bazarr$
         replacement: ${1}/bazarr/
         permanent: true
-    private-only:
-      ipAllowList:
-        # Placeholders (documentation ranges): replace the two documentation ranges with your LAN range and your Tailscale range.
-        sourceRange: ["127.0.0.0/8", "192.0.2.0/24", "198.51.100.0/24"]
-    # Removes anything a client sent that the gate would otherwise trust. An empty value deletes the header.
+    # Removes client-supplied Remote-User. authResponseHeadersRegex below deletes all incoming X-Authentik-*.
     strip-identity:
       headers:
         customRequestHeaders:
           Remote-User: ""
-          X-Authentik-Username: ""
-          X-Authentik-Groups: ""
-          X-Authentik-Email: ""
-          X-Authentik-Name: ""
-          X-Authentik-Uid: ""
-          X-Authentik-Jwt: ""
-          X-Authentik-Entitlements: ""
-          X-Authentik-Meta-Jwks: ""
-          X-Authentik-Meta-Outpost: ""
-          X-Authentik-Meta-Provider: ""
-          X-Authentik-Meta-App: ""
-          X-Authentik-Meta-Version: ""
     # authResponseHeadersRegex deletes every matching request header before it copies Authentik's answer, so a forged
     # X-Authentik-* never survives. trustForwardHeader is safe because every entry point replaces client
     # X-Forwarded-* (trustedIPs: []). If Authentik is down, gated routes fail closed with 500.
