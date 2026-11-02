@@ -48,6 +48,11 @@ def _random_private_network():
     return ipaddress.ip_network((first << 24 | second << 16, 16))
 
 
+def edge_compose(release_dir) -> list[str]:
+    """`docker compose` for the edge tier of a release. The app tier goes through the controller's planner."""
+    return ["docker", "compose", "-p", "homelab-edge", "-f", str(Path(release_dir) / "edge.json")]
+
+
 class LocalOps(SubprocessOps):
     def __init__(self, settle_s: float = 10):
         self.settle_s = settle_s
@@ -103,19 +108,7 @@ class LocalOps(SubprocessOps):
         if tier == "app":
             return super().pull(release_dir, services)
         if services:
-            model = str(Path(release_dir) / "edge.json")
-            self.run(
-                [
-                    "docker",
-                    "compose",
-                    "-p",
-                    "homelab-edge",
-                    "-f",
-                    model,
-                    "pull",
-                    *services,
-                ]
-            )
+            self.run([*edge_compose(release_dir), "pull", *services])
 
     def network_exists(self, name):
         return subprocess.run(["docker", "network", "inspect", name], capture_output=True).returncode == 0

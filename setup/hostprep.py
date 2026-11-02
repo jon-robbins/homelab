@@ -230,26 +230,15 @@ def apply_local_host_config(root: Path = Path("/"), run: Callable[[list[str]], N
     docker_changed = merge_docker_config(root / "etc/docker/daemon.json")
     libexec = root / "usr/local/libexec"
     sysctl = root / "etc/sysctl.d/90-homelab-local.conf"
-    units = [
-        (
-            root / "etc/systemd/system/homelab-infisical-agent.service",
-            AGENT_UNIT,
-            0o644,
-        ),
-        (root / "etc/systemd/system/homelab-secrets-ready.service", READY_UNIT, 0o644),
-        (
-            root / "etc/systemd/system/docker.service.d/10-homelab-local.conf",
-            DOCKER_DROPIN,
-            0o644,
-        ),
-    ]
-    helpers = [
-        (libexec / "homelab_hostprep.py", Path(__file__).read_bytes(), 0o644),
-        (libexec / "homelab-wait-for-secrets", WAIT_HELPER.encode(), 0o755),
-    ]
-    units_changed = [replace_file(path, text.encode(), mode) for path, text, mode in units]
-    for path, content, mode in helpers:
-        replace_file(path, content, mode)
+    systemd = root / "etc/systemd/system"
+    units = {
+        "homelab-infisical-agent.service": AGENT_UNIT,
+        "homelab-secrets-ready.service": READY_UNIT,
+        "docker.service.d/10-homelab-local.conf": DOCKER_DROPIN,
+    }
+    units_changed = [replace_file(systemd / name, text.encode(), 0o644) for name, text in units.items()]
+    replace_file(libexec / "homelab_hostprep.py", Path(__file__).read_bytes(), 0o644)
+    replace_file(libexec / "homelab-wait-for-secrets", WAIT_HELPER.encode(), 0o755)
     if replace_file(sysctl, b"net.ipv4.ip_nonlocal_bind=1\n", 0o644):
         run(["sysctl", "--load", str(sysctl)])
     if any(units_changed):
