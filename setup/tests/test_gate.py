@@ -36,11 +36,8 @@ class FakeStack:
     def __init__(self):
         self.events = []
 
-    def stop(self, service):
-        self.events.append(("stop", service))
-
-    def start(self, service):
-        self.events.append(("start", service))
+    def lifecycle(self, verb, service):
+        self.events.append((verb, service))
 
     def shell(self, code):
         self.events.append(("shell", None))
@@ -149,12 +146,11 @@ def test_killed_outage_proof_leaves_restart_intent(gate, ctx, monkeypatch):
     made, stack, _ = gate
     monkeypatch.setattr(Gate, "_probe", lambda self, group: contextlib.nullcontext(FakeWeb()))
 
-    def killed(service):
+    def killed(verb, service):
         assert ctx.layout.restart_pending(service)
         raise KeyboardInterrupt
 
-    stack.stop = killed
-    stack.start = lambda service: (_ for _ in ()).throw(KeyboardInterrupt())
+    stack.lifecycle = killed
     with pytest.raises(KeyboardInterrupt):
         made._down(ctx)
     assert ctx.layout.restart_pending("authentik-server")
@@ -170,7 +166,7 @@ def test_failed_reproof_stops_existing_tunnel_and_preserves_restart_intent(gate,
         return "container-id" if "ps" in command else ""
 
     stack.call = call
-    monkeypatch.setattr(Gate, "_wait_ready", lambda self: (_ for _ in ()).throw(ProofFailed("bad gate")))
+    monkeypatch.setattr(Gate, "_ready", lambda self, seconds=120: False)
     assert not made.apply(ctx).ok
     assert commands[-1][-2:] == ["stop", "cloudflared"]
     assert ctx.layout.restart_pending("cloudflared")

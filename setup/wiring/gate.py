@@ -18,8 +18,9 @@ from urllib.parse import urljoin, urlsplit
 
 from ..engine.contract import Context, Result, State
 from ..engine.local import Release
+from ..engine.ops import edge_compose
 from .stack import SERVER, Stack, StackError
-from .web import Web
+from .web import REDIRECTS, Web
 
 WHOAMI, ADMIN = "/.homelab/whoami", "/.homelab/admin"
 FLOW = "/api/v3/flows/executor/default-authentication-flow/?query="
@@ -29,7 +30,8 @@ FORGED = {
     "X-Authentik-Email": "forged@example.invalid",
     "Remote-User": "akadmin",
 }
-REDIRECTS = (301, 302, 303, 307)
+# Probes run one at a time, so removing every probe user is both the pre-create sweep and the cleanup.
+SWEEP = "from authentik.core.models import User, Group\nUser.objects.filter(username__startswith='homelab-probe-').delete()\n"
 FAIL_CLOSED = (502, 503, 504)
 
 
@@ -63,9 +65,7 @@ class Gate:
 
     def digest(self, ctx: Context) -> str:
         config = [
-            self.release.app,
-            self.release.edge,
-            self.release.site,
+            self.release.directory.name,  # already a hash of app.json, edge.json and site.yaml
             ctx.facts.get("authentik.blueprints"),
             self.address,
             self.app_url,
@@ -79,7 +79,7 @@ class Gate:
     def _close_tunnel(self, ctx: Context) -> None:
         if "cloudflared" not in self.release.edge.get("services", {}):
             return
-        command = ["docker", "compose", "-p", "homelab-edge", "-f", str(self.release.directory / "edge.json")]
+        command = edge_compose(self.release.directory)
         if self.stack.call([*command, "ps", "--status", "running", "-q", "cloudflared"]).strip():
             ctx.layout.set_restart_pending("cloudflared", True)
             self.stack.call([*command, "stop", "cloudflared"])
@@ -108,11 +108,8 @@ class Gate:
 
     def _flow(self, web: Web, payload: dict | None) -> dict:
         url = self.auth_url + FLOW
-        reply = (
-            web.send("POST", url, {"Content-Type": "application/json"}, json.dumps(payload).encode())
-            if payload
-            else web.send("GET", url)
-        )
+        body = json.dumps(payload).encode() if payload else None
+        reply = web.send("POST" if payload else "GET", url, {"Content-Type": "application/json"}, body)
         if reply.status in REDIRECTS:
             reply, _ = web.follow(urljoin(url, reply.location))
         return reply.json()
@@ -126,9 +123,7 @@ class Gate:
     @contextlib.contextmanager
     def _probe(self, group: str) -> Iterator[Web]:
         name, password = f"homelab-probe-{group}-{secrets.token_hex(6)}", secrets.token_urlsafe(24)
-        make = (
-            "from authentik.core.models import User, Group\n"
-            "User.objects.filter(username__startswith='homelab-probe-').delete()\n"  # left by a killed proof
+        make = SWEEP + (
             f"u = User.objects.create(username={name!r}, name='probe', path='users')\n"
             f"u.set_password({password!r}); u.save(); u.ak_groups.add(Group.objects.get(name={group!r}))\n"
         )
@@ -139,28 +134,23 @@ class Gate:
             yield web
         finally:
             with contextlib.suppress(StackError):  # never hide the proof's own error; the next proof sweeps it
-                self.stack.shell(
-                    f"from authentik.core.models import User; User.objects.filter(username={name!r}).delete()\n"
-                )
-
-    def _who(self, web: Web) -> list[str]:
-        reply, _ = web.follow(self.app_url + WHOAMI, headers=FORGED)
-        _expect(reply.status == 200, "signed-in request was refused")
-        return reply.body.decode().split("|")
+                self.stack.shell(SWEEP)
 
     def _signed_in(self) -> None:
         with self._probe("family") as web:
-            user, groups, remote = self._who(web)
+            who, _ = web.follow(self.app_url + WHOAMI, headers=FORGED)
+            _expect(who.status == 200, "signed-in request was refused")
+            user, groups, remote = who.body.decode().split("|")
             _expect(
                 user.startswith("homelab-probe-family-") and groups == "family" and not remote,
                 "forged headers reached the upstream",
             )
             for path in (ADMIN, *self.admin_paths):
-                denied, _ = web.follow(self.app_url + path)
-                _expect(denied.status == 403, f"a family member reached an admin route: {path}")
+                _expect(
+                    web.follow(self.app_url + path)[0].status == 403, f"a family member reached an admin route: {path}"
+                )
         with self._probe("admins") as web:
-            allowed, _ = web.follow(self.app_url + ADMIN)
-            _expect(allowed.status == 200, "an admin was refused on the admin route")
+            _expect(web.follow(self.app_url + ADMIN)[0].status == 200, "an admin was refused on the admin route")
 
     def _open_routes(self, signed_in: Web) -> list[str]:
         """Paths that still answer with Authentik stopped. Failing closed is a 5xx with no identity in the body."""
@@ -172,10 +162,10 @@ class Gate:
         with self._probe("family") as web:
             ctx.layout.set_restart_pending(SERVER, True)  # survives a kill, so the engine restarts it
             try:
-                self.stack.stop(SERVER)
+                self.stack.lifecycle("stop", SERVER)
                 opened = self._open_routes(web)
             finally:
-                self.stack.start(SERVER)
+                self.stack.lifecycle("start", SERVER)
             back = self._ready()
             if back:
                 ctx.layout.set_restart_pending(SERVER, False)
@@ -193,15 +183,12 @@ class Gate:
             time.sleep(3)
         return False
 
-    def _wait_ready(self) -> None:
-        if not self._ready():
-            self._anonymous()  # a route that is open is reported as one, not as an outage
-            raise ProofFailed("Authentik did not come back")
-
     def apply(self, ctx: Context) -> Result:
         try:
             self._close_tunnel(ctx)
-            self._wait_ready()
+            if not self._ready():
+                self._anonymous()  # a route that is open is reported as one, not as an outage
+                raise ProofFailed("Authentik did not come back")
             self._signed_in()
             self._down(ctx)
         except (ProofFailed, StackError, OSError) as error:
