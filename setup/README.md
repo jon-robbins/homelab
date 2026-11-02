@@ -47,6 +47,7 @@ class Step(Protocol):
 `check` is read-only and returns `State.done()`, `State.needed()` or `State.blocked(reason)`. Check the external
 system every time; checkpoint history never substitutes for current truth. `apply` must be safe to retry after any
 partial write. `verify` independently proves success and may return facts recovered from the external system.
+A step whose `check` already observes the host can inherit `CheckIsProof`, whose `verify` is `check` returning DONE.
 Both return `Result.success(message, facts)`, `Result.failure(reason)` or, from apply, `Result.ask(prompt)`.
 Failures stop all later steps. Unknown dependencies, cycles and duplicate IDs are rejected before applying anything.
 Steps never print, read the terminal or launch a browser.
