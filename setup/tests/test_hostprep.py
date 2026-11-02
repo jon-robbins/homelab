@@ -34,9 +34,9 @@ def test_install_replaces_existing_binary_atomically_and_sets_its_mode(tmp_path)
     assert sorted(path.name for path in tmp_path.iterdir()) == ["executable"]
 
 
-def test_preflight_accepts_only_ubuntu_2404_amd64_and_always_refuses_public_ip():
+def test_preflight_accepts_only_ubuntu_2404_amd64_and_refuses_public_ipv4():
     validate_target({"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64", 8192, False)
-    with pytest.raises(ValueError, match="globally addressed"):
+    with pytest.raises(ValueError, match="public IPv4"):
         validate_target({"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64", 8192, True)
     with pytest.raises(ValueError, match="Ubuntu 24.04 amd64"):
         validate_target({"ID": "debian", "VERSION_ID": "12"}, "x86_64", 8192, False)
@@ -122,10 +122,14 @@ def _addresses(*locals_):
 
 @pytest.mark.parametrize(
     ("addresses", "public"),
-    [(("127.0.0.1", "169.254.1.1", "fe80::1"), False), (("198.51.100.7",), False), (("8.8.8.8",), True)],
+    [
+        (("127.0.0.1", "169.254.1.1", "fe80::1", "198.51.100.7"), set()),
+        (("8.8.8.8",), {4}),
+        (("2606:4700:4700::1111", "fd00::1"), {6}),
+    ],
 )
-def test_public_address_detection_reads_ip_json(addresses, public):
-    assert hostprep._has_public_address(_addresses(*addresses)) is public
+def test_public_address_detection_separates_ipv4_from_ipv6(addresses, public):
+    assert hostprep._public_families(_addresses(*addresses)) == public
 
 
 def test_merging_docker_defaults_reports_whether_it_changed_anything(tmp_path):
@@ -141,7 +145,7 @@ def test_port_check_can_be_skipped_for_a_host_that_setup_already_serves(monkeypa
     monkeypatch.setattr(hostprep.shutil, "disk_usage", lambda path: type("U", (), {"free": 10**12})())
     monkeypatch.setattr(hostprep.os, "geteuid", lambda: 0)
     monkeypatch.setattr(hostprep, "_listening_web_ports", lambda: seen.append("probed") or {"443"})
-    monkeypatch.setattr(hostprep, "_read_host_facts", lambda: ({}, 8192, False))
+    monkeypatch.setattr(hostprep, "_read_host_facts", lambda: ({}, 8192, set()))
 
     hostprep.preflight(check_ports=False)
     assert seen == []

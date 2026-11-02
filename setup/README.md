@@ -18,8 +18,9 @@ python3 -m setup.cli --site /path/to/local-site apply
 `apply` performs a read-only host preflight and ownership check before installing host packages. Docker, restic and
 sqlite3 come from apt at their current versions; only the cosign and Infisical downloads and the Docker apt key are
 pinned and checksum-verified (`setup/pins.json`). The local Docker unit starts after the secrets readiness unit, so a missing required secret prevents Docker from starting on reboot.
-Preflight refuses a host with a globally addressed interface; there is no acknowledgement override while service
-listeners are not yet bound to a validated interface. This check cannot detect router port forwarding to a private
+Preflight refuses a host with a public IPv4 address. A public IPv6 address only prints a note: home ISPs give every
+host one, and the router's firewall keeps it private. Published ports bind loopback only (below), so IPv6 can expose
+host services such as sshd but not the media stack. This check cannot detect router port forwarding to a private
 host. As an additional incomplete-preview guard, apply rejects published ports in both rendered Compose models unless
 each has an explicit numeric `127.0.0.1` or `::1` host bind. This intentionally blocks wildcard, missing and private
 LAN binds; router forwarding makes private LAN binds unsafe. Tailscale binds are not allowed in this preview guard.
