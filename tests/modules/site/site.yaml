@@ -24,4 +24,5 @@ services:
   authentik-server: {}
   authentik-worker: {}
   sabnzbd: {}
-managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker, sabnzbd]
+  music-transcoder: {}
+managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker, sabnzbd, music-transcoder]

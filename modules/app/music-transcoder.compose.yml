@@ -1,0 +1,45 @@
+services:
+  music-transcoder:
+    image: lscr.io/linuxserver/ffmpeg:latest@sha256:f4191c1abe18d75c49a23f7224d1403d55334f80013a47cb096f5056cf19617b
+    pids_limit: 500
+    networks: [homelab_net]
+    user: "${PUID}:${PGID}"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    entrypoint: ["/bin/bash", "/homelab/transcode.sh"]
+    secrets: [LIDARR_API_KEY]
+    environment:
+      - TZ=${TZ}
+      - MUSIC_DIR=/music
+      - BITRATE=320k
+      - SCAN_INTERVAL=300
+      - LIDARR_URL=http://lidarr:8686/lidarr
+    volumes:
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        bind: {create_host_path: false}
+    configs:
+      - source: transcoder-script
+        target: /homelab/transcode.sh
+        mode: 0555
+    labels:
+      homelab.state: stateless
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f transcode.sh >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+configs:
+  transcoder-script:
+    file: config/music-transcoder/transcode.sh
+
+secrets:
+  LIDARR_API_KEY: {file: "${HOMELAB_SECRET_DIR}/LIDARR_API_KEY"}
+
+networks:
+  homelab_net:
+    external: true
