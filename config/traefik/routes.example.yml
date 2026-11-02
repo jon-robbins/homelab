@@ -1,92 +1,49 @@
-# Example routes: copy to your site as edge/traefik.yml and edit. It has no private values.
-# The platform mounts it at /etc/traefik/dynamic/routes.yml; the whole file is a Go template, so
-# {{ env "BASE_DOMAIN" }} reads the container's BASE_DOMAIN. The entry points come from traefik.yml and a site
-# can't add one: tailnet (the default), tunnel (public, via cloudflared), lan, lan-tls.
+# Example routes: copy to your site as edge/traefik.yml and edit.
+# The platform mounts it at /etc/traefik/dynamic/routes.yml; Go templating resolves {{ env "BASE_DOMAIN" }}.
 #
-# Who can reach a router is decided by its entryPoints, not by an IP list. A router with no entryPoints joins
-# only `tailnet`. Join `tunnel` only for a route meant to be public. A site publishes the other entry points in
-# its override (docs/ingress.md#traefik).
-#
-# Overlapping rules: Traefik orders them by rule length, not by file order, so set `priority` where they overlap.
+# Access is controlled by entryPoints:
+# - Routers without entryPoints join only `tailnet` (the default).
+# - Join `tunnel` only for routes that should be public via Cloudflare Tunnel.
+# - Traefik orders rules by length, so set `priority` when paths overlap.
 http:
   routers:
-    # The app is configured with this URL base and expects to see the prefix (Sonarr, Radarr, Prowlarr, Bazarr).
+    # Private app: tailnet only. Wildcard certificate on one router serves all subdomains.
     sonarr:
       rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
       middlewares: [compress]
       service: sonarr
-      # One router naming the domains is enough: the wildcard certificate serves every host below it.
       tls:
         certResolver: cloudflare
         domains:
           - main: '{{ env "BASE_DOMAIN" }}'
             sans: ['*.{{ env "BASE_DOMAIN" }}']
 
-    # The app expects the prefix removed (Seerr, qBittorrent).
-    overseerr:
-      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/overseerr`)
-      middlewares: [compress, strip-overseerr]
-      service: overseerr
-
-    # /bazarr redirects to /bazarr/. Without a priority, the longer PathPrefix rule below would win.
-    bazarr-slash:
-      rule: Host(`{{ env "BASE_DOMAIN" }}`) && Path(`/bazarr`)
-      priority: 100
-      middlewares: [bazarr-slash]
-      service: noop@internal
-    bazarr:
-      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/bazarr`)
-      service: bazarr
-
-    # A private router: tailnet only (the default entry point).
-    autobrr:
-      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/autobrr`)
-      middlewares: [strip-autobrr]
-      service: autobrr
-
-    # A public router: the only kind that names `tunnel`.
+    # Public app: joins tunnel.
     requests:
       rule: Host(`requests.{{ env "BASE_DOMAIN" }}`)
       entryPoints: [tunnel]
       service: overseerr
 
-    # --- Authentik login gate (used by setup and S2) --------------------------------------------------------
-    # Traefik only authenticates; Authentik decides who may see which host. Never route on an identity header.
-    # The outpost path is ungated and wins over every gated router.
+    # --- Authentik forward-auth gate ----------------------------------------------------
+    # Unauthenticated outpost traffic must bypass the gate with higher priority.
     outpost:
       rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/outpost.goauthentik.io/`)
       priority: 1000
-      middlewares: [strip-identity]
       service: authentik
+
     gated-sonarr:
       rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
       priority: 800
-      middlewares: [strip-identity, authentik]
+      middlewares: [authentik]
       service: sonarr
 
   middlewares:
     compress:
       compress:
         encodings: [gzip, zstd]
-    strip-overseerr:
-      stripPrefix:
-        prefixes: [/overseerr]
-    strip-autobrr:
-      stripPrefix:
-        prefixes: [/autobrr]
-    bazarr-slash:
-      redirectRegex:
-        regex: ^(https?://[^/]+)/bazarr$
-        replacement: ${1}/bazarr/
-        permanent: true
-    # Removes client-supplied Remote-User. authResponseHeadersRegex below deletes all incoming X-Authentik-*.
-    strip-identity:
-      headers:
-        customRequestHeaders:
-          Remote-User: ""
-    # authResponseHeadersRegex deletes every matching request header before it copies Authentik's answer, so a forged
-    # X-Authentik-* never survives. trustForwardHeader is safe because every entry point replaces client
-    # X-Forwarded-* (trustedIPs: []). If Authentik is down, gated routes fail closed with 500.
+
+    # authResponseHeadersRegex purges client X-Authentik-* headers before copying the outpost response.
+    # If Authentik is unreachable, gated routes fail closed with 500.
     authentik:
       forwardAuth:
         address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
@@ -99,9 +56,5 @@ http:
       loadBalancer: {servers: [{url: "http://sonarr:8989"}]}
     overseerr:
       loadBalancer: {servers: [{url: "http://overseerr:5055"}]}
-    bazarr:
-      loadBalancer: {servers: [{url: "http://bazarr:6767"}]}
-    autobrr:
-      loadBalancer: {servers: [{url: "http://autobrr:7474"}]}
     authentik:
       loadBalancer: {servers: [{url: "http://authentik-server:9000"}]}
