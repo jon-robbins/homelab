@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import uuid
 
 import yaml
@@ -146,3 +147,64 @@ def test_an_import_through_the_rendered_data_mount_is_a_real_hardlink(tmp_path):
             "/data/downloads/show.mkv", "/data/tv/show.mkv")
     assert (media / "tv/show.mkv").stat().st_ino == (media / "downloads/show.mkv").stat().st_ino
     assert (media / "tv/show.mkv").stat().st_nlink == 2
+
+
+_GOOD_ROUTES = "http:\n  routers:\n    r: {rule: 'PathPrefix(`/x`)', service: s}\n  services:\n    s: {loadBalancer: {servers: [{url: 'http://127.0.0.1:1'}]}}\n"
+
+
+def _traefik_edge(tmp_path: Path, routes: str) -> tuple[tuple, str]:
+    """Render the traefik fixture site against a scratch data dir; return the compose command and project."""
+    site = tmp_path / "site"
+    shutil.copytree(ROOT / "tests/modules/site_traefik", site)
+    (site / "edge/traefik.yml").write_text(routes)
+    data, secrets = tmp_path / "data", tmp_path / "secrets"
+    (data / "traefik/acme").mkdir(parents=True)
+    (data / "traefik/acme").chmod(0o777)  # the container runs as PUID:PGID, not as the test user
+    secrets.mkdir()
+    (secrets / "CLOUDFLARE_TOKEN").write_text("not-a-real-token\n")
+    env = [line for line in (site / "site.env").read_text().splitlines()
+           if line.split("=")[0] not in ("APP_DATA_DIR", "HOMELAB_SECRET_DIR")]
+    (site / "site.env").write_text("\n".join([*env, f"APP_DATA_DIR={data}", f"HOMELAB_SECRET_DIR={secrets}"]) + "\n")
+    model = render(ROOT, site, {}).edge
+    service = {k: v for k, v in model["services"]["traefik"].items() if k not in ("ports", "extra_hosts")}
+    service["networks"] = {"n": None}
+    compose = tmp_path / "edge.json"
+    compose.write_text(json.dumps({"services": {"traefik": service}, "configs": model["configs"],
+                                   "secrets": model["secrets"], "networks": {"n": {}}}))
+    project = "homelab-traefik-" + uuid.uuid4().hex[:8]
+    return ("compose", "-p", project, "-f", compose), service["healthcheck"]["test"][1:]
+
+
+def _wait(predicate, seconds: int = 60) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(1)
+    return False
+
+
+def test_traefik_module_is_healthy_hardened_and_unhealthy_when_routes_do_not_load(tmp_path):
+    for routes, healthy in ((_GOOD_ROUTES, True), ("http:\n  routers: [unclosed\n", False)):
+        run = tmp_path / ("good" if healthy else "broken")
+        run.mkdir()
+        command, health = _traefik_edge(run, routes)
+        try:
+            _docker(*command, "up", "-d")
+            container = _docker(*command, "ps", "-q", "traefik").stdout.strip()
+            probe = lambda: _docker("exec", container, *health, check=False).returncode == 0  # noqa: E731
+            if healthy:
+                assert _wait(probe), _docker("logs", container).stderr
+                caps = _docker("exec", container, "sh", "-c", "id -u; grep -E '^(CapEff|NoNewPrivs)' /proc/self/status").stdout
+                assert caps.split() == ["1000", "CapEff:", "0000000000000000", "NoNewPrivs:", "1"]
+                assert (run / "data/traefik/acme/acme.json").stat().st_mode & 0o777 == 0o600
+            else:
+                # Traefik stays up when the dynamic files fail to load; only /healthz tells the updater.
+                def failed() -> bool:
+                    logs = _docker("logs", container)
+                    return "Cannot start the provider" in logs.stdout + logs.stderr
+
+                assert _wait(failed)
+                assert not probe()
+        finally:
+            _docker(*command, "down", "-v", check=False)

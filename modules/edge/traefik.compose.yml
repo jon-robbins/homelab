@@ -1,0 +1,53 @@
+services:
+  traefik:
+    image: docker.io/library/traefik:v3.7.17@sha256:30ff62491aacdb862ceb8c9edcf2627da638d7deafdd4b6dab32fe34f8aa3e90
+    user: "${PUID}:${PGID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # No `read_only`: a release delivers config files as inline content, which Compose cannot inject into a
+    # read-only service. Traefik writes only /acme, which is a bind.
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      # A path, not the token: lego reads the file itself (0010).
+      - CF_DNS_API_TOKEN_FILE=/run/secrets/CLOUDFLARE_TOKEN
+    # Tailnet HTTPS lands on its own container port. Any other entry point (LAN, the tunnel's loopback port) is
+    # published by a site override; one on every interface must be in `exposed` (0015).
+    ports: ["${TAILSCALE_IP}:443:4443"]
+    volumes:
+      - type: bind
+        source: ${APP_DATA_DIR}/traefik/acme
+        target: /acme
+        bind: {create_host_path: false}
+    configs:
+      - {source: traefik_static, target: /etc/traefik/traefik.yml, mode: 0444}
+      - {source: traefik_health, target: /etc/traefik/dynamic/health.yml, mode: 0444}
+      - {source: traefik_routes, target: /etc/traefik/dynamic/routes.yml, mode: 0444}
+    secrets: [CLOUDFLARE_TOKEN]
+    networks: [homelab_net]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    labels:
+      homelab.state: stateful
+    healthcheck:
+      # /healthz exists only when the dynamic files loaded; `traefik healthcheck --ping` stays green without them.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8082/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+configs:
+  traefik_static:
+    file: config/traefik/traefik.yml
+  traefik_health:
+    file: config/traefik/health.yml
+  traefik_routes:
+    file: site:edge/traefik.yml
+
+secrets:
+  CLOUDFLARE_TOKEN:
+    file: ${HOMELAB_SECRET_DIR}/CLOUDFLARE_TOKEN
+
+networks:
+  homelab_net:
+    external: true

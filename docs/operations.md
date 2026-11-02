@@ -15,7 +15,7 @@ homelabctl reconcile --now            # apply now, even in observe-only mode
 ## Updates
 
 App- and edge-tier patch/minor Dependabot bumps merge and deploy on their own (usually within about 80 minutes).
-Majors and Soularr's image wait for you ([0014](decisions/0014-dependabot-automerge.md),
+Majors, Traefik minors and Soularr's image wait for you ([0014](decisions/0014-dependabot-automerge.md),
 [0016](decisions/0016-edge-updater.md)).
 
 Pause everything:
