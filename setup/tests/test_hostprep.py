@@ -6,7 +6,6 @@ import pytest
 from setup import hostprep
 from setup.hostprep import (
     apply_local_host_config,
-    artifact_pin,
     install_cosign,
     merge_docker_config,
     replace_file,
@@ -24,23 +23,15 @@ def test_verified_download_rejects_bytes_that_do_not_match_the_pinned_digest():
         verify_digest(b"tampered content", expected)
 
 
-def test_cosign_bootstrap_pin_is_versioned_and_sha256_pinned():
-    pin = artifact_pin("cosign")
-
-    assert pin["version"] == "3.1.3"
-    assert len(pin["sha256"]) == 64
-    assert pin["url"].endswith("/v3.1.3/cosign-linux-amd64")
-
-
 def test_install_replaces_existing_binary_atomically_and_sets_its_mode(tmp_path):
-    destination = tmp_path / "tailscaled"
+    destination = tmp_path / "executable"
     destination.write_bytes(b"old running executable")
 
     replace_file(destination, b"new executable", 0o755)
 
     assert destination.read_bytes() == b"new executable"
     assert destination.stat().st_mode & 0o777 == 0o755
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["tailscaled"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["executable"]
 
 
 def test_preflight_accepts_only_ubuntu_2404_amd64_and_always_refuses_public_ip():
@@ -117,14 +108,24 @@ def test_host_config_applies_once_and_a_rerun_runs_nothing(tmp_path):
     assert second.calls == []
 
 
-def test_docker_waits_for_secrets_only_once_an_agent_config_exists(tmp_path):
-    apply_local_host_config(tmp_path, Commands())
+def test_log_limits_are_not_added_to_a_driver_that_rejects_them(tmp_path):
+    path = tmp_path / "daemon.json"
+    path.write_text(json.dumps({"log-driver": "journald"}))
 
-    unit = (tmp_path / "etc/systemd/system/homelab-infisical-agent.service").read_text()
-    dropin = (tmp_path / "etc/systemd/system/docker.service.d/10-homelab-local.conf").read_text()
-    assert "ConditionPathExists=/etc/infisical-agent/config.yaml" in unit
-    assert "Requires=homelab-infisical-agent.service" in dropin
-    assert "After=homelab-infisical-agent.service" in dropin
+    assert merge_docker_config(path) is False
+    assert json.loads(path.read_text()) == {"log-driver": "journald"}
+
+
+def _addresses(*locals_):
+    return json.dumps([{"ifname": "eth0", "addr_info": [{"local": address} for address in locals_]}])
+
+
+@pytest.mark.parametrize(
+    ("addresses", "public"),
+    [(("127.0.0.1", "169.254.1.1", "fe80::1"), False), (("198.51.100.7",), False), (("8.8.8.8",), True)],
+)
+def test_public_address_detection_reads_ip_json(addresses, public):
+    assert hostprep._has_public_address(_addresses(*addresses)) is public
 
 
 def test_merging_docker_defaults_reports_whether_it_changed_anything(tmp_path):

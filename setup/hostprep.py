@@ -77,12 +77,15 @@ def install_cosign(destination: Path) -> Path:
 
 
 def merge_docker_config(path: Path) -> bool:
-    """Add missing log limits, keeping everything else. Returns whether the file changed."""
+    """Add missing log limits, keeping everything else. Returns whether the file changed.
+
+    Only json-file and local accept max-size/max-file; dockerd refuses to start if another driver gets them.
+    """
     original = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    config = {**original, "log-opts": dict(original.get("log-opts", {}))}
-    config.setdefault("log-driver", "json-file")
-    config["log-opts"].setdefault("max-size", "10m")
-    config["log-opts"].setdefault("max-file", "3")
+    config = {"log-driver": "json-file", **original}
+    if config["log-driver"] not in ("json-file", "local"):
+        return False
+    config["log-opts"] = {"max-size": "10m", "max-file": "3", **original.get("log-opts", {})}
     if path.exists() and config == original:
         return False
     replace_file(path, (json.dumps(config, indent=2, sort_keys=True) + "\n").encode(), 0o644)
@@ -199,19 +202,33 @@ RuntimeDirectory=homelab-secrets
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 ExecStart=/usr/bin/infisical agent --config /etc/infisical-agent/config.yaml
-ExecStartPost=/usr/local/libexec/homelab-wait-for-secrets
-# Docker waits behind this unit, so a secret that shows up late (a router slower than the host) starts it.
-TimeoutStartSec=infinity
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 """
+# Docker requires this one-shot gate, not the agent: restarting the agent (a provider change) must not restart Docker.
+READY_UNIT = """[Unit]
+Description=Wait until every required homelab secret file exists
+Wants=homelab-infisical-agent.service
+After=homelab-infisical-agent.service
+ConditionPathExists=/etc/infisical-agent/config.yaml
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/homelab-wait-for-secrets
+# A secret that shows up late (a router slower than the host) still starts Docker.
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+"""
 DOCKER_DROPIN = """[Unit]
 # Only a missing secret holds Docker back.
-Requires=homelab-infisical-agent.service
-After=homelab-infisical-agent.service
+Requires=homelab-secrets-ready.service
+After=homelab-secrets-ready.service
 """
 WAIT_HELPER = "#!/bin/sh\nexec /usr/bin/python3 /usr/local/libexec/homelab_hostprep.py --wait-for-secrets\n"
 
@@ -227,6 +244,7 @@ def apply_local_host_config(root: Path = Path("/"), run: Callable[[list[str]], N
             AGENT_UNIT,
             0o644,
         ),
+        (root / "etc/systemd/system/homelab-secrets-ready.service", READY_UNIT, 0o644),
         (
             root / "etc/systemd/system/docker.service.d/10-homelab-local.conf",
             DOCKER_DROPIN,
@@ -274,12 +292,13 @@ def _read_host_facts() -> tuple[dict[str, str], int, bool]:
         if line.startswith("MemTotal:")
     )
     addresses = subprocess.run(["ip", "-j", "address"], capture_output=True, text=True, check=True)
-    public_ip = any(
-        ipaddress.ip_address(info["local"]).is_global
-        for interface in json.loads(addresses.stdout)
-        for info in interface.get("addr_info", ())
-    )
-    return release, memory_kib // 1024, public_ip
+    return release, memory_kib // 1024, _has_public_address(addresses.stdout)
+
+
+def _has_public_address(ip_json: str) -> bool:
+    """Whether `ip -j address` lists any globally routable address."""
+    infos = (info for interface in json.loads(ip_json) for info in interface.get("addr_info", ()))
+    return any(ipaddress.ip_address(info["local"]).is_global for info in infos)
 
 
 def _listening_web_ports() -> set[str]:

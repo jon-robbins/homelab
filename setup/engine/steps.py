@@ -57,15 +57,11 @@ class Network:
     needs: tuple[str, ...] = ()
 
     def check(self, ctx: Context) -> State:
-        if self.ops.network_exists(NETWORK):
-            return (
-                State.done()
-                if self.ops.network_ready(NETWORK, ctx.layout.setup_dir)
-                else State.blocked(
-                    f"existing {NETWORK} is not owned by local setup or does not match its saved network plan"
-                )
-            )
-        return State.needed()
+        if not self.ops.network_exists(NETWORK):
+            return State.needed()
+        if self.ops.network_ready(NETWORK, ctx.layout.setup_dir):
+            return State.done()
+        return State.blocked(f"existing {NETWORK} is not owned by local setup or does not match its saved network plan")
 
     def apply(self, ctx: Context) -> Result:
         spec = self.planned or self.ops.network_spec(ctx.layout.setup_dir)

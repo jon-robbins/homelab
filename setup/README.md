@@ -7,7 +7,7 @@ This is the engine foundation for the guided local setup in [0018](../docs/decis
 It has no screens or provider wiring yet. It is separate from the signed owner pipeline and never calls its admission,
 materialize or reconcile functions. Nothing in the platform depends on this directory.
 
-Install `setup/requirements.txt` in a Python 3.12 environment. From the platform root, run local setup as root on
+Install `config/release/requirements.txt` in a Python 3.12 environment. From the platform root, run local setup as root on
 Ubuntu 24.04 amd64:
 
 ```sh

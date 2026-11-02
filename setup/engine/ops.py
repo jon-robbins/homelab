@@ -41,10 +41,11 @@ def judge(inspected: dict | None, settle_s: float, now: datetime) -> Verdict:
     return Verdict("ok") if age >= settle_s else Verdict("wait", f"up for {age:.0f}s of {settle_s:.0f}s")
 
 
-def _random_private_network() -> ipaddress.IPv4Network:
-    """A random /16 inside 10/8, 172.16/12 or 192.168/16."""
-    first, second = secrets.choice([(10, secrets.randbelow(256)), (172, 16 + secrets.randbelow(16)), (192, 168)])
-    return ipaddress.ip_network(f"{first}.{second}.0.0/16")
+def _random_private_network():
+    """A random /16 from one of the three RFC 1918 blocks."""
+    prefixes = [(10, secrets.randbelow(256)), (172, 16 + secrets.randbelow(16)), (192, 168)]
+    first, second = secrets.choice(prefixes)
+    return ipaddress.ip_network((first << 24 | second << 16, 16))
 
 
 class LocalOps(SubprocessOps):
@@ -133,6 +134,12 @@ class LocalOps(SubprocessOps):
 
     def _network_conflicts(self, candidate):
         return any(candidate.overlaps(taken) for taken in self._taken_subnets())
+
+    def plan_network(self, state_dir):
+        """The saved network plan, choosing and saving one first if none exists. Apply calls this before rendering."""
+        spec = self.network_spec(state_dir)
+        self._save_network_plan(Path(state_dir) / "network.json", spec)
+        return spec
 
     def network_spec(self, state_dir):
         path = Path(state_dir) / "network.json"

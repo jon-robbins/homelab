@@ -69,6 +69,9 @@ class FakeOps:
     def network_ready(self, name, state_dir):
         return self.network and self.network_plan
 
+    def plan_network(self, state_dir):
+        return self.network_spec(state_dir)
+
     def network_spec(self, state_dir):
         return {
             "subnet": "test-subnet",
