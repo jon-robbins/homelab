@@ -122,6 +122,13 @@ def test_missing_tier_is_rejected():
         check({"svc": service()}, tiers={})
 
 
+def test_traefik_is_allowed_only_under_its_official_namespace():
+    check({"traefik": service(image="docker.io/library/traefik:v3.7.17" + DIGEST)}, tiers={"traefik": "edge"})
+    for image in ("traefik:v3.7.17" + DIGEST, "docker.io/library/caddy:2.11.7" + DIGEST):
+        with pytest.raises(ValidationError, match="namespace is not permitted"):
+            check({"traefik": service(image=image)}, tiers={"traefik": "edge"})
+
+
 def test_code_plugin_images_must_be_strictly_under_its_namespace():
     namespace = {"svc": "ghcr.io/me/plugin"}
     check({"svc": service(image="ghcr.io/me/plugin/tl-auth" + DIGEST)}, namespaces=namespace)
