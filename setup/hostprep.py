@@ -69,13 +69,6 @@ def replace_file(destination: Path, content: bytes, mode: int) -> bool:
     return True
 
 
-def install_cosign(destination: Path) -> Path:
-    pin = artifact_pin("cosign")
-    if destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest() == pin["sha256"]:
-        return destination
-    return download_verified(pin["url"], pin["sha256"], destination)
-
-
 def merge_docker_config(path: Path) -> bool:
     """Add missing log limits, keeping everything else. Returns whether the file changed.
 
@@ -145,7 +138,6 @@ def _install_infisical() -> None:
 
 def install_pinned_packages() -> None:
     """Install host dependencies. Anything already installed is left alone, so a rerun changes nothing."""
-    install_cosign(Path("/usr/local/bin/cosign"))
     _install_apt_packages()
     _install_infisical()
 

@@ -11,9 +11,6 @@ set -euo pipefail
 # Tests and local VMs may override both with HOMELAB_RELEASE_URL and HOMELAB_RELEASE_SHA256.
 RELEASE_URL=${HOMELAB_RELEASE_URL:-}
 RELEASE_SHA256=${HOMELAB_RELEASE_SHA256:-}
-# Kept in step with setup/pins.json by a test.
-COSIGN_URL=https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64
-COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
 
 INSTALL_DIR=/opt/homelab
 OWNER_POLICY=/srv/homelab/trust/policy.json
@@ -44,16 +41,8 @@ fetch() {
   mv "$partial" "$3"
 }
 
-install_cosign() {
-  if [[ -x /usr/local/bin/cosign ]] && echo "$COSIGN_SHA256  /usr/local/bin/cosign" | sha256sum -c --quiet - 2>/dev/null; then
-    return
-  fi
-  fetch "$COSIGN_URL" "$COSIGN_SHA256" "$work/cosign"
-  install -m 0755 "$work/cosign" /usr/local/bin/cosign
-}
-
-# WS-13 SEAM: replace the digest check with `cosign verify-blob --bundle` against the release workflow identity
-# (setup/hostprep.py verify_signed_release holds the identity). Until then an archive is trusted only by its digest.
+# WS-13 SEAM: add `cosign verify-blob --bundle` against the release workflow identity here, installing cosign
+# first. Until then an archive is trusted only by its pinned digest.
 fetch_release() {
   local target=$INSTALL_DIR/releases/$RELEASE_SHA256
   if [[ ! -d $target ]]; then
@@ -73,11 +62,8 @@ make_venv() {
   local venv=$INSTALL_DIR/venv
   # Test pip, not python: a venv that failed for lack of python3-venv still leaves bin/python behind.
   if [[ ! -x $venv/bin/pip ]]; then
-    python3 -m venv --clear "$venv" 2>/dev/null || {
-      apt-get update -qq >&2
-      apt-get install -y python3-venv >&2
-      python3 -m venv --clear "$venv"
-    }
+    dpkg -s python3-venv >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y python3-venv; } >&2
+    python3 -m venv --clear "$venv"
   fi
   "$venv/bin/pip" install --quiet --disable-pip-version-check --only-binary=:all: --require-hashes -r "$platform/config/release/requirements.txt"
 }
@@ -85,7 +71,6 @@ make_venv() {
 check_host
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-install_cosign
 fetch_release
 make_venv
 cd "$platform"

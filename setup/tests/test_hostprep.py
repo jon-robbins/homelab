@@ -6,7 +6,6 @@ import pytest
 from setup import hostprep
 from setup.hostprep import (
     apply_local_host_config,
-    install_cosign,
     merge_docker_config,
     replace_file,
     validate_target,
@@ -70,23 +69,6 @@ def test_replace_file_leaves_an_identical_file_untouched(tmp_path):
     assert replace_file(target, b"same", 0o644) is False
     assert target.stat().st_mtime_ns == before
     assert replace_file(target, b"different", 0o644) is True
-
-
-def test_installed_cosign_matching_the_pin_is_not_downloaded_again(tmp_path, monkeypatch):
-    content = b"pinned cosign"
-    monkeypatch.setattr(
-        hostprep,
-        "artifact_pin",
-        lambda name: {"url": "unused", "sha256": hashlib.sha256(content).hexdigest()},
-    )
-    target = tmp_path / "cosign"
-    replace_file(target, content, 0o755)
-
-    def refuse(*args, **kwargs):
-        raise AssertionError("downloaded an artifact that was already installed")
-
-    monkeypatch.setattr(hostprep, "urlopen", refuse)
-    assert install_cosign(target) == target
 
 
 class Commands:

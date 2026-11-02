@@ -16,7 +16,7 @@ python3 -m setup.cli --site /path/to/local-site apply
 ```
 
 `apply` performs a read-only host preflight and ownership check before installing host packages. Docker, restic and
-sqlite3 come from apt at their current versions; only the cosign and Infisical downloads and the Docker apt key are
+sqlite3 come from apt at their current versions; only the Infisical download and the Docker apt key are
 pinned and checksum-verified (`setup/pins.json`). The local Docker unit starts after the secrets readiness unit, so a missing required secret prevents Docker from starting on reboot.
 Preflight refuses a host with a public IPv4 address. A public IPv6 address only prints a note: home ISPs give every
 host one, and the router's firewall keeps it private. Published ports bind loopback only (below), so IPv6 can expose
