@@ -62,13 +62,13 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
      because tunnel traffic arrives from the Docker bridge address.
    - No dashboard or admin API exists. Unmatched requests get Traefik's 404.
 4. **Hardening.** The edge proxy runs as `user: "${PUID}:${PGID}"` with `cap_drop: [ALL]` and no `cap_add`,
-   `read_only: true` with a `/tmp` tmpfs, `no-new-privileges`, `homelab_net`, and one stateful bind
+   no `read_only` (a release delivers config files as inline content, which Compose can't inject into a read-only service; [0008](0008-compose-policy.md)), `no-new-privileges`, `homelab_net`, and one stateful bind
    `${APP_DATA_DIR}/traefik/acme → /acme` for `acme.json` (0600; Traefik refuses a looser file). The `NET_BIND_SERVICE` exception in
    [0008](0008-compose-policy.md) and `cap-allowlist.json` is removed when Caddy is.
 5. **Secret** ([0010](0010-secrets.md)). The token stays the `CLOUDFLARE_TOKEN` file secret. The module sets only
    `CF_DNS_API_TOKEN_FILE=/run/secrets/CLOUDFLARE_TOKEN`, a path. lego reads the file itself. The value never
    appears in `environment:`, a config or a release.
-6. **Edge updater** ([0016](0016-edge-updater.md)). Health is `wget` (busybox, already in the image) against
+6. **Edge updater** ([0016](0016-edge-updater.md)). Health is busybox `wget` (already in the image) against `/healthz` on the loopback `ping` entry point,
    `http://127.0.0.1:8082/healthz`. `traefik healthcheck --ping` is not used, because it stays green when the dynamic
    configuration fails to load, and `/healthz` exists only when it loaded. Traefik minor bumps are not merged
    unattended, because minors have flipped security defaults; patch bumps still are. The updater's `up` adds
@@ -111,7 +111,7 @@ closed is 500), G7 (parity with Caddy; native-Linux source addresses unproven) a
 partial. Still open: G2's `asDefault` check, G6 against real Authentik, G10, and a real issuance (the owner's prep
 script).
 
-- **G1 Hardening:** the pinned image runs as `PUID:PGID` with `cap_drop: [ALL]`, no `cap_add`, `read_only` and
+- **G1 Hardening:** the pinned image runs as `PUID:PGID` with `cap_drop: [ALL]`, no `cap_add` and
   `no-new-privileges`, and `getcap` on the binary is empty.
 - **G2 Ports:** `${TAILSCALE_IP}:443:4443` and the other unprivileged container ports serve as expected, and
   `asDefault` keeps routers without `entryPoints` off `tunnel`.
