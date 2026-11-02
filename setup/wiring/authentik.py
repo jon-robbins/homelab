@@ -17,7 +17,7 @@ from pathlib import Path
 from string import Template
 from typing import Any, Mapping, Sequence
 
-from ..engine.contract import Context, Result, Secret, State, Status
+from ..engine.contract import CheckIsProof, Context, Result, Secret, State
 from .stack import SERVER, WORKER, Stack, StackError
 from .web import Web
 
@@ -98,7 +98,7 @@ def _blueprint_dir(release: Any) -> Path:
 
 
 @dataclass(frozen=True)
-class Secrets:
+class Secrets(CheckIsProof):
     """AK-0: the provider-issued Google client (G-4, asked for) and the shared Jellyfin OIDC secret (A-11, made)."""
 
     id: str = "AK-0"
@@ -118,13 +118,9 @@ class Secrets:
                 return Result.ask(Secret(name, label, hint))
         return Result.success("provider secrets present")
 
-    def verify(self, ctx: Context) -> Result:
-        missing = self._missing(ctx)
-        return Result.failure(f"missing: {missing}") if missing else Result.success()
-
 
 @dataclass(frozen=True)
-class FirstBoot:
+class FirstBoot(CheckIsProof):
     """AK-1 (A-1, A-2): hash, migrate, close setup, all before the server's first request."""
 
     stack: Stack
@@ -138,7 +134,7 @@ class FirstBoot:
             return False  # no tables yet: an empty database
 
     def check(self, ctx: Context) -> State:
-        return State.done() if self._closed() else State.needed()
+        return State.done() if self._closed() and ctx.secrets.exists(HASH) else State.needed()
 
     def apply(self, ctx: Context) -> Result:
         if not ctx.secrets.exists(HASH):
@@ -148,13 +144,9 @@ class FirstBoot:
         self.stack.once(SERVER, "shell", "-c", "from authentik.core.apps import Setup; Setup.set(True)")
         return Result.success("database migrated, first-run setup closed", {"authentik.breakglass": ADMIN})
 
-    def verify(self, ctx: Context) -> Result:
-        closed = self._closed() and ctx.secrets.exists(HASH)
-        return Result.success() if closed else Result.failure("the setup flag is not set")
-
 
 @dataclass(frozen=True)
-class Blueprints:
+class Blueprints(CheckIsProof):
     """AK-2 (A-4, A-6): write the blueprint files the worker mounts. Changes are picked up by AK-3."""
 
     release: Any
@@ -184,10 +176,6 @@ class Blueprints:
             if leftover.name not in files:
                 leftover.unlink()  # remove obsolete files; database account revocation remains explicit
         return Result.success(f"{len(files)} blueprint files written")
-
-    def verify(self, ctx: Context) -> Result:
-        stale = self._stale()
-        return Result.failure(f"not written: {stale}") if stale else Result.success()
 
 
 @dataclass(frozen=True)
@@ -245,7 +233,7 @@ class Applied:
     def apply(self, ctx: Context) -> Result:
         if not ctx.facts.get("authentik.blueprints") and self._wait(ctx):
             return Result.success("blueprints applied", {"authentik.blueprints": self._revision()})
-        self.stack.restart(WORKER)
+        self.stack.lifecycle("restart", WORKER)
         for path in sorted(_blueprint_dir(self.release).glob("*.yaml")):
             self.stack.exec(WORKER, "ak", "apply_blueprint", f"{TARGET}/{path.name}")
         return Result.success(
@@ -257,7 +245,7 @@ class Applied:
 
 
 @dataclass(frozen=True)
-class SetupClosed:
+class SetupClosed(CheckIsProof):
     """AK-9 (A-9): the front page sends a visitor to the login flow, never to /setup."""
 
     address: tuple[str, int]
@@ -278,6 +266,3 @@ class SetupClosed:
 
     def apply(self, ctx: Context) -> Result:
         return Result.failure("first-run setup is open: the flag was not set before the server started")
-
-    def verify(self, ctx: Context) -> Result:
-        return Result.success() if self.check(ctx).status is Status.DONE else Result.failure("setup page is reachable")

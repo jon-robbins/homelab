@@ -44,14 +44,9 @@ class Stack:
         out = self.exec(POSTGRES, "psql", "-U", "authentik", "-d", "authentik", "-tA", "-F", "|", "-c", sql)
         return [line.split("|") for line in out.splitlines() if line]
 
-    def restart(self, service: str) -> None:
-        self.call(self._compose("restart", service))
-
-    def stop(self, service: str) -> None:
-        self.call(self._compose("stop", service))
-
-    def start(self, service: str) -> None:
-        self.call(self._compose("start", service))
+    def lifecycle(self, verb: str, service: str) -> None:
+        """`docker compose start|stop|restart` for one service."""
+        self.call(self._compose(verb, service))
 
     def healthy(self, service: str) -> bool:
         return (

@@ -48,8 +48,8 @@ class FakeStack:
         self.calls.append((service, args, None))
         return ""
 
-    def restart(self, service):
-        self.calls.append(("restart", service, None))
+    def lifecycle(self, verb, service):
+        self.calls.append((verb, service, None))
 
     def psql(self, sql):
         if "authentik_tenants_tenant" in sql:
