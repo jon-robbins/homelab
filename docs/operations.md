@@ -47,8 +47,8 @@ every tick sends a fail ping until you act.
 Edge (caddy, cloudflared) is applied by its own timer, `homelab-edge-update`, never by the controller
 ([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json` if it
 changed, waits for both services to be healthy, and otherwise puts the last good one back and skips that release
-until a newer one. While the running edge differs from the release, the deadman ping fails with
-"edge change pending".
+until a newer one. It applies exactly the services in `edge.json`, so a service a release drops is removed. While
+the running edge differs from the release, the deadman ping fails with "edge change pending".
 
 - Last run: `journalctl -u homelab-edge-update -n 20`.
 - After a rollback: fix forward with a new release, or apply the skipped one by hand once you know why it failed
@@ -56,7 +56,7 @@ until a newer one. While the running edge differs from the release, the deadman 
 - To apply by hand, as before:
 
 ```bash
-docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps caddy cloudflared
+docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps --remove-orphans
 ```
 
 ## New host

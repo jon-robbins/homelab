@@ -23,7 +23,8 @@ if [[ -f $failed && $(<"$failed") == "$want" ]]; then exit 0; fi
 
 compose() { docker compose -p homelab-edge -f "$1" "${@:2}"; }
 # --wait returns non-zero when a service exits, turns unhealthy or is not healthy within the timeout.
-up() { compose "$1" up -d --no-deps --wait --wait-timeout "$TIMEOUT"; }
+# --remove-orphans leaves exactly the file's services, so a release that replaces one (and its rollback) frees its ports.
+up() { compose "$1" up -d --no-deps --wait --wait-timeout "$TIMEOUT" --remove-orphans; }
 
 # Nothing has changed if the pull fails, so that is retried next run rather than marked as failed.
 compose "$tmp/edge.json" pull || { echo "edge: pull failed; retrying next run" >&2; exit 1; }
