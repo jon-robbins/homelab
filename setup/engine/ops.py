@@ -175,7 +175,9 @@ class LocalOps(SubprocessOps):
         """Create the bridge network from the saved plan; refuse a same-named network we did not make."""
         if self.network_exists(name):
             if not self.network_ready(name, state_dir):
-                raise RuntimeError(f"existing {name} network is not owned by local setup or does not match its saved plan")
+                raise RuntimeError(
+                    f"existing {name} network is not owned by local setup or does not match its saved plan"
+                )
             return
         self._save_network_plan(Path(state_dir) / "network.json", spec)
         self.run(
