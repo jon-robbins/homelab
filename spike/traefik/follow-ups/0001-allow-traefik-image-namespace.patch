@@ -1,0 +1,5 @@
+--- a/config/release/image-policy.json	2026-11-02 22:31:54
++++ b/config/release/image-policy.json	2026-11-02 22:31:54
+@@ -1 +1 @@
+-{"namespaces":["lscr.io/linuxserver/","ghcr.io/autobrr/","ghcr.io/flaresolverr/","ghcr.io/seerr-team/","ghcr.io/navidrome/","docker.io/cloudflare/","cloudflare/","traefik/","ghcr.io/slskd/","docker.io/mrusse08/","ghcr.io/goauthentik/","docker.io/library/postgres"]}
++{"namespaces":["lscr.io/linuxserver/","ghcr.io/autobrr/","ghcr.io/flaresolverr/","ghcr.io/seerr-team/","ghcr.io/navidrome/","docker.io/cloudflare/","cloudflare/","traefik/","ghcr.io/slskd/","docker.io/mrusse08/","ghcr.io/goauthentik/","docker.io/library/postgres","docker.io/library/traefik"]}

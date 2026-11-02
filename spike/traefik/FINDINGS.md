@@ -264,6 +264,18 @@ Set `priority` explicitly wherever rules overlap.
 6. Traefik 3.7 prints startup warnings for `aliasHeadersStrategy`, `encodedCharacters`, `trustForwardHeader`, `maxResponseBodySize`;
    all four are set in the shipped config, which starts with zero warnings.
 
+## Gap closure
+
+| Gap | State | What closes it |
+|---|---|---|
+| 1 Image namespace | Patch ready | [`follow-ups/0001-allow-traefik-image-namespace.patch`](follow-ups/0001-allow-traefik-image-namespace.patch); must land as its own change (0009) |
+| 2 Healthcheck trap | Closed in spike | `/healthz` route in `traefik/dynamic/routes.yml`, proven in `EVIDENCE.txt`; adopt it in the module |
+| 3 Route priority | Closed in spike | Explicit `priority` on every overlapping route in `routes.yml` |
+| 4 `admins_only` | Closed in spike, needs decision | Loopback helper entrypoint is proven; the per-hostname alternative needs an architect decision |
+| 5 `gate.py` | Patch ready | [`follow-ups/0002-gate-py-traefik-whoami.patch`](follow-ups/0002-gate-py-traefik-whoami.patch), against `feat/ws-01-authentik`; compiles, not run against a live stack |
+
+Both patches are not applied: this spike changes nothing outside `spike/traefik/`.
+
 ## Files
 
 | File | Purpose |

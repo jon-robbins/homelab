@@ -1,0 +1,34 @@
+--- a/setup/wiring/gate.py	2026-11-02 22:32:01
++++ b/setup/wiring/gate.py	2026-11-02 22:32:01
+@@ -30,7 +30,7 @@
+     "Remote-User": "akadmin",
+ }
+ REDIRECTS = (301, 302, 303, 307)
+-FAIL_CLOSED = (502, 503, 504)
++FAIL_CLOSED = (500, 502, 503, 504)  # Traefik forwardAuth answers 500 when the auth server is down
+ 
+ 
+ class ProofFailed(Exception):
+@@ -137,10 +137,11 @@
+                 f"from authentik.core.models import User; User.objects.filter(username={name!r}).delete()\n"
+             )
+ 
+-    def _who(self, web: Web) -> list[str]:
++    def _who(self, web: Web) -> list[str]:  # whoami (traefik/whoami behind replacePath /api) answers JSON
+         reply, _ = web.follow(self.app_url + WHOAMI, headers=FORGED)
+         _expect(reply.status == 200, "signed-in request was refused")
+-        return reply.body.decode().split("|")
++        headers = json.loads(reply.body)["headers"]
++        return [",".join(headers.get(h, [])) for h in ("X-Authentik-Username", "X-Authentik-Groups", "Remote-User")]
+ 
+     def _signed_in(self) -> None:
+         with self._probe("family") as web:
+@@ -164,7 +165,7 @@
+                     for path in (*self.paths, WHOAMI, ADMIN):
+                         reply = client.send("GET", self.app_url + path, FORGED)
+                         _expect(
+-                            reply.status in FAIL_CLOSED and b"|" not in reply.body,
++                            reply.status in FAIL_CLOSED and b"homelab-probe" not in reply.body,
+                             f"{path}: a route stayed open with Authentik down",
+                         )
+             finally:
