@@ -12,7 +12,7 @@ scripts/dev/gate --fast   # pre-commit and the no-docker sessions only
 It runs `pre-commit run --all-files` and `nox`: directly on Linux, and in a pinned Linux container
 (`scripts/dev/gate.Dockerfile`) on macOS, so results match CI. On macOS the container drives the host's Docker
 daemon through its socket, with the repository and a temporary directory mounted at their host paths so paths
-the tests pass to Docker resolve. The Docker sessions are `controller_e2e`, `render_docker` and `images`, which
+the tests pass to Docker resolve. The Docker sessions are `controller_e2e`, `render_docker`, `wizard_e2e` and `images`, which
 builds every image in CI's `image-builds` job. Extra arguments go to nox, for example `scripts/dev/gate -s release`.
 CI calls the same entry points.
 
@@ -29,6 +29,14 @@ when that project already exists on the daemon. That keeps it from touching a re
 | `tests/integration/controller_e2e.py` | the controller against real Docker | `controller_e2e` |
 | `tests/host/` | `install.sh`, `homelab-backup`, `wait-for-secrets`, `move-data.sh` with `DESTDIR` and fakes | — |
 | `tests/boundary/`, `tests/docs/`, `scripts/ci/public-readiness.py` | no private values in tracked files; doc links resolve | `scripts/ci/public-check.sh` |
+
+## Setup engine
+
+The independent setup engine (`setup/README.md`) has its own dependencies and 2,000-line budget.
+`nox -s wizard` runs its unit and platform boundary tests; `nox -s wizard_e2e` applies a synthetic site
+against real Docker. The latter refuses any existing `homelab` or `homelab-edge` project or `homelab_net`
+network, including on CI. It removes only the synthetic resources it created. Neither test needs provider accounts.
+Deleting `setup/` skips those sessions and leaves the owner pipeline tests working.
 
 ## What makes a useful test
 

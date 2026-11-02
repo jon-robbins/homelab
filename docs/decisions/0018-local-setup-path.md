@@ -1,7 +1,7 @@
 # 0018: Guided local setup for new homelabs
 
 - **Status:** Accepted (2026-10-31)
-- **Code:** `scripts/`, `modules/`, `config/ci/budgets.json`
+- **Code:** `scripts/`, `host/install.sh`, `modules/`, `config/ci/budgets.json`, `tests/boundary/test_setup_boundary.py`
 - **Amends:** [0002](0002-public-platform-private-site.md) (the private site repo is the owner's pipeline; strangers use a generated local site directory)
 - **Scopes:** [0004](0004-signed-full-state-releases.md) and the signed-release rule in `AGENTS.md` apply to owner-pipeline hosts
 - **Related:** [0005](0005-slim-controller.md), [0010](0010-secrets.md), [0011](0011-complexity-budgets.md), [0012](0012-backups.md), [0015](0015-exposure-policy.md), [0017](0017-personal-services-are-plugins.md), [architecture](../architecture/overview.md)

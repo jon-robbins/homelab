@@ -108,3 +108,22 @@ def docs(session: nox.Session) -> None:
 def host(session: nox.Session) -> None:
     install(session, "pytest")
     session.run("pytest", "-q", "tests/host")
+
+
+@nox.session(python=PYTHON, tags=["no-docker"])
+def wizard(session: nox.Session) -> None:
+    if not (ROOT / "setup").is_dir():
+        session.skip("setup/ is not present; the owner's pipeline does not need it")
+    install(session, "pytest", "PyYAML")
+    session.env["PYTHONPATH"] = str(ROOT)
+    session.run("pytest", "-q", "setup/tests", "tests/boundary/test_setup_boundary.py")
+
+
+@nox.session(python=PYTHON, tags=["docker"])
+def wizard_e2e(session: nox.Session) -> None:
+    # Brings up and removes the "homelab" project and homelab_net, so never against a daemon that has them.
+    if not (ROOT / "setup").is_dir():
+        session.skip("setup/ is not present; the owner's pipeline does not need it")
+    install(session, "pytest", "PyYAML")
+    session.env["PYTHONPATH"] = str(ROOT)
+    session.run("pytest", "-q", "setup/tests/e2e_docker.py")
