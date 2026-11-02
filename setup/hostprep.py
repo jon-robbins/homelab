@@ -277,10 +277,10 @@ def validate_target(
     if memory_mib < 4096:
         raise ValueError("at least 4096 MiB RAM is required")
     if public_ip:
-        raise ValueError("a globally addressed interface was detected; setup refuses this host")
+        raise ValueError("a public IPv4 address is on this host; setup refuses a host that sits on the internet")
 
 
-def _read_host_facts() -> tuple[dict[str, str], int, bool]:
+def _read_host_facts() -> tuple[dict[str, str], int, set[int]]:
     release = {}
     for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
         key, separator, value = line.partition("=")
@@ -292,13 +292,14 @@ def _read_host_facts() -> tuple[dict[str, str], int, bool]:
         if line.startswith("MemTotal:")
     )
     addresses = subprocess.run(["ip", "-j", "address"], capture_output=True, text=True, check=True)
-    return release, memory_kib // 1024, _has_public_address(addresses.stdout)
+    return release, memory_kib // 1024, _public_families(addresses.stdout)
 
 
-def _has_public_address(ip_json: str) -> bool:
-    """Whether `ip -j address` lists any globally routable address."""
+def _public_families(ip_json: str) -> set[int]:
+    """IP versions (4, 6) for which `ip -j address` lists a globally routable address."""
     infos = (info for interface in json.loads(ip_json) for info in interface.get("addr_info", ()))
-    return any(ipaddress.ip_address(info["local"]).is_global for info in infos)
+    addresses = (ipaddress.ip_address(info["local"]) for info in infos)
+    return {address.version for address in addresses if address.is_global}
 
 
 def _listening_web_ports() -> set[str]:
@@ -308,13 +309,12 @@ def _listening_web_ports() -> set[str]:
 
 def preflight(*, check_ports: bool = True) -> None:
     """Refuse an unsuitable host before anything is written. A host setup already serves skips the port check."""
-    release, memory_mib, public_ip = _read_host_facts()
-    validate_target(
-        release,
-        platform.machine(),
-        memory_mib,
-        public_ip,
-    )
+    release, memory_mib, public = _read_host_facts()
+    validate_target(release, platform.machine(), memory_mib, 4 in public)
+    if 6 in public:
+        # Home ISPs give every host a global IPv6 address; the router's firewall, not the address, keeps it private.
+        # Published ports bind loopback only, so this exposes host services such as sshd, never the media stack.
+        print("note: this host has a public IPv6 address; check that your router blocks inbound IPv6", file=sys.stderr)
     if shutil.disk_usage("/").free < 2 * 1024**3:
         raise ValueError("less than 2 GiB is free on the root filesystem")
     if check_ports and (busy := sorted(_listening_web_ports())):
