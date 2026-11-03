@@ -3,15 +3,7 @@ import json
 import pytest
 
 from setup.engine.checkpoints import Checkpoints
-from setup.engine.contract import (
-    Confirm,
-    Context,
-    Result,
-    Secret,
-    State,
-    Status,
-    Text,
-)
+from setup.engine.contract import Context, Result, State, Status
 from setup.engine.layout import Layout
 from setup.engine.runner import order, run, status
 from setup.engine.secrets import SecretStore
@@ -145,35 +137,6 @@ def test_an_exception_in_apply_is_a_failure_with_the_cause(ctx):
     assert ctx.checkpoints.status("A") == "failed"
 
 
-def test_prompts_are_answered_by_the_caller_and_the_step_reapplied(ctx):
-    world = {}
-
-    def need_domain(c):
-        if "domain" not in c.answers:
-            return Result.ask(Text("domain", "Your domain"))
-
-    step = Fake("A", world, apply=need_domain)
-    outcome = run([step], ctx, ask=lambda prompt: "example.test")
-    assert outcome.ok and ctx.answers["domain"] == "example.test"
-    assert ctx.checkpoints.answers() == {"domain": "example.test"}
-
-
-def test_without_a_way_to_ask_a_prompt_blocks_the_step(ctx):
-    step = Fake("A", {}, apply=lambda c: Result.ask(Confirm("ok", "Continue?")))
-    outcome = run([step], ctx)
-    assert not outcome.ok and "Continue?" in outcome.reason
-
-
-def test_secret_answers_go_to_a_file_and_only_a_handle_is_kept(ctx):
-    def need_token(c):
-        if "TOKEN" not in c.answers:
-            return Result.ask(Secret("TOKEN", "Paste the token"))
-
-    run([Fake("A", {}, apply=need_token)], ctx, ask=lambda prompt: "tok-abcdefghijklmnop")
-    assert ctx.secrets.read(ctx.answers["TOKEN"]) == "tok-abcdefghijklmnop"
-    assert "tok-abcdefghijklmnop" not in (ctx.layout.setup_dir / "checkpoints.json").read_text()
-
-
 def test_secret_values_never_reach_checkpoints_messages_or_the_outcome(ctx):
     value = ctx.secrets.read(ctx.secrets.ensure("DB_PASSWORD"))
     seen = []
@@ -214,17 +177,6 @@ def test_facts_from_verify_recover_after_an_interrupted_apply(ctx):
     step.verify = lambda c: Result.success(facts={"external_id": "recovered"})
     assert run([step], ctx).ok
     assert ctx.checkpoints.facts() == {"external_id": "recovered"}
-
-
-def test_secret_handle_answers_are_not_stored_as_literal_values(ctx):
-    handle = ctx.secrets.put("TOKEN", "test-token-abcdefghijklmnop")
-
-    def need_token(c):
-        if "TOKEN" not in c.answers:
-            return Result.ask(Secret("TOKEN", "Token"))
-
-    assert run([Fake("A", {}, apply=need_token)], ctx, ask=lambda p: handle).ok
-    assert ctx.secrets.read(handle) == "test-token-abcdefghijklmnop"
 
 
 def test_sigkill_releases_lock_and_next_process_resumes(tmp_path):
@@ -288,11 +240,3 @@ def test_nested_provider_facts_cannot_persist_a_known_secret(ctx):
     assert run([step], ctx).ok
     assert secret not in (ctx.layout.setup_dir / "checkpoints.json").read_text()
     assert ctx.checkpoints.facts()["response"]["token"] == "***"
-
-
-def test_secret_handle_on_a_text_prompt_is_a_clear_failure(ctx):
-    handle = ctx.secrets.ensure("TOKEN")
-    step = Fake("A", {}, apply=lambda c: Result.ask(Text("domain", "Domain")))
-    outcome = run([step], ctx, ask=lambda p: handle)
-    assert not outcome.ok and "Secret prompt" in outcome.reason
-    assert ctx.checkpoints.answers() == {}

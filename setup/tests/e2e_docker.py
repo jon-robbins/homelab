@@ -18,6 +18,14 @@ from setup import cli
 ROOT = Path(__file__).parents[2]
 
 
+@pytest.fixture(autouse=True)
+def host_preparation_is_outside_engine_e2e(monkeypatch):
+    """These tests exercise the engine against Docker, not privileged host preparation."""
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "install_docker", lambda: None)
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: None)
+
+
 def docker(*argv: str) -> str:
     return subprocess.run(["docker", *argv], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -55,7 +63,6 @@ def local_site(tmp_path):
 
 
 def test_apply_starts_the_stack_and_a_second_apply_leaves_it_alone(local_site, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "make_ops", lambda: cli.LocalOps(settle_s=2))
     assert cli.main([*local_site, "apply"]) == 0
     first = container_state()
     assert list(first.values()) == ["running"]
@@ -65,7 +72,6 @@ def test_apply_starts_the_stack_and_a_second_apply_leaves_it_alone(local_site, m
 
 
 def test_a_service_stopped_by_its_owner_is_reported_and_left_stopped(local_site, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "make_ops", lambda: cli.LocalOps(settle_s=2))
     assert cli.main([*local_site, "apply"]) == 0
     (identifier,) = container_state()
     docker("stop", identifier)
@@ -80,13 +86,12 @@ def test_failed_healthcheck_stops_apply(local_site, monkeypatch, capsys):
     (site / "overrides/whoami.yml").write_text(
         'services:\n  whoami:\n    healthcheck:\n      test: ["CMD", "/does-not-exist"]\n      interval: 1s\n      timeout: 1s\n      retries: 1\n'
     )
-    monkeypatch.setattr(cli, "make_ops", lambda: cli.LocalOps(settle_s=2))
     assert cli.main([*local_site, "apply"]) == 1
     assert "unhealthy" in capsys.readouterr().err
 
 
 def test_interrupt_after_compose_up_resumes_without_recreating(local_site, monkeypatch):
-    ops = cli.LocalOps(settle_s=2)
+    real, ops = cli.LocalOps, cli.LocalOps()
     original = ops.run
 
     def interrupted(argv):
@@ -95,10 +100,10 @@ def test_interrupt_after_compose_up_resumes_without_recreating(local_site, monke
             raise KeyboardInterrupt
 
     ops.run = interrupted
-    monkeypatch.setattr(cli, "make_ops", lambda: ops)
+    monkeypatch.setattr(cli, "LocalOps", lambda: ops)
     assert cli.main([*local_site, "apply"]) == 130
     first = container_state()
     assert first
-    monkeypatch.setattr(cli, "make_ops", lambda: cli.LocalOps(settle_s=2))
+    monkeypatch.setattr(cli, "LocalOps", real)
     assert cli.main([*local_site, "apply"]) == 0
     assert container_state() == first

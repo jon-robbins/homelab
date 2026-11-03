@@ -8,9 +8,10 @@ import pytest
 
 from setup.engine.checkpoints import Checkpoints
 from setup.engine.contract import Result, State
+from setup.engine.layout import Layout
 from setup.engine.local import Release, build_steps
 from setup.engine.runner import run, status
-from setup.engine.steps import Dirs
+from setup.engine.steps import Dirs, Network
 from setup.tests.conftest import argv_text
 
 PHASES = (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",)))
@@ -44,6 +45,37 @@ def provide_web_key(ctx):
 
 def provide_existing_db_password(ctx):
     ctx.secrets.put("DB_PASSWORD", "existing-database-password")
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        {"target": 8080, "published": "8080", "protocol": "tcp"},
+        {"target": 8080, "published": "8080", "host_ip": "0.0.0.0"},
+        {"target": 8080, "published": "8080", "host_ip": "8.8.4.4"},
+    ],
+)
+def test_preview_rejects_published_ports_without_explicit_numeric_loopback(tmp_path, port):
+    release = Release.from_models(
+        Layout(tmp_path),
+        {"services": {"web": {"ports": [port]}}},
+        {"services": {}},
+        {"services": {}},
+    )
+
+    with pytest.raises(ValueError, match="publishes a port"):
+        release.require_loopback_published_ports()
+
+
+def test_preview_accepts_only_explicit_loopback_ports_in_both_models(tmp_path):
+    release = Release.from_models(
+        Layout(tmp_path),
+        {"services": {"web": {"ports": [{"target": 8080, "published": "8080", "host_ip": "127.0.0.1"}]}}},
+        {"services": {"edge": {"ports": [{"target": 8443, "published": "8443", "host_ip": "::1"}]}}},
+        {"services": {}},
+    )
+
+    release.require_loopback_published_ports()
 
 
 def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):
@@ -128,7 +160,7 @@ def test_a_service_that_never_becomes_healthy_fails_its_phase_and_stops_the_run(
     provide_web_key(ctx)
     ops.broken.add("db")
     outcome = converge(steps, ctx)
-    assert not outcome.ok and outcome.stopped_at == "phase.database" and "db: unhealthy" in outcome.reason
+    assert not outcome.ok and outcome.stopped_at == "phase.database" and "db is unhealthy" in outcome.reason
     assert ops.ups() == [("homelab", "db")]  # nothing after the failed phase was started
 
 
@@ -257,47 +289,6 @@ def test_repeated_apply_never_restarts_an_owner_stopped_service(steps, ctx, ops)
     assert ops.ups() == []
 
 
-def test_existing_stateful_service_is_snapshotted_before_recreation(steps, ctx, ops):
-    provide_web_key(ctx)
-    provide_existing_db_password(ctx)
-    ops.containers[("homelab", "db")] = "running"
-    original = ops.config_hash
-    ops.config_hash = lambda directory, project, service: (
-        "changed" if service == "db" else original(directory, project, service)
-    )
-    seen = []
-    ops.stop = lambda service: seen.append(("stop", service))
-    ops.snapshot = lambda service, tag: (seen.append(("snapshot", service)) or "snapshot-id")
-    original_run = ops.run
-
-    def recording(argv):
-        seen.append(("run", argv[-1]))
-        original_run(argv)
-
-    ops.run = recording
-    assert converge(steps, ctx).ok
-    assert seen[:3] == [("stop", "db"), ("snapshot", "db"), ("run", "db")]
-
-
-def test_snapshot_failure_prevents_recreation(steps, ctx, ops):
-    provide_web_key(ctx)
-    provide_existing_db_password(ctx)
-    ops.containers[("homelab", "db")] = "running"
-    original = ops.config_hash
-    ops.config_hash = lambda directory, project, service: (
-        "changed" if service == "db" else original(directory, project, service)
-    )
-    ops.stop = lambda service: None
-
-    def fail(service, tag):
-        raise RuntimeError("snapshot unavailable")
-
-    ops.snapshot = fail
-    outcome = converge(steps, ctx)
-    assert not outcome.ok and "snapshot unavailable" in outcome.reason
-    assert ops.ups() == []
-
-
 def test_explicit_empty_managed_does_not_adopt_services(ctx, models, ops):
     app, edge, site = models
     site["managed"] = []
@@ -329,26 +320,24 @@ def test_a_stateful_service_that_is_still_starting_is_waited_for_not_stopped(ste
     ops.containers[("homelab", "db")] = "running"  # a killed run left it mid-start
     ops.starting.add("db")
     assert converge(steps, ctx).ok
-    assert ops.events == [] and ("homelab", "db") not in ops.ups()
+    assert any("--wait" in c and c[-1] == "db" for c in ops.calls)  # waited out, not left failing
 
 
-def test_the_first_start_of_a_stateful_service_takes_no_snapshot(steps, ctx, ops):
+def test_the_first_start_of_a_stateful_service_is_allowed(steps, ctx, ops):
     provide_web_key(ctx)
     assert converge(steps, ctx).ok
-    assert ops.events == []
+    assert ("homelab", "db") in ops.ups()
 
 
-def test_recreating_stateful_data_without_backups_stays_blocked(steps, ctx, ops):
+def test_recreating_a_stateful_service_over_existing_data_stays_blocked(steps, ctx, ops):
     provide_web_key(ctx)
     provide_existing_db_password(ctx)
     ops.containers[("homelab", "db")] = "running"
     changed(ops, "db")
-    ops.backups = False
     outcome = converge(steps, ctx)
-    assert not outcome.ok and "snapshot" in outcome.reason
-    assert ops.events == [] and ops.ups() == []
-    assert not converge(steps, ctx, ask=lambda prompt: True).ok
-    assert ops.events == [] and ops.ups() == []
+    assert not outcome.ok and "recreated over existing data" in outcome.reason
+    assert ops.ups() == []
+    assert not converge(steps, ctx).ok and ops.ups() == []
 
 
 def test_existing_stateful_data_without_a_container_requires_a_manual_snapshot(steps, ctx, ops, world):
@@ -357,7 +346,7 @@ def test_existing_stateful_data_without_a_container_requires_a_manual_snapshot(s
     (world["data"] / "db").mkdir()
     (world["data"] / "db" / "existing.db").write_text("existing data")
     outcome = converge(steps, ctx)
-    assert not outcome.ok and "snapshot" in outcome.reason
+    assert not outcome.ok and "recreated over existing data" in outcome.reason
     assert ("homelab", "db") not in ops.ups()
 
 
@@ -370,32 +359,13 @@ def test_stateful_recreation_stops_when_docker_cannot_be_inspected(steps, ctx, o
     assert ops.ups() == []
 
 
-def test_a_run_killed_after_the_snapshot_stopped_a_service_finishes_the_restart(steps, ctx, ops):
-    provide_web_key(ctx)
-    assert converge(steps, ctx).ok  # the phase is complete, so an exited service would look owner-stopped
-    changed(ops, "db")
-    original = ops.snapshot
-
-    def killed(service, tag):
-        raise KeyboardInterrupt
-
-    ops.snapshot = killed
-    with pytest.raises(KeyboardInterrupt):
-        converge(steps, ctx)
-    assert ops.containers[("homelab", "db")] == "exited"
-    ops.snapshot = original
-    assert converge(steps, ctx).ok
-    assert ops.containers[("homelab", "db")] == "running" and ("snapshot", "db") in ops.events
-    assert not ctx.layout.restart_pending("db")
-
-
 def test_a_stopped_by_the_owner_stateful_service_is_still_left_alone(steps, ctx, ops):
     provide_web_key(ctx)
     assert converge(steps, ctx).ok
     ops.containers[("homelab", "db")] = "exited"
     ops.calls.clear()
     outcome = converge(steps, ctx)
-    assert not outcome.ok and "db" in outcome.reason and ops.ups() == [] and ops.events == []
+    assert not outcome.ok and "db" in outcome.reason and ops.ups() == []
 
 
 def test_new_data_directories_belong_to_the_user_the_service_runs_as(ctx, models, monkeypatch, world):
@@ -441,50 +411,17 @@ def test_a_requires_entry_for_a_step_that_does_not_exist_is_an_error_not_ignored
         build_steps(ctx, release, ops, phases=PHASES, requires={"phase.databse": ("GATE-1",)})
 
 
-def test_killed_update_after_start_waits_without_another_snapshot(steps, ctx, ops):
-    provide_web_key(ctx)
-    provide_existing_db_password(ctx)
-    ops.containers[("homelab", "db")] = "running"
-    ops.starting.add("db")
-    ctx.layout.set_restart_pending("db", True)
-    assert converge(steps, ctx).ok
-    assert ops.events == []
-    assert ("homelab", "db") not in ops.ups()
-    assert not ctx.layout.restart_pending("db")
-
-
-def test_resumed_stateful_boot_gets_the_full_health_timeout(steps, ctx, ops):
-    provide_web_key(ctx)
-    provide_existing_db_password(ctx)
-    ops.containers[("homelab", "db")] = "running"
-    ops.starting.add("db")
-    waits = []
-    original = ops.wait_healthy
-
-    def wait(project, service, timeout):
-        if service == "db":
-            waits.append(timeout)
-        return original(project, service, timeout)
-
-    ops.wait_healthy = wait
-    assert converge(steps, ctx).ok
-    assert 180 in waits and 30 not in waits
-    assert ops.events == [] and ("homelab", "db") not in ops.ups()
-
-
-@pytest.mark.parametrize("backups", [True, False])
-def test_existing_stateful_edge_is_never_recreated_without_manual_backup(ctx, models, ops, backups):
+def test_existing_stateful_edge_is_never_recreated_without_manual_backup(ctx, models, ops):
     app, edge, site = models
     edge["services"]["caddy"]["labels"] = {"homelab.state": "stateful"}
     ops.containers[("homelab-edge", "caddy")] = "running"
-    ops.backups = backups
     changed(ops, "caddy")
     provide_web_key(ctx)
     steps = build_steps(
         ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES, generated=("DB_PASSWORD",)
     )
-    outcome = converge(steps, ctx, ask=lambda prompt: True)
-    assert not outcome.ok and "stateful edge" in outcome.reason
+    outcome = converge(steps, ctx)
+    assert not outcome.ok and "recreated over existing data" in outcome.reason
     assert ("homelab-edge", "caddy") not in ops.ups()
 
 
@@ -543,11 +480,8 @@ def test_new_service_can_generate_its_first_secret_after_other_phases_ran(steps,
     assert ctx.secrets.exists("NEW_PASSWORD")
 
 
-def test_a_stopped_service_with_a_restart_marker_and_current_config_is_restarted(steps, ctx, ops):
-    provide_web_key(ctx)
-    assert converge(steps, ctx).ok
-    ops.containers[("homelab", "db")] = "exited"  # config hash unchanged: only the marker says setup stopped it
-    ctx.layout.set_restart_pending("db", True)
-    assert status(steps, ctx)["phase.database"].status.value == "needed"
-    assert converge(steps, ctx).ok and ops.containers[("homelab", "db")] == "running"
-    assert not ctx.layout.restart_pending("db")
+def test_a_homelab_net_that_setup_did_not_create_is_refused(ctx, ops):
+    ops.network, ops.ours = True, False
+    state = Network(ops).check(ctx)
+    assert state.status.value == "blocked" and "not created by local setup" in state.reason
+    assert not ops.calls

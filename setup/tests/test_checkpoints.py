@@ -10,11 +10,9 @@ def test_state_survives_reopening(tmp_path):
     first.begin("A-1")
     first.done("A-1", "ok")
     first.set_fact("tailscale_ip", "192.0.2.1")
-    first.set_answer("domain", "example.test")
     second = Checkpoints(tmp_path)
     assert second.status("A-1") == "done"
     assert second.facts() == {"tailscale_ip": "192.0.2.1"}
-    assert second.answers() == {"domain": "example.test"}
 
 
 def test_begin_without_done_reads_as_interrupted(tmp_path):

@@ -1,12 +1,17 @@
-"""Local apply: a rendered site becomes a content-addressed release directory, then ordered, health-checked phases.
+"""Local apply: turn a rendered site into a release and the ordered steps that start it.
 
-Never uses the controller's `materialize()` or `reconcile()`: those assume a signed release was verified, and
-nothing here is signed. The steps read and write only paths under the person's own site, state and data directories.
+  Release     the app and edge Compose models plus site.yaml, stored in a directory named by their content hash.
+  build_steps the steps `homelab setup` runs, in order: write the release, create the network, make data
+              directories, generate secrets, then start services phase by phase (see config/phases.json).
+
+Not signed, so it never uses the controller's `materialize()` or `reconcile()`. It reads and writes only the
+person's own site, state and data directories.
 """
 
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import tempfile
@@ -51,13 +56,46 @@ class Release:
         )
 
     @classmethod
-    def render(cls, layout: Layout, platform: Path, site_dir: Path, plugins: Mapping[str, Path]) -> Release:
+    def render(
+        cls,
+        layout: Layout,
+        platform: Path,
+        site_dir: Path,
+        plugins: Mapping[str, Path],
+    ) -> Release:
         rendered = render(platform, site_dir, plugins)
         site = yaml.safe_load((Path(site_dir) / "site.yaml").read_text(encoding="utf-8"))
         return cls.from_models(layout, rendered.app, rendered.edge, site)
 
+    @property
+    def services(self) -> dict[str, dict[str, Any]]:
+        """Every service definition, both tiers."""
+        return {**self.app.get("services", {}), **self.edge.get("services", {})}
+
+    @property
+    def secrets(self) -> dict[str, dict[str, Any]]:
+        """Every top-level Compose secret, both tiers."""
+        return {**self.app.get("secrets", {}), **self.edge.get("secrets", {})}
+
     def tier(self, service: str) -> str:
         return "app" if service in self.app.get("services", {}) else "edge"
+
+    def project(self, service: str) -> str:
+        return "homelab" if self.tier(service) == "app" else "homelab-edge"
+
+    def require_loopback_published_ports(self) -> None:
+        """Incomplete-preview guard: only explicitly numeric loopback binds may publish host ports."""
+        ports = ((service, port) for service, defn in self.services.items() for port in defn.get("ports", ()))
+        for service, port in ports:
+            host_ip = port.get("host_ip") if isinstance(port, Mapping) else None
+            try:
+                address = ipaddress.ip_address(host_ip)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"{self.tier(service)} service {service} publishes a port without an explicit numeric loopback bind"
+                ) from None
+            if str(address) not in ("127.0.0.1", "::1"):
+                raise ValueError(f"{self.tier(service)} service {service} publishes a port outside loopback")
 
     def complete(self) -> bool:
         return all((self.directory / name).is_file() for name in FILES)
@@ -89,31 +127,29 @@ def defaults() -> tuple[Sequence[tuple[str, Sequence[str]]], Sequence[str]]:
 
 def _phases(release: Release, phases: Iterable[tuple[str, Sequence[str]]]) -> list[tuple[str, tuple[str, ...]]]:
     """Keep only services this site runs and manages; `*` takes every other one, so nothing is left unstarted."""
-    managed = set(release.site["managed"])
-    present = (set(release.app.get("services", {})) | set(release.edge.get("services", {}))) & managed
+    models = release.services
+    present = set(models) & set(release.site["managed"])
     named = {service for _, services in phases for service in services}
-    chosen = []
-    for name, services in phases:
-        picked = sorted(present - named) if "*" in services else [s for s in services if s in present]
-        if picked:
-            chosen.append((name, tuple(picked)))
-    models = {**release.app.get("services", {}), **release.edge.get("services", {})}
-    done = set()
+    done: set[str] = set()
     ordered = []
-    for name, services in chosen:
-        pending, result = list(services), []
-        while pending:
-            ready = next(
-                (s for s in pending if set(models[s].get("depends_on", ())) <= done),
-                None,
-            )
-            if ready is None:
-                raise ValueError(f"dependencies missing, cyclic or in a later phase: {pending}")
-            pending.remove(ready)
-            result.append(ready)
-            done.add(ready)
-        ordered.append((name, tuple(result)))
+    for name, services in phases:
+        wanted = sorted(present - named) if "*" in services else [s for s in services if s in present]
+        if wanted:
+            ordered.append((name, _start_order(wanted, models, done)))
     return ordered
+
+
+def _start_order(services: list[str], models: Mapping[str, Any], done: set[str]) -> tuple[str, ...]:
+    """Order one phase so each service follows its depends_on; `done` collects everything already placed."""
+    pending, result = list(services), []
+    while pending:
+        ready = next((s for s in pending if set(models[s].get("depends_on", ())) <= done), None)
+        if ready is None:
+            raise ValueError(f"dependencies missing, cyclic or in a later phase: {pending}")
+        pending.remove(ready)
+        result.append(ready)
+        done.add(ready)
+    return tuple(result)
 
 
 def build_steps(

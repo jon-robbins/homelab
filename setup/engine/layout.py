@@ -40,7 +40,6 @@ class Layout:
         self.setup_dir = self.root / "setup"
         self.marker = self.root / "local-setup.owner"  # a flat file, so the owner's installer can look for it
         self.releases = self.setup_dir / "releases"
-        self.restarts = self.setup_dir / "restart"
 
     def mode(self) -> str | None:
         try:
@@ -77,14 +76,3 @@ class Layout:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.marker)
-
-    def restart_pending(self, service: str) -> bool:
-        """True while setup itself has a service stopped for a snapshot, so a killed run may finish the restart."""
-        return (self.restarts / service).exists()
-
-    def set_restart_pending(self, service: str, pending: bool) -> None:
-        if pending:
-            self.restarts.mkdir(parents=True, exist_ok=True)
-            (self.restarts / service).touch()
-        else:
-            (self.restarts / service).unlink(missing_ok=True)

@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Mapping, Protocol
 
 from .checkpoints import Checkpoints
 from .layout import Layout
-from .secrets import SecretHandle, SecretStore
+from .secrets import SecretStore
 
 
 class Status(str, Enum):
@@ -37,57 +37,18 @@ class State:
 
 
 @dataclass(frozen=True)
-class Prompt:
-    key: str  # answers are filed under this; a Secret's key is also its file name
-    label: str
-
-
-@dataclass(frozen=True)
-class Text(Prompt):
-    default: str | None = None
-
-
-@dataclass(frozen=True)
-class Secret(Prompt):
-    hint: str = ""  # where the person gets it
-
-
-@dataclass(frozen=True)
-class Confirm(Prompt):
-    pass
-
-
-@dataclass(frozen=True)
-class Choice(Prompt):
-    options: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class OpenUrl(Prompt):
-    url: str = ""  # answered True once the person has done what the page asks
-
-
-Answer = str | bool | SecretHandle
-
-
-@dataclass(frozen=True)
 class Result:
     ok: bool
     message: str = ""
-    prompt: Prompt | None = None
     facts: Mapping[str, Any] = field(default_factory=dict)  # non-secret outputs later steps need (IPs, IDs)
 
     @classmethod
     def success(cls, message: str = "", facts: Mapping[str, Any] | None = None) -> Result:
-        return cls(True, message, None, dict(facts or {}))
+        return cls(True, message, dict(facts or {}))
 
     @classmethod
     def failure(cls, message: str) -> Result:
         return cls(False, message)
-
-    @classmethod
-    def ask(cls, prompt: Prompt) -> Result:
-        return cls(False, prompt.label, prompt)
 
 
 @dataclass
@@ -97,12 +58,9 @@ class Context:
     checkpoints: Checkpoints
     platform: Path  # the homelab checkout or verified release the renderer reads
     site: Path  # the person's local site directory
-    plugins: Mapping[str, Path] = field(default_factory=dict)
-    answers: dict[str, Answer] = field(default_factory=dict)
     facts: dict[str, Any] = field(default_factory=dict)
 
 
-@runtime_checkable
 class Step(Protocol):
     id: str  # register ID, e.g. "CF-6"
     needs: tuple[str, ...]  # step IDs that must be done first
@@ -111,7 +69,17 @@ class Step(Protocol):
         """Read-only. DONE, NEEDED, or BLOCKED with a reason a person can act on."""
 
     def apply(self, ctx: Context) -> Result:
-        """Safe to re-run. No screen code: ask for input by returning `Result.ask(prompt)`."""
+        """Safe to re-run."""
 
     def verify(self, ctx: Context) -> Result:
         """Prove it worked, from outside the step."""
+
+
+class CheckIsProof:
+    """Mixin for a step whose check() already observes the host: verify() is check() reporting DONE."""
+
+    def verify(self, ctx: Context) -> Result:
+        state = self.check(ctx)  # type: ignore[attr-defined]
+        if state.status is Status.DONE:
+            return Result.success()
+        return Result.failure(state.reason or f"{self.id} is still not done after apply")  # type: ignore[attr-defined]

@@ -15,7 +15,10 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     (world["data"] / ".homelab-mounted").touch()
     (world["secrets"]).mkdir(parents=True)
     (world["secrets"] / "WEB_KEY").write_text("provided-by-a-provider-step")
-    monkeypatch.setattr(cli, "make_ops", lambda: ops)
+    monkeypatch.setattr(cli, "LocalOps", lambda: ops)
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "install_docker", lambda: None)
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: None)
     monkeypatch.setattr(
         cli,
         "open_site",
@@ -26,7 +29,7 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     )
     monkeypatch.setattr(
         cli,
-        "phases",
+        "defaults",
         lambda: (
             (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",))),
             ("DB_PASSWORD",),
@@ -78,10 +81,10 @@ def test_the_real_owner_root_is_refused_even_with_another_root(wired, world, tmp
     assert not world["root"].exists()
 
 
-def test_containers_in_the_owners_projects_that_setup_did_not_create_are_refused(wired, world, ops, capsys):
-    ops.foreign = ["homelab-sonarr-1"]
+def test_owner_compose_projects_that_setup_did_not_create_are_refused(wired, world, ops, capsys):
+    ops.foreign = ["homelab"]
     assert cli.main([*wired, "apply"]) == 2
-    assert "homelab-sonarr-1" in capsys.readouterr().err
+    assert "did not create: homelab" in capsys.readouterr().err
     assert not world["root"].exists() and ops.calls == []
 
 
@@ -119,3 +122,53 @@ def test_status_lists_a_cut_short_step_so_the_person_knows(wired, ops, capsys):
     capsys.readouterr()
     cli.main([*wired, "status"])
     assert "interrupted" in capsys.readouterr().out
+
+
+@pytest.fixture
+def prep(wired, monkeypatch, world, tmp_path):
+    """`wired` with the host-preparation steps recorded, and no site argument (the host comes first)."""
+    calls = []
+    monkeypatch.setattr(cli, "preflight", lambda **kwargs: calls.append(("preflight", kwargs)))
+    monkeypatch.setattr(cli, "install_docker", lambda: calls.append(("docker", {})))
+    monkeypatch.setattr(cli, "apply_local_host_config", lambda: calls.append(("config", {})))
+    return calls, ["--root", str(world["root"]), "--platform", str(tmp_path)]
+
+
+def test_prepare_readies_the_host_without_a_site_and_claims_it(prep, world):
+    calls, argv = prep
+
+    assert cli.main([*argv, "prepare"]) == 0
+
+    assert [name for name, _ in calls] == ["preflight", "docker", "config"]
+    assert (world["root"] / "local-setup.owner").read_text().strip() == "local-setup"
+
+
+def test_prepare_refuses_an_owner_host_before_installing_anything(prep, world, capsys):
+    calls, argv = prep
+    (world["root"] / "trust").mkdir(parents=True)
+    (world["root"] / "trust" / "policy.json").write_text("{}")
+
+    assert cli.main([*argv, "prepare"]) == 2
+
+    assert "signed-release" in capsys.readouterr().err
+    assert [name for name, _ in calls] == ["preflight"]
+
+
+def test_rerunning_on_a_host_setup_already_serves_does_not_object_to_its_own_web_ports(prep):
+    calls, argv = prep
+
+    cli.main([*argv, "prepare"])
+    cli.main([*argv, "prepare"])
+
+    checks = [kwargs["check_ports"] for name, kwargs in calls if name == "preflight"]
+    assert checks == [True, False]
+
+
+def test_apply_and_status_still_need_a_site(prep, capsys):
+    _, argv = prep
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main([*argv, "apply"])
+
+    assert stopped.value.code == 2
+    assert "--site" in capsys.readouterr().err
