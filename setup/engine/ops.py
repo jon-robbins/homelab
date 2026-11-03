@@ -6,10 +6,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import ipaddress
-import json
 from pathlib import Path
-import secrets
 
 from scripts.controller.reconcile import SubprocessOps
 
@@ -39,13 +36,6 @@ def judge(inspected: dict | None, settle_s: float, now: datetime) -> Verdict:
     started = datetime.fromisoformat(state["StartedAt"][:26].rstrip("Z") + "+00:00")
     age = (now - started).total_seconds()
     return Verdict("ok") if age >= settle_s else Verdict("wait", f"up for {age:.0f}s of {settle_s:.0f}s")
-
-
-def _random_private_network():
-    """A random /16 from one of the three RFC 1918 blocks."""
-    prefixes = [(10, secrets.randbelow(256)), (172, 16 + secrets.randbelow(16)), (192, 168)]
-    first, second = secrets.choice(prefixes)
-    return ipaddress.ip_network((first << 24 | second << 16, 16))
 
 
 def edge_compose(release_dir) -> list[str]:
@@ -113,79 +103,14 @@ class LocalOps(SubprocessOps):
     def network_exists(self, name):
         return subprocess.run(["docker", "network", "inspect", name], capture_output=True).returncode == 0
 
-    def _taken_subnets(self):
-        """Every subnet already routed on this host or used by a Docker network."""
-        routes = subprocess.run(["ip", "-j", "route"], capture_output=True, text=True, check=True)
-        subnets = [r["dst"] for r in json.loads(routes.stdout) if r.get("dst") not in (None, "default")]
-        listed = subprocess.run(["docker", "network", "ls", "-q"], capture_output=True, text=True, check=True)
-        if listed.stdout.strip():
-            argv = ["docker", "network", "inspect", *listed.stdout.split()]
-            inspected = subprocess.run(argv, capture_output=True, text=True, check=True)
-            for network in json.loads(inspected.stdout):
-                subnets += [c["Subnet"] for c in network.get("IPAM", {}).get("Config") or () if c.get("Subnet")]
-        return [ipaddress.ip_network(s) for s in subnets]
+    def network_ours(self, name):
+        """Whether local setup created this network: it carries our label, which a same-named network would not."""
+        argv = ["docker", "network", "inspect", "-f", '{{index .Labels "homelab.setup"}}', name]
+        return subprocess.run(argv, capture_output=True, text=True).stdout.strip() == "local"
 
-    def _network_conflicts(self, candidate):
-        return any(candidate.overlaps(taken) for taken in self._taken_subnets())
-
-    def plan_network(self, state_dir):
-        """The saved network plan, choosing and saving one first if none exists. Apply calls this before rendering."""
-        spec = self.network_spec(state_dir)
-        self._save_network_plan(Path(state_dir) / "network.json", spec)
-        return spec
-
-    def network_spec(self, state_dir):
-        path = Path(state_dir) / "network.json"
-        if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
-        for _ in range(256):
-            candidate = _random_private_network()
-            if self._network_conflicts(candidate):
-                continue
-            return {
-                "subnet": str(candidate),
-                "gateway": str(candidate.network_address + 1),
-                "caddy_address": str(candidate.network_address + 2),
-                "ip_range": str(ipaddress.ip_network((int(candidate.network_address) + 256, 24))),
-            }
-        raise RuntimeError("could not find a non-conflicting private subnet")
-
-    def network_ready(self, name, state_dir):
-        path = Path(state_dir) / "network.json"
-        if not path.exists() or not self.network_exists(name):
-            return False
-        expected = json.loads(path.read_text(encoding="utf-8"))
-        inspected = subprocess.run(["docker", "network", "inspect", name], capture_output=True, text=True, check=True)
-        configs = json.loads(inspected.stdout)[0].get("IPAM", {}).get("Config", ())
-        return any(
-            config.get("Subnet") == expected["subnet"]
-            and config.get("Gateway") == expected["gateway"]
-            and config.get("IPRange") == expected["ip_range"]
-            for config in configs
-        )
-
-    def ensure_network(self, name, state_dir, spec):
-        """Create the bridge network from the saved plan; refuse a same-named network we did not make."""
-        if self.network_exists(name):
-            if not self.network_ready(name, state_dir):
-                raise RuntimeError(
-                    f"existing {name} network is not owned by local setup or does not match its saved plan"
-                )
-            return
-        self._save_network_plan(Path(state_dir) / "network.json", spec)
-        self.run(
-            ["docker", "network", "create", "--driver", "bridge", "--subnet", spec["subnet"]]
-            + ["--gateway", spec["gateway"], "--ip-range", spec["ip_range"], name]
-        )
-
-    @staticmethod
-    def _save_network_plan(path, spec):
-        if path.exists():
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(spec, sort_keys=True) + "\n", encoding="utf-8")
-        temporary.replace(path)
+    def create_network(self, name):
+        """Docker picks a subnet from its address pools that no route or other network uses, as for any network."""
+        self.run(["docker", "network", "create", "--label", "homelab.setup=local", name])
 
     def wait_healthy(self, project, service, timeout_s):
         deadline = time.monotonic() + timeout_s

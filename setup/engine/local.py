@@ -62,14 +62,9 @@ class Release:
         platform: Path,
         site_dir: Path,
         plugins: Mapping[str, Path],
-        network_spec: Mapping[str, str] | None = None,
     ) -> Release:
         rendered = render(platform, site_dir, plugins)
         site = yaml.safe_load((Path(site_dir) / "site.yaml").read_text(encoding="utf-8"))
-        if network_spec is not None:
-            caddy = rendered.edge.get("services", {}).get("caddy")
-            if caddy is not None:
-                caddy["networks"] = {"homelab_net": {"ipv4_address": network_spec["caddy_address"]}}
         return cls.from_models(layout, rendered.app, rendered.edge, site)
 
     @property
@@ -166,7 +161,6 @@ def build_steps(
     generated: Sequence[str] | None = None,
     extra: Sequence[Step] = (),
     requires: Mapping[str, Sequence[str]] | None = None,
-    network_spec: Mapping[str, str] | None = None,
 ) -> list[Step]:
     """The core steps plus any `extra` ones. `requires` makes a core step wait for an extra one, by id.
 
@@ -178,7 +172,7 @@ def build_steps(
     foundation = ("engine.network", "engine.dirs", "engine.secrets")
     steps: list[Step] = [
         WriteRelease(release),
-        Network(ops, network_spec),
+        Network(ops),
         Dirs(release),
         Secrets(release, tuple(default_generated if generated is None else generated), ops),
     ]

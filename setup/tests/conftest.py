@@ -19,7 +19,7 @@ class FakeOps:
         self.calls: list[list[str]] = []
         self.pulled: list[tuple[str, tuple[str, ...]]] = []
         self.network = False
-        self.network_plan = False
+        self.ours = True  # an existing homelab_net carries the setup label
         self.broken: set[str] = set()  # services that start but never become healthy
         self.foreign: list[str] = []  # containers in the owner's projects that setup did not create
         self.errors: set[str] = set()  # services whose container failed to start (State.Error)
@@ -66,23 +66,11 @@ class FakeOps:
     def network_exists(self, name):
         return self.network
 
-    def network_ready(self, name, state_dir):
-        return self.network and self.network_plan
+    def network_ours(self, name):
+        return self.network and self.ours
 
-    def plan_network(self, state_dir):
-        return self.network_spec(state_dir)
-
-    def network_spec(self, state_dir):
-        return {
-            "subnet": "test-subnet",
-            "gateway": "test-gateway",
-            "caddy_address": "test-caddy",
-            "ip_range": "test-range",
-        }
-
-    def ensure_network(self, name, state_dir, spec):
+    def create_network(self, name):
         self.network = True
-        self.network_plan = True
 
     def wait_healthy(self, project, service, timeout_s):
         state = self.containers.get((project, service))
