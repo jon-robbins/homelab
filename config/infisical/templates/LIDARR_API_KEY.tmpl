@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/arr" -}}
+{{- with listSecretsByProjectSlug "@INFISICAL_PROJECT_SLUG@" "prod" "/arr" -}}
 {{- range . -}}
 {{- if eq .Key "LIDARR_API_KEY" -}}{{ .Value }}{{ end -}}
 {{- end -}}

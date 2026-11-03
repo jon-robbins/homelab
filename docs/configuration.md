@@ -63,8 +63,10 @@ release.
 ## Secrets
 
 Secret values never go in the site repo. Each module lists the secret names it needs under `secrets:`, and the
-top-level entry is always `NAME: {file: ${HOMELAB_SECRET_DIR}/NAME}`. On the host, the Infisical agent renders
-one file per name into `HOMELAB_SECRET_DIR` from the templates in `config/infisical/templates/`.
+top-level entry is always `NAME: {file: ${HOMELAB_SECRET_DIR}/NAME}`. Platform and plugin repos ship Infisical
+template skeletons with `@INFISICAL_PROJECT_SLUG@`; the site owns the real slug in
+`config/infisical/project-slug`. On the host, `host/stamp-infisical-templates` writes stamped templates under
+`/srv/homelab/infisical/templates/`, and the Infisical agent renders one file per name into `HOMELAB_SECRET_DIR`.
 
 On the host that directory is `/run/homelab-secrets`: tmpfs, files `0640 homelab-secrets:homelab`, so secret values
 never reach disk and are gone after a reboot until the agent renders them again. `host/install.sh` installs the

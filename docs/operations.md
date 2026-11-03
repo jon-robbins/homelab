@@ -85,10 +85,20 @@ sudo /tmp/homelab-install/host/install.sh --sha <sha> && sudo rm -rf /tmp/homela
 
 Three host steps are not automated:
 
-1. The Infisical agent: install `config/systemd/homelab-infisical-agent.service` to `/etc/systemd/system/`, copy
-   `config/infisical/templates/` to `/srv/homelab/infisical/templates/`, and write `/etc/infisical-agent/config.yaml`
-   from `config/infisical/agent-config.yaml.example`, with the machine identity's credential files under
-   `/etc/infisical-agent/auth/` (`0600`). Then `systemctl enable --now homelab-infisical-agent`.
+1. The Infisical agent: install `config/systemd/homelab-infisical-agent.service` to `/etc/systemd/system/`. Stamp
+   platform (and plugin) Infisical template skeletons with the site slug into `/srv/homelab/infisical/templates/`:
+
+   ```bash
+   sudo host/stamp-infisical-templates \
+     --slug-file /path/to/site/config/infisical/project-slug \
+     --from config/infisical/templates \
+     --from /path/to/homelab-plugins/config/infisical/templates \
+     --to /srv/homelab/infisical/templates
+   ```
+
+   Write `/etc/infisical-agent/config.yaml` from `config/infisical/agent-config.yaml.example`, with the machine
+   identity's credential files under `/etc/infisical-agent/auth/` (`0600`). Then
+   `systemctl enable --now homelab-infisical-agent`.
 2. Disk markers: `sudo touch <root>/.homelab-mounted` on each root the site lists in `marker_roots`, once the disk
    is mounted. The controller refuses to apply while a marker is missing.
 3. The site sets `HOMELAB_SECRET_DIR=/run/homelab-secrets`.

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Stamp site Infisical project slug into template skeletons, then write them for the agent.
+# Skeletons in platform/plugin repos use @INFISICAL_PROJECT_SLUG@; the site owns the real slug.
+set -euo pipefail
+
+PLACEHOLDER='@INFISICAL_PROJECT_SLUG@'
+slug=
+slug_file=
+from=()
+to=
+
+usage() {
+  echo "usage: $0 --slug SLUG|--slug-file PATH --from SRC_DIR [--from SRC_DIR...] --to DEST_DIR" >&2
+  exit 2
+}
+
+while (($#)); do
+  case $1 in
+    --slug) slug=${2:?}; shift 2 ;;
+    --slug-file) slug_file=${2:?}; shift 2 ;;
+    --from) from+=("${2:?}"); shift 2 ;;
+    --to) to=${2:?}; shift 2 ;;
+    -h|--help) usage ;;
+    *) usage ;;
+  esac
+done
+
+if [[ -n $slug_file ]]; then
+  [[ -z $slug ]] || usage
+  [[ -f $slug_file ]] || { echo "slug file missing: $slug_file" >&2; exit 1; }
+  slug=$(tr -d '[:space:]' <"$slug_file")
+fi
+[[ -n $slug && -n $to && ${#from[@]} -gt 0 ]] || usage
+[[ $slug != *"$PLACEHOLDER"* ]] || { echo "slug must not be the placeholder" >&2; exit 1; }
+[[ $slug =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "invalid Infisical project slug: $slug" >&2; exit 1; }
+
+mkdir -p "$to"
+count=0
+for src in "${from[@]}"; do
+  [[ -d $src ]] || { echo "source missing: $src" >&2; exit 1; }
+  shopt -s nullglob
+  files=("$src"/*.tmpl)
+  shopt -u nullglob
+  ((${#files[@]})) || { echo "no *.tmpl in $src" >&2; exit 1; }
+  for file in "${files[@]}"; do
+    grep -Fq "$PLACEHOLDER" "$file" || {
+      echo "missing $PLACEHOLDER in $file" >&2
+      exit 1
+    }
+    dest=$to/$(basename "$file")
+    # sed keeps file bytes/newlines; bash $(<file) would strip trailing newlines.
+    sed "s/${PLACEHOLDER}/${slug}/g" "$file" >"$dest"
+    grep -Fq "$PLACEHOLDER" "$dest" && {
+      echo "placeholder remained after stamp: $file" >&2
+      exit 1
+    }
+    count=$((count + 1))
+  done
+done
+echo "stamped $count template(s) → $to"

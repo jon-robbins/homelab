@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/media" -}}
+{{- with listSecretsByProjectSlug "@INFISICAL_PROJECT_SLUG@" "prod" "/media" -}}
 {{- range . -}}
 {{- if eq .Key "EWEKA_USERNAME" -}}{{ .Value }}{{ end -}}
 {{- end -}}
