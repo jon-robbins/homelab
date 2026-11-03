@@ -43,7 +43,7 @@ Three workstreams run at once. The owner's cutover (Task 4) is the only serial s
 WS-A platform   Task 1 ──PR──merge──► owner installs tooling ─┐
 WS-B site       Task 2 ──PR──merge──► owner verifies (Caddy) ─┼─► Task 3 rehearsal ─► Task 4 ─► 7 days ─► Task 6
                          └─ Task 3 drafted on a branch stacked on Task 2 ─┘
-WS-C setup      Task 5 design ─► review ─► implement ─► PR ─► merge ──────────────────────────────────┘ (before Task 6)
+WS-C setup      Task 5 rename ─► PR ─► review ─► merge ──────────────────────────────────┘ (before Task 6)
 ```
 
 ### Workstreams
@@ -52,8 +52,8 @@ WS-C setup      Task 5 design ─► review ─► implement ─► PR ─► me
 |---|---|---|---|---|
 | A | 1 | platform, `feat/traefik-rsa-resolver` | Staff Engineer I (low: config, docs, tests) | `config/traefik/`, `docs/decisions/0020*`, `docs/operations.md`, updater comment, two test files |
 | B | 2, then 3 | site, `feat/music-host`, then `feat/traefik-edge` stacked on it | Principal Engineer (high: auth, exposure, route parity) | Authentik blueprint, Navidrome override, `edge/*`, `overrides/traefik.yml`, `site.yaml`, site tests, `traefik-cutover.sh` |
-| C | 5 | platform, `feat/setup-traefik` | Staff Engineer II (medium: GATE-1 proof) | `setup/` only |
-| — | review | read-only | System Architect | Reviews the Task 5 design and every PR before merge |
+| C | 5 | platform, `feat/setup-traefik` | Staff Engineer II (low: rename) | `setup/` only |
+| — | review | read-only | System Architect | Reviews every PR before merge |
 
 Each workstream owns its files. A and C share a repository but not files; each works in its own worktree. Task 6 starts only after A and C have merged, so it has no conflicts.
 
@@ -205,21 +205,15 @@ Application-tier changes ship before the cutover, because the edge rollback rest
 
 ### Task 5: Migrate setup
 
-Design first, then implement. It doesn't depend on the owner's cutover. Implementation may run alongside Tasks 2–3; it touches only `setup/`, which Tasks 1 and 6 don't.
+Setup on `main` has no Authentik wiring and no GATE-1 step. That groundwork was removed on purpose and archived under the `archive/wizard-*` tags. Rebuilding GATE-1 for Traefik (the transient `traefik/whoami` probe in 0020 §7, with its G9 pin check) and generating a per-host Authentik layout belong to the wizard's gate rebuild, not this migration.
 
-**Files:** `setup/config/phases.json`, `setup/engine/`, setup tests and fixtures, `setup/README.md`.
+**Files:** `setup/config/phases.json`, `setup/README.md`, setup tests and fixtures.
 
-- [ ] Inventory the Caddy-specific setup code, tests, fixtures and docs, including:
-  - `phase.caddy` in `phases.json` and the README;
-  - the Caddy-peer special case in `setup/engine/local.py`;
-  - the host-preparation tests.
-- [ ] Write a short design and get it agreed before coding. It must cover:
-  - **GATE-1:** how it starts, proves and removes the transient, digest-pinned `traefik/whoami` probe from 0020 §7.
-  - **Authentik:** how setup generates a per-host Authentik layout and `edge/traefik.yml` for a new user.
-  - **Budget:** the estimated net line change. The setup budget is 2,000 non-test lines, and 1,093 are used.
-- [ ] Implement. Run the setup unit suite and the real-Docker end-to-end suite. Check that Dependabot follows the whoami pin (G9).
+- [ ] Rename the `caddy` phase and service to `traefik`. Keep the engine's guard that holds any phase containing cloudflared until GATE-1 passes (`setup/engine/local.py`).
+- [ ] Update the README and the setup tests and fixtures for the rename.
+- [ ] Run `nox -s wizard`, `nox -s wizard_e2e` and `scripts/dev/gate --fast`.
 
-**Exit:** a synthetic new host completes setup on Traefik.
+**Exit:** setup selects Traefik as its edge proxy, and Caddy is no longer named in `setup/`.
 
 ### Task 6: Retire Caddy (7 days after a verified cutover)
 
