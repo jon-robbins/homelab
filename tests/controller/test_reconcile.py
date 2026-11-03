@@ -243,6 +243,32 @@ def test_pass_records_pointers_and_highwater(tmp_path, monkeypatch):
     assert ("run",) == tuple(call[:1] for call in ops.calls if call[0] == "run")[0]
 
 
+def test_created_container_starts_before_release_advances(tmp_path, monkeypatch):
+    ops = Ops(services={"svc"})
+    ops.container = lambda project, service: ContainerView("current", "created", "")
+    state, root, candidate = prepared(monkeypatch, tmp_path, ops)
+    events = []
+    original_run, original_healthy = ops.run, ops.healthy
+
+    def run(argv):
+        assert state.highwater() == 0
+        assert not (root.parent / "current").exists()
+        events.append("up")
+        original_run(argv)
+
+    def healthy(service, timeout_s):
+        assert state.highwater() == 0
+        events.append("healthy")
+        return original_healthy(service, timeout_s)
+
+    ops.run, ops.healthy = run, healthy
+
+    assert controller.reconcile(state, object(), root.parent, ops, Pinger(), now=False) == "ok"
+    assert events == ["up", "healthy"]
+    assert state.highwater() == candidate.sequence
+    assert (root.parent / "current").resolve() == root
+
+
 def test_second_service_failure_records_its_snapshot(tmp_path, monkeypatch):
     ops = Ops()
     state, root, candidate = prepared(monkeypatch, tmp_path, ops, release_state="stateful")

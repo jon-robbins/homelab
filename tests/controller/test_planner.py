@@ -120,6 +120,23 @@ def test_planning_rules(tmp_path, app, edge, site, hashes, containers, exists, e
     assert plan(tmp_path, Adapter(hashes, containers, exists)) == expected
 
 
+@pytest.mark.parametrize(
+    "status,current_hash,site_state,expected",
+    [
+        pytest.param("created", "same", "running", Plan(("svc",), (), (), ()), id="created-running"),
+        pytest.param("created", "same", "stopped", Plan((), (), (), ()), id="created-stopped"),
+        pytest.param("exited", "same", "running", Plan((), (), ("stopped by owner: svc",), ()), id="exited-running"),
+        pytest.param("running", "same", "running", Plan((), (), (), ()), id="running-unchanged"),
+        pytest.param("created", "old", "running", Plan(("svc",), (), (), ()), id="created-changed"),
+    ],
+)
+def test_existing_container_state_controls_startup(tmp_path, status, current_hash, site_state, expected):
+    release(tmp_path, {"svc": {}}, {}, f"managed: [svc]\nservices:\n  svc: {{state: {site_state}}}\n")
+    adapter = Adapter({("homelab", "svc"): "same"}, {("homelab", "svc"): ContainerView(current_hash, status, "")})
+
+    assert plan(tmp_path, adapter) == expected
+
+
 def test_compose_commands_are_empty_or_explicit(tmp_path):
     assert compose_commands(Plan((), (), (), ()), tmp_path) == []
     commands = compose_commands(Plan(("a",), ("b",), (), ()), tmp_path)

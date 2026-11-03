@@ -81,7 +81,7 @@ def plan(release_dir: Path | str, adapter: DockerAdapter) -> Plan:
             failures.append(f"{service} failed to start: {current.error}")
         elif current is not None and current.status == "exited" and state == "running":
             notices.append(f"stopped by owner: {service}")
-        elif current is None or desired != current.config_hash:
+        elif current is None or desired != current.config_hash or (current.status == "created" and state == "running"):
             (create_stopped if state == "stopped" else recreate).append(service)
 
     for service in sorted(edge.get("services", {})):
