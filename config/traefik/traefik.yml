@@ -12,7 +12,6 @@ x-http: &http                       # unknown top-level keys are ignored; this i
     allowEncodedHash: false
 global:
   checkNewVersion: false
-  sendAnonymousUsage: false
 log:
   level: INFO
 accessLog: {}

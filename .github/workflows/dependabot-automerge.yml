@@ -25,7 +25,13 @@ jobs:
       # Traefik merges on patch only: its minor releases have flipped security defaults (0020).
       - name: Create automerge app token
         id: app-token
-        if: steps.metadata.outputs.package-ecosystem == 'docker_compose' && (steps.metadata.outputs.directory == '/modules/app' || steps.metadata.outputs.directory == '/modules/edge') && (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor') && !contains(steps.metadata.outputs.dependency-names, 'mrusse08/soularr') && !(contains(steps.metadata.outputs.dependency-names, 'traefik') && steps.metadata.outputs.update-type != 'version-update:semver-patch')
+        if: >-
+          steps.metadata.outputs.package-ecosystem == 'docker_compose'
+          && (steps.metadata.outputs.directory == '/modules/app' || steps.metadata.outputs.directory == '/modules/edge')
+          && !contains(steps.metadata.outputs.dependency-names, 'mrusse08/soularr')
+          && (steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          || (steps.metadata.outputs.update-type == 'version-update:semver-minor'
+          && !contains(steps.metadata.outputs.dependency-names, 'traefik')))
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           # Dependabot-triggered runs read only Dependabot secrets.
