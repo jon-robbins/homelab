@@ -10,7 +10,6 @@ from setup.hostprep import (
     replace_file,
     validate_target,
     verify_digest,
-    wait_for_secrets,
 )
 
 
@@ -53,14 +52,6 @@ def test_docker_logging_defaults_merge_without_replacing_existing_config(tmp_pat
     assert result["log-driver"] == "json-file"
 
 
-def test_local_secret_readiness_fails_when_a_required_secret_is_missing(tmp_path):
-    config = tmp_path / "agent.yaml"
-    config.write_text("destination-path: /run/homelab-secrets/REQUIRED_KEY\n")
-
-    with pytest.raises(TimeoutError, match="REQUIRED_KEY"):
-        wait_for_secrets(config, tmp_path / "secrets", timeout_s=0)
-
-
 def test_replace_file_leaves_an_identical_file_untouched(tmp_path):
     target = tmp_path / "unit.service"
     assert replace_file(target, b"same", 0o644) is True
@@ -85,8 +76,7 @@ def test_host_config_applies_once_and_a_rerun_runs_nothing(tmp_path):
     apply_local_host_config(tmp_path, first)
     apply_local_host_config(tmp_path, second)
 
-    assert ["systemctl", "daemon-reload"] in first.calls
-    assert ["systemctl", "try-restart", "docker"] in first.calls
+    assert first.calls == [["systemctl", "try-restart", "docker"]]
     assert second.calls == []
 
 
@@ -114,20 +104,14 @@ def test_public_address_detection_separates_ipv4_from_ipv6(addresses, public):
     assert hostprep._public_families(_addresses(*addresses)) == public
 
 
-def test_merging_docker_defaults_reports_whether_it_changed_anything(tmp_path):
-    path = tmp_path / "daemon.json"
-
-    assert merge_docker_config(path) is True
-    assert merge_docker_config(path) is False
-
-
 def test_port_check_can_be_skipped_for_a_host_that_setup_already_serves(monkeypatch):
     seen = []
     monkeypatch.setattr(hostprep, "validate_target", lambda *args, **kwargs: None)
     monkeypatch.setattr(hostprep.shutil, "disk_usage", lambda path: type("U", (), {"free": 10**12})())
     monkeypatch.setattr(hostprep.os, "geteuid", lambda: 0)
     monkeypatch.setattr(hostprep, "_listening_web_ports", lambda: seen.append("probed") or {"443"})
-    monkeypatch.setattr(hostprep, "_read_host_facts", lambda: ({}, 8192, set()))
+    monkeypatch.setattr(hostprep.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "[]"})())
+    monkeypatch.setattr(hostprep.platform, "freedesktop_os_release", lambda: {})
 
     hostprep.preflight(check_ports=False)
     assert seen == []

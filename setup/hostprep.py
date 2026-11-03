@@ -1,4 +1,7 @@
-"""Pinned bootstrap artifact retrieval. Never execute downloaded bytes before digest verification."""
+"""Host preparation for local setup: refuse an unsuitable host, install Docker from its apt repository, set log limits.
+
+Downloaded bytes are never used before their digest is checked.
+"""
 
 from __future__ import annotations
 
@@ -9,16 +12,23 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
-import time
 from collections.abc import Callable
 from typing import Mapping
 from urllib.request import urlopen
+
+# The whole key file is pinned, so a file carrying extra keys is refused (apt would trust them all).
+DOCKER_GPG_URL = "https://download.docker.com/linux/ubuntu/gpg"
+DOCKER_GPG_SHA256 = "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+DOCKER_SOURCE = (
+    "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: noble\n"
+    "Components: stable\nArchitectures: amd64\nSigned-By: /etc/apt/keyrings/docker.asc\n"
+)
+DOCKER_PACKAGES = ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]
 
 
 def verify_digest(content: bytes, expected: str) -> bytes:
@@ -26,21 +36,6 @@ def verify_digest(content: bytes, expected: str) -> bytes:
     if not hmac.compare_digest(actual, expected):
         raise ValueError("download checksum mismatch")
     return content
-
-
-def artifact_pin(name: str) -> Mapping[str, str]:
-    pins = json.loads((Path(__file__).with_name("pins.json")).read_text(encoding="utf-8"))
-    try:
-        return pins[name]
-    except KeyError as error:
-        raise ValueError(f"no pinned bootstrap artifact named {name}") from error
-
-
-def download_verified(url: str, expected: str, destination: Path) -> Path:
-    with urlopen(url, timeout=30) as response:
-        content = verify_digest(response.read(), expected)
-    replace_file(destination, content, 0o755)
-    return destination
 
 
 def _matches(path: Path, content: bytes, mode: int) -> bool:
@@ -91,189 +86,34 @@ def _run(command: list[str]) -> None:
     )
 
 
-DOCKER_PACKAGES = [
-    "docker-ce",
-    "docker-ce-cli",
-    "containerd.io",
-    "docker-buildx-plugin",
-    "docker-compose-plugin",
-]
-UBUNTU_PACKAGES = ["restic", "sqlite3", "python3-venv"]
-ALL_PACKAGES = [*DOCKER_PACKAGES, *UBUNTU_PACKAGES]
-
-
 def _package_installed(package: str) -> bool:
     return subprocess.run(["dpkg-query", "-W", package], capture_output=True).returncode == 0
 
 
-def _install_docker_key(destination: Path) -> None:
-    """The whole key file is pinned, so a file carrying extra keys is refused (apt would trust them all)."""
-    pin = artifact_pin("docker")
-    replace_file(destination, verify_digest(urlopen(pin["key_url"], timeout=30).read(), pin["key_sha256"]), 0o644)
-
-
-def _install_apt_packages() -> None:
-    if all(_package_installed(name) for name in ALL_PACKAGES):
+def install_docker() -> None:
+    """Docker Engine and Compose from Docker's apt repository. A host that already has them is left alone."""
+    if all(_package_installed(name) for name in DOCKER_PACKAGES):
         return
+    with urlopen(DOCKER_GPG_URL, timeout=30) as response:
+        replace_file(Path("/etc/apt/keyrings/docker.asc"), verify_digest(response.read(), DOCKER_GPG_SHA256), 0o644)
+    replace_file(Path("/etc/apt/sources.list.d/docker.sources"), DOCKER_SOURCE.encode(), 0o644)
     _run(["apt-get", "update"])
-    _run(["apt-get", "install", "-y", "ca-certificates", "curl"])
-    _install_docker_key(Path("/etc/apt/keyrings/docker.asc"))
-    source = (
-        "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: noble\n"
-        "Components: stable\nArchitectures: amd64\nSigned-By: /etc/apt/keyrings/docker.asc\n"
-    )
-    replace_file(Path("/etc/apt/sources.list.d/docker.sources"), source.encode(), 0o644)
-    _run(["apt-get", "update"])
-    _run(["apt-get", "install", "-y", *ALL_PACKAGES])
-
-
-def _install_infisical() -> None:
-    pin = artifact_pin("infisical")
-    if _package_installed("infisical"):
-        return
-    with tempfile.TemporaryDirectory() as temporary:
-        os.chmod(temporary, 0o755)  # apt downloads as an unprivileged user
-        _run(["apt-get", "install", "-y", str(download_verified(pin["url"], pin["sha256"], Path(temporary) / "i.deb"))])
-
-
-def install_pinned_packages() -> None:
-    """Install host dependencies. Anything already installed is left alone, so a rerun changes nothing."""
-    _install_apt_packages()
-    _install_infisical()
-
-
-def ensure_service_user() -> None:
-    if subprocess.run(["getent", "group", "homelab"], capture_output=True).returncode:
-        _run(["groupadd", "--system", "homelab"])
-    if subprocess.run(["getent", "passwd", "homelab-secrets"], capture_output=True).returncode:
-        _run(
-            [
-                "useradd",
-                "--system",
-                "--no-create-home",
-                "--home-dir",
-                "/nonexistent",
-                "--shell",
-                "/usr/sbin/nologin",
-                "--gid",
-                "homelab",
-                "homelab-secrets",
-            ]
-        )
-    groups = subprocess.run(["id", "-nG", "homelab-secrets"], capture_output=True, text=True, check=True).stdout.split()
-    if "docker" in groups:
-        raise ValueError("homelab-secrets must not be a member of the Docker group")
-
-
-def wait_for_secrets(config: Path, secret_dir: Path, timeout_s: float | None = None, poll_s: float = 1) -> None:
-    """Block until every secret the agent config renders exists. With no timeout it waits for as long as it takes."""
-    if not config.is_file():
-        raise ValueError("Infisical agent config is missing")
-    names = sorted(set(re.findall(r"/run/homelab-secrets/([A-Z0-9_]+)", config.read_text(encoding="utf-8"))))
-    if not names:
-        raise ValueError("Infisical agent config has no rendered secret destinations")
-    deadline = None if timeout_s is None else time.monotonic() + timeout_s
-    while missing := [n for n in names if not (secret_dir / n).is_file() or (secret_dir / n).stat().st_size == 0]:
-        if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError(f"required secrets are not rendered: {', '.join(missing)}")
-        time.sleep(poll_s)
-
-
-AGENT_UNIT = """[Unit]
-Description=Homelab Infisical Agent (local setup)
-After=network-online.target
-Wants=network-online.target
-# Nothing to wait for until a secrets provider has been wired. From then on a missing secret keeps Docker down.
-ConditionPathExists=/etc/infisical-agent/config.yaml
-
-[Service]
-Type=simple
-User=homelab-secrets
-Group=homelab
-RuntimeDirectory=homelab-secrets
-RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=yes
-ExecStart=/usr/bin/infisical agent --config /etc/infisical-agent/config.yaml
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-"""
-# Docker requires this one-shot gate, not the agent: restarting the agent (a provider change) must not restart Docker.
-READY_UNIT = """[Unit]
-Description=Wait until every required homelab secret file exists
-Wants=homelab-infisical-agent.service
-After=homelab-infisical-agent.service
-ConditionPathExists=/etc/infisical-agent/config.yaml
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/libexec/homelab-wait-for-secrets
-# A secret that shows up late (a router slower than the host) still starts Docker.
-TimeoutStartSec=infinity
-
-[Install]
-WantedBy=multi-user.target
-"""
-DOCKER_DROPIN = """[Unit]
-# Only a missing secret holds Docker back.
-Requires=homelab-secrets-ready.service
-After=homelab-secrets-ready.service
-"""
-WAIT_HELPER = "#!/bin/sh\nexec /usr/bin/python3 /usr/local/libexec/homelab_hostprep.py --wait-for-secrets\n"
+    _run(["apt-get", "install", "-y", *DOCKER_PACKAGES])
 
 
 def apply_local_host_config(root: Path = Path("/"), run: Callable[[list[str]], None] = _run) -> None:
-    """Write the host files setup owns. Files that already match are not touched and trigger nothing."""
-    docker_changed = merge_docker_config(root / "etc/docker/daemon.json")
-    libexec = root / "usr/local/libexec"
-    sysctl = root / "etc/sysctl.d/90-homelab-local.conf"
-    systemd = root / "etc/systemd/system"
-    units = {
-        "homelab-infisical-agent.service": AGENT_UNIT,
-        "homelab-secrets-ready.service": READY_UNIT,
-        "docker.service.d/10-homelab-local.conf": DOCKER_DROPIN,
-    }
-    units_changed = [replace_file(systemd / name, text.encode(), 0o644) for name, text in units.items()]
-    replace_file(libexec / "homelab_hostprep.py", Path(__file__).read_bytes(), 0o644)
-    replace_file(libexec / "homelab-wait-for-secrets", WAIT_HELPER.encode(), 0o755)
-    if replace_file(sysctl, b"net.ipv4.ip_nonlocal_bind=1\n", 0o644):
-        run(["sysctl", "--load", str(sysctl)])
-    if any(units_changed):
-        run(["systemctl", "daemon-reload"])
-    if docker_changed:
-        run(["systemctl", "try-restart", "docker"])  # log limits apply on restart; never starts a stopped Docker
+    """Set Docker log limits. An unchanged file triggers nothing; a change restarts a running Docker only."""
+    if merge_docker_config(root / "etc/docker/daemon.json"):
+        run(["systemctl", "try-restart", "docker"])
 
 
-def validate_target(
-    os_release: Mapping[str, str],
-    machine: str,
-    memory_mib: int,
-    public_ip: bool,
-):
+def validate_target(os_release: Mapping[str, str], machine: str, memory_mib: int, public_ip: bool) -> None:
     if os_release.get("ID") != "ubuntu" or os_release.get("VERSION_ID") != "24.04" or machine != "x86_64":
         raise ValueError("only Ubuntu 24.04 amd64 is supported")
     if memory_mib < 4096:
         raise ValueError("at least 4096 MiB RAM is required")
     if public_ip:
         raise ValueError("a public IPv4 address is on this host; setup refuses a host that sits on the internet")
-
-
-def _read_host_facts() -> tuple[dict[str, str], int, set[int]]:
-    release = {}
-    for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
-        key, separator, value = line.partition("=")
-        if separator:
-            release[key] = value.strip('"')
-    memory_kib = next(
-        int(line.split()[1])
-        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
-        if line.startswith("MemTotal:")
-    )
-    addresses = subprocess.run(["ip", "-j", "address"], capture_output=True, text=True, check=True)
-    return release, memory_kib // 1024, _public_families(addresses.stdout)
 
 
 def _public_families(ip_json: str) -> set[int]:
@@ -290,8 +130,12 @@ def _listening_web_ports() -> set[str]:
 
 def preflight(*, check_ports: bool = True) -> None:
     """Refuse an unsuitable host before anything is written. A host setup already serves skips the port check."""
-    release, memory_mib, public = _read_host_facts()
-    validate_target(release, platform.machine(), memory_mib, 4 in public)
+    if os.geteuid() != 0:
+        raise ValueError("run local host preparation as root")
+    addresses = subprocess.run(["ip", "-j", "address"], capture_output=True, text=True, check=True).stdout
+    public = _public_families(addresses)
+    memory_mib = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 1024**2
+    validate_target(platform.freedesktop_os_release(), platform.machine(), memory_mib, 4 in public)
     if 6 in public:
         # Home ISPs give every host a global IPv6 address; the router's firewall, not the address, keeps it private.
         # Published ports bind loopback only, so this exposes host services such as sshd, never the media stack.
@@ -300,23 +144,3 @@ def preflight(*, check_ports: bool = True) -> None:
         raise ValueError("less than 2 GiB is free on the root filesystem")
     if check_ports and (busy := sorted(_listening_web_ports())):
         raise ValueError(f"required web ports are already in use: {', '.join(busy)}")
-    if os.geteuid() != 0:
-        raise ValueError("run local host preparation as root")
-
-
-def main() -> int:
-    if sys.argv[1:] == ["--wait-for-secrets"]:
-        try:
-            timeout = os.environ.get("HOMELAB_SECRETS_TIMEOUT")  # for tests; unset means wait as long as it takes
-            wait_for_secrets(
-                Path("/etc/infisical-agent/config.yaml"), Path("/run/homelab-secrets"), timeout and float(timeout)
-            )
-        except (OSError, ValueError, TimeoutError) as error:
-            print(f"homelab secret readiness failed: {error}", file=sys.stderr)
-            return 1
-        return 0
-    return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

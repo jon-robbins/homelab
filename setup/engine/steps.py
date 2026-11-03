@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
-from scripts.controller.planner import Plan, compose_commands, plan
+from scripts.controller.planner import Plan, compose_commands
 
 from .contract import CheckIsProof, Context, Result, State
-from .ops import NETWORK, edge_compose
+from .ops import NETWORK, edge_compose, unhealthy
 
 MARKER = ".homelab-mounted"
 HEALTH_TIMEOUT_S = 180
@@ -175,7 +175,7 @@ class Secrets(CheckIsProof):
 
 @dataclass(frozen=True)
 class Phase:
-    """Start a group of services one at a time with --no-deps, waiting for real health after each."""
+    """Start a group of services one at a time with --no-deps; `docker compose up --wait` waits for each to be healthy."""
 
     id: str
     needs: tuple[str, ...]
@@ -200,30 +200,28 @@ class Phase:
     def _has_data(self, service: str) -> bool:
         return any(map(_holds_data, _writable_binds(self._service(service))))
 
+    def _stateful(self, service: str) -> bool:
+        return self._service(service).get("labels", {}).get("homelab.state") == "stateful"
+
+    def _has_state(self, service: str) -> bool:
+        return self.ops.inspect(service, self._project(service)) is not None or self._has_data(service)
+
     def _stale(self, service: str) -> bool:
         view = self.ops.container(self._project(service), service)
         return view is None or view.config_hash != self.ops.config_hash(
             self.release.directory, self._project(service), service
         )
 
-    def _failures(self, planned: Plan) -> list[str]:
-        return [
-            f
-            for f in planned.failures
-            if f.startswith("media disk") or any(f.startswith(f"data dir missing: {s}:") for s in self.services)
-        ]
-
-    def _split(self, ctx: Context) -> tuple[list[str], list[str]]:
+    def _split(self) -> tuple[list[str], list[str]]:
         todo, stopped = [], []
         for service in self.services:
-            view = self.ops.container(self._project(service), service)
-            pending, running = ctx.layout.restart_pending(service), self._wanted_running(service)
-            if view and view.status == "exited" and not pending:
+            view, running = self.ops.container(self._project(service), service), self._wanted_running(service)
+            if view and view.status == "exited":
                 if running:
                     stopped.append(service)  # the owner stopped it; never restart it
                 continue
-            # _stale is true when there is no container, so `view` is set for the two status checks.
-            if self._stale(service) or (pending and view.status != "running") or (running and view.status == "created"):
+            # _stale is true when there is no container, so `view` is set for the status check.
+            if self._stale(service) or (running and view.status == "created"):
                 todo.append(service)
         return todo, stopped
 
@@ -234,76 +232,52 @@ class Phase:
             return State.blocked(
                 f"secret file(s) not present: {', '.join(missing)}. A provider step must supply them first."
             )
-        if failures := self._failures(plan(self.release.directory, self.ops)):
-            return State.blocked(failures[0])
-        todo, stopped = self._split(ctx)
+        todo, stopped = self._split()
         if stopped:
             return State.blocked(
                 f"{', '.join(stopped)} stopped. Setup does not restart a service you stopped; start it yourself, or use docker rm on the failed container before retrying."
             )
         if todo:
             return State.needed()
-        unhealthy = [
-            s
-            for s in self.services
-            if self._wanted_running(s) and self.ops.wait_healthy(self._project(s), s, 0).status != "ok"
-        ]
-        return State.needed() if unhealthy else State.done()
+        return State.needed() if self._unhealthy() else State.done()
+
+    def _unhealthy(self, services: Sequence[str] | None = None) -> list[str]:
+        """`service: reason` for each service meant to run that is not serving right now. Read-only."""
+        chosen = filter(self._wanted_running, self.services if services is None else services)
+        reasons = {s: unhealthy(self.ops.inspect(s, self._project(s))) for s in chosen}
+        return [f"{s}: {why}" for s, why in reasons.items() if why]
 
     def _command(self, service: str) -> list[str]:
         running, directory = self._wanted_running(service), self.release.directory
         if self.release.tier(service) == "app":
             plan_ = Plan((service,), (), (), ()) if running else Plan((), (service,), (), ())
-            return compose_commands(plan_, directory)[0]
-        up = COMPOSE_UP if running else ["up", "--no-deps", "--no-start", "--no-build", "--pull", "never"]
-        return [*edge_compose(directory), *up, service]
-
-    def _snapshot(self, ctx: Context, service: str, enabled: bool) -> None:
-        if self._service(service).get("labels", {}).get("homelab.state") != "stateful":
-            return
-        if self.ops.inspect(service, self._project(service)) is None:
-            if self._has_data(service):
-                raise RuntimeError(f"{service} has existing data but no container; take a manual snapshot before apply")
-            return
-        if self.release.tier(service) != "app":
-            raise RuntimeError("stateful edge changes require a manual snapshot before apply")
-        if not enabled:
-            return
-        ctx.layout.set_restart_pending(service, True)
-        self.ops.stop(service)
-        self.ops.snapshot(service, f"local-{self.release.directory.name}")
+            command = compose_commands(plan_, directory)[0]
+        else:
+            up = COMPOSE_UP if running else ["up", "--no-deps", "--no-start", "--no-build", "--pull", "never"]
+            command = [*edge_compose(directory), *up, service]
+        wait = ["--wait", "--wait-timeout", str(HEALTH_TIMEOUT_S)] if running else []  # Compose waits for health
+        return [*command[:-1], *wait, service]
 
     def apply(self, ctx: Context) -> Result:
-        todo, stopped = self._split(ctx)
+        todo, stopped = self._split()
         if stopped:
             return Result.failure(f"owner-stopped services: {stopped}")
-        stateful = [s for s in todo if self._service(s).get("labels", {}).get("homelab.state") == "stateful"]
-        existing = [s for s in stateful if self.ops.inspect(s, self._project(s)) is not None or self._has_data(s)]
-        if any(self.release.tier(s) == "edge" for s in existing):
-            return Result.failure("stateful edge changes require a manual snapshot before apply")
-        can_snapshot = self.ops.can_snapshot()
-        if existing and not can_snapshot:
-            return Result.failure("no local snapshot is configured; existing stateful data will not be changed")
+        # Recreating a container over existing data needs a backup first; restarting one that already exists does not.
+        if risky := [s for s in todo if self._stateful(s) and self._stale(s) and self._has_state(s)]:
+            return Result.failure(f"{', '.join(risky)} would be recreated over existing data; back it up, then retry")
         for tier in ("app", "edge"):
             self.ops.pull(
                 self.release.directory,
                 tuple(s for s in todo if self.release.tier(s) == tier),
                 tier,
             )
-        for service in todo:
-            self._snapshot(ctx, service, can_snapshot)
+        # `up --wait` on an up-to-date container recreates nothing, so it also waits out one still starting.
+        waiting = [s for s in self.services if s not in todo and self._wanted_running(s) and self._unhealthy([s])]
+        for service in [*todo, *waiting]:
             self.ops.run(self._command(service))
-            if self._wanted_running(service):
-                verdict = self.ops.wait_healthy(self._project(service), service, HEALTH_TIMEOUT_S)
-                if verdict.status != "ok":
-                    return Result.failure(verdict.reason)
-            ctx.layout.set_restart_pending(service, False)
         return Result.success(f"started {', '.join(todo) or 'nothing'}")
 
     def verify(self, ctx: Context) -> Result:
-        for service in filter(self._wanted_running, self.services):
-            verdict = self.ops.wait_healthy(self._project(service), service, HEALTH_TIMEOUT_S)
-            if verdict.status != "ok":
-                return Result.failure(verdict.reason)
-            ctx.layout.set_restart_pending(service, False)
+        if failing := self._unhealthy():
+            return Result.failure("; ".join(failing))
         return Result.success()

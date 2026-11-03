@@ -15,10 +15,9 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     (world["data"] / ".homelab-mounted").touch()
     (world["secrets"]).mkdir(parents=True)
     (world["secrets"] / "WEB_KEY").write_text("provided-by-a-provider-step")
-    monkeypatch.setattr(cli, "make_ops", lambda: ops)
+    monkeypatch.setattr(cli, "LocalOps", lambda: ops)
     monkeypatch.setattr(cli, "preflight", lambda **kwargs: None)
-    monkeypatch.setattr(cli, "install_pinned_packages", lambda: None)
-    monkeypatch.setattr(cli, "ensure_service_user", lambda: None)
+    monkeypatch.setattr(cli, "install_docker", lambda: None)
     monkeypatch.setattr(cli, "apply_local_host_config", lambda: None)
     monkeypatch.setattr(
         cli,
@@ -30,7 +29,7 @@ def wired(monkeypatch, ops, models, world, tmp_path):
     )
     monkeypatch.setattr(
         cli,
-        "phases",
+        "defaults",
         lambda: (
             (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",))),
             ("DB_PASSWORD",),
@@ -82,10 +81,10 @@ def test_the_real_owner_root_is_refused_even_with_another_root(wired, world, tmp
     assert not world["root"].exists()
 
 
-def test_containers_in_the_owners_projects_that_setup_did_not_create_are_refused(wired, world, ops, capsys):
-    ops.foreign = ["homelab-sonarr-1"]
+def test_owner_compose_projects_that_setup_did_not_create_are_refused(wired, world, ops, capsys):
+    ops.foreign = ["homelab"]
     assert cli.main([*wired, "apply"]) == 2
-    assert "homelab-sonarr-1" in capsys.readouterr().err
+    assert "did not create: homelab" in capsys.readouterr().err
     assert not world["root"].exists() and ops.calls == []
 
 
@@ -130,8 +129,7 @@ def prep(wired, monkeypatch, world, tmp_path):
     """`wired` with the host-preparation steps recorded, and no site argument (the host comes first)."""
     calls = []
     monkeypatch.setattr(cli, "preflight", lambda **kwargs: calls.append(("preflight", kwargs)))
-    monkeypatch.setattr(cli, "install_pinned_packages", lambda: calls.append(("packages", {})))
-    monkeypatch.setattr(cli, "ensure_service_user", lambda: calls.append(("user", {})))
+    monkeypatch.setattr(cli, "install_docker", lambda: calls.append(("docker", {})))
     monkeypatch.setattr(cli, "apply_local_host_config", lambda: calls.append(("config", {})))
     return calls, ["--root", str(world["root"]), "--platform", str(tmp_path)]
 
@@ -141,7 +139,7 @@ def test_prepare_readies_the_host_without_a_site_and_claims_it(prep, world):
 
     assert cli.main([*argv, "prepare"]) == 0
 
-    assert [name for name, _ in calls] == ["preflight", "packages", "user", "config"]
+    assert [name for name, _ in calls] == ["preflight", "docker", "config"]
     assert (world["root"] / "local-setup.owner").read_text().strip() == "local-setup"
 
 
@@ -166,27 +164,6 @@ def test_rerunning_on_a_host_setup_already_serves_does_not_object_to_its_own_web
     assert checks == [True, False]
 
 
-def test_start_asks_the_first_question_at_a_terminal(prep, monkeypatch, capsys):
-    _, argv = prep
-    asked = []
-    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr(cli, "ask", lambda prompt: asked.append(prompt) or "/srv/homelab/site")
-
-    assert cli.main([*argv, "start"]) == 0
-
-    assert [type(p).__name__ for p in asked] == ["Text"]
-    assert "host is ready" in capsys.readouterr().out
-
-
-def test_start_without_a_terminal_prepares_and_does_not_prompt(prep, monkeypatch, capsys):
-    _, argv = prep
-    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(cli, "ask", lambda prompt: pytest.fail("prompted without a terminal"))
-
-    assert cli.main([*argv, "start"]) == 0
-    assert "host is ready" in capsys.readouterr().out
-
-
 def test_apply_and_status_still_need_a_site(prep, capsys):
     _, argv = prep
 
@@ -195,13 +172,3 @@ def test_apply_and_status_still_need_a_site(prep, capsys):
 
     assert stopped.value.code == 2
     assert "--site" in capsys.readouterr().err
-
-
-def test_cli_does_not_offer_a_public_address_waiver(prep, capsys):
-    _, argv = prep
-
-    with pytest.raises(SystemExit) as stopped:
-        cli.main([*argv, "--ack-public-ip", "prepare"])
-
-    assert stopped.value.code == 2
-    assert "unrecognized arguments" in capsys.readouterr().err

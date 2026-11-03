@@ -9,7 +9,6 @@ from scripts.controller.planner import ContainerView
 from setup.engine.checkpoints import Checkpoints
 from setup.engine.contract import Context
 from setup.engine.layout import Layout
-from setup.engine.ops import Verdict
 from setup.engine.secrets import SecretStore
 
 
@@ -21,11 +20,9 @@ class FakeOps:
         self.network = False
         self.ours = True  # an existing homelab_net carries the setup label
         self.broken: set[str] = set()  # services that start but never become healthy
-        self.foreign: list[str] = []  # containers in the owner's projects that setup did not create
+        self.foreign: list[str] = []  # owner Compose projects that setup did not create
         self.errors: set[str] = set()  # services whose container failed to start (State.Error)
         self.starting: set[str] = set()  # services whose health check is still starting when first asked
-        self.backups = True  # is homelab-backup installed
-        self.events: list[tuple[str, str]] = []  # stop and snapshot, in order
 
     def config_hash(self, release_dir, project, service):
         return f"{project}/{service}"
@@ -36,7 +33,10 @@ class FakeOps:
 
     def inspect(self, service, project="homelab"):
         state = self.containers.get((project, service))
-        return {"State": {"Status": state}} if state else None
+        if not state:
+            return None
+        health = "unhealthy" if service in self.broken else "starting" if service in self.starting else None
+        return {"State": {"Status": state, **({"Health": {"Status": health}} if health else {})}}
 
     def path_exists(self, path):
         return Path(path).exists()
@@ -51,17 +51,9 @@ class FakeOps:
         if "up" in argv:
             self.containers[(project, service)] = "created" if "--no-start" in argv else "running"
             self.errors.discard(service)
-
-    def can_snapshot(self):
-        return self.backups
-
-    def stop(self, service):
-        self.events.append(("stop", service))
-        self.containers[("homelab", service)] = "exited"
-
-    def snapshot(self, service, tag):
-        self.events.append(("snapshot", service))
-        return "snapshot-id"
+            self.starting.discard(service)  # `up --wait` returns once the health check has settled
+            if "--wait" in argv and service in self.broken:
+                raise RuntimeError(f"command failed (1): container {service} is unhealthy")
 
     def network_exists(self, name):
         return self.network
@@ -72,15 +64,7 @@ class FakeOps:
     def create_network(self, name):
         self.network = True
 
-    def wait_healthy(self, project, service, timeout_s):
-        state = self.containers.get((project, service))
-        if state != "running":
-            return Verdict("fail", f"{service}: {state or 'missing'}")
-        if service in self.starting and timeout_s == 0:
-            return Verdict("fail", f"{service}: health check still starting")
-        return Verdict("fail", f"{service}: unhealthy") if service in self.broken else Verdict("ok", "")
-
-    def foreign_containers(self, releases):
+    def foreign_projects(self, releases):
         return self.foreign
 
     def ups(self):

@@ -1,4 +1,4 @@
-"""Durable run history: which steps finished, which were cut short, and the non-secret facts and answers so far.
+"""Durable run history: which steps finished, which were cut short, and the non-secret facts so far.
 
 The truth about the host is always each step's `check()`; this file only records history, so a lost or stale
 checkpoint costs a re-check, never a wrong skip. It never holds secret values.
@@ -30,9 +30,7 @@ class Checkpoints:
     def _load(self) -> None:
         text = self._files.read(NAME)
         try:
-            self._data: dict[str, Any] = (
-                json.loads(text) if text else {"version": 1, "steps": {}, "facts": {}, "answers": {}}
-            )
+            self._data: dict[str, Any] = json.loads(text) if text else {"version": 1, "steps": {}, "facts": {}}
         except ValueError as error:
             raise ValueError(
                 f"{self._files.directory / NAME} is corrupt ({error}); move it aside to start over"
@@ -87,11 +85,4 @@ class Checkpoints:
 
     def set_fact(self, key: str, value: Any) -> None:
         self._data["facts"][key] = value
-        self._save()
-
-    def answers(self) -> dict[str, Any]:
-        return dict(self._data["answers"])
-
-    def set_answer(self, key: str, value: Any) -> None:
-        self._data["answers"][key] = value
         self._save()

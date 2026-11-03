@@ -6,11 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
 from .checkpoints import AlreadyRunning
-from .secrets import SecretHandle
-from .contract import Answer, Context, Prompt, Result, Secret, State, Status, Step
-
-Ask = Callable[[Prompt], Answer]
-MAX_PROMPTS = 8  # per step; a step that keeps asking is broken
+from .contract import Context, Result, State, Status, Step
 
 
 @dataclass(frozen=True)
@@ -53,30 +49,6 @@ def status(steps: Sequence[Step], ctx: Context) -> dict[str, State]:
     return {step.id: step.check(ctx) for step in order(steps)}
 
 
-def _store(ctx: Context, prompt: Prompt, answer: Answer) -> None:
-    if isinstance(prompt, Secret):
-        ctx.answers[prompt.key] = (
-            answer if isinstance(answer, SecretHandle) else ctx.secrets.put(prompt.key, str(answer))
-        )  # the value goes to a file, only a handle stays
-    else:
-        if isinstance(answer, SecretHandle):
-            raise TypeError("secret handles require a Secret prompt")
-        ctx.answers[prompt.key] = answer
-        ctx.checkpoints.set_answer(prompt.key, answer)
-
-
-def _apply(step: Step, ctx: Context, ask: Ask | None) -> Result:
-    result = step.apply(ctx)
-    for _ in range(MAX_PROMPTS):
-        if result.prompt is None:
-            return result
-        if ask is None:
-            return Result.failure(f"needs your input: {result.prompt.label}")
-        _store(ctx, result.prompt, ask(result.prompt))
-        result = step.apply(ctx)
-    return Result.failure(f"{step.id} kept asking for input")
-
-
 def _safe(ctx: Context, value):
     if isinstance(value, str):
         return ctx.secrets.redact(value)
@@ -96,7 +68,7 @@ def _publish(ctx: Context, result: Result) -> None:
         ctx.checkpoints.set_fact(key, value)
 
 
-def _converge(step: Step, ctx: Context, ask: Ask | None) -> Result:
+def _converge(step: Step, ctx: Context) -> Result:
     """Make one step true. Returns the failure, or success once check/verify agree it is done."""
     state = step.check(ctx)
     if state.status is Status.BLOCKED:
@@ -106,7 +78,7 @@ def _converge(step: Step, ctx: Context, ask: Ask | None) -> Result:
         if verified.ok:
             return verified
     ctx.checkpoints.begin(step.id)
-    applied = _apply(step, ctx, ask)
+    applied = step.apply(ctx)
     if not applied.ok:
         return applied
     _publish(ctx, applied)
@@ -117,25 +89,23 @@ def run(
     steps: Sequence[Step],
     ctx: Context,
     *,
-    ask: Ask | None = None,
     on_event: Callable[[Event], None] = lambda event: None,
 ) -> Outcome:
     planned = order(steps)
     try:
         with ctx.checkpoints.lock():
-            return _run(planned, ctx, ask, on_event)
+            return _run(planned, ctx, on_event)
     except AlreadyRunning as error:
         return Outcome(False, reason=str(error))
 
 
-def _run(planned: list[Step], ctx: Context, ask: Ask | None, on_event: Callable[[Event], None]) -> Outcome:
+def _run(planned: list[Step], ctx: Context, on_event: Callable[[Event], None]) -> Outcome:
     ctx.facts.update(ctx.checkpoints.facts())
-    ctx.answers.update(ctx.checkpoints.answers())
     finished: list[str] = []
     for step in planned:
         on_event(Event(step.id, "applying"))
         try:
-            result = _converge(step, ctx, ask)
+            result = _converge(step, ctx)
             if result.ok:
                 _publish(ctx, result)
         except Exception as error:  # a crash in one step is that step's failure, with the cause kept

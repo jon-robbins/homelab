@@ -36,7 +36,7 @@ check_host() {
 fetch() {
   local partial
   partial=$(mktemp "$work/fetch.XXXXXX")
-  curl -fsSL --proto '=https,file' --retry 3 --max-time 1800 -C - -o "$partial" "$1"
+  curl -fsSL --proto '=https' --retry 3 --max-time 1800 -o "$partial" "$1"
   echo "$2  $partial" | sha256sum -c --quiet - || die "checksum mismatch for $1; the release was not installed"
   mv "$partial" "$3"
 }
@@ -58,21 +58,16 @@ fetch_release() {
   platform=$target
 }
 
-make_venv() {
-  local venv=$INSTALL_DIR/venv
-  # Test pip, not python: a venv that failed for lack of python3-venv still leaves bin/python behind.
-  if [[ ! -x $venv/bin/pip ]]; then
-    dpkg -s python3-venv >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y python3-venv; } >&2
-    python3 -m venv --clear "$venv"
-  fi
-  "$venv/bin/pip" install --quiet --disable-pip-version-check --only-binary=:all: --require-hashes -r "$platform/config/release/requirements.txt"
+# Setup needs only PyYAML beyond the standard library; Ubuntu's package is enough, so there is no virtualenv.
+install_yaml() {
+  dpkg -s python3-yaml >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y python3-yaml; } >&2
 }
 
 check_host
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 fetch_release
-make_venv
+install_yaml
 cd "$platform"
 export PYTHONDONTWRITEBYTECODE=1
-"$INSTALL_DIR/venv/bin/python" -m setup.cli --platform "$platform" "$@" start
+python3 -m setup.cli --platform "$platform" "$@" prepare
