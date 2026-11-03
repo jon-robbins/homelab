@@ -13,7 +13,7 @@ from setup.engine.layout import Layout
 from setup.engine import local
 from setup.engine.local import Release, build_steps
 from setup.engine.runner import run, status
-from setup.engine.steps import Dirs
+from setup.engine.steps import Dirs, Network
 from setup.tests.conftest import argv_text
 
 PHASES = (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",)))
@@ -47,21 +47,6 @@ def provide_web_key(ctx):
 
 def provide_existing_db_password(ctx):
     ctx.secrets.put("DB_PASSWORD", "existing-database-password")
-
-
-def test_render_reserves_the_host_planned_caddy_address(tmp_path, monkeypatch):
-    site = tmp_path / "site"
-    site.mkdir()
-    (site / "site.yaml").write_text("contract: 1\nservices: {}\n", encoding="utf-8")
-    rendered = SimpleNamespace(
-        app={"services": {}},
-        edge={"services": {"caddy": {"networks": ["homelab_net"]}}},
-    )
-    monkeypatch.setattr(local, "render", lambda *args: rendered)
-
-    release = Release.render(Layout(tmp_path / "root"), tmp_path, site, {}, {"caddy_address": "planned-address"})
-
-    assert release.edge["services"]["caddy"]["networks"] == {"homelab_net": {"ipv4_address": "planned-address"}}
 
 
 @pytest.mark.parametrize(
@@ -600,3 +585,10 @@ def test_a_stopped_service_with_a_restart_marker_and_current_config_is_restarted
     assert status(steps, ctx)["phase.database"].status.value == "needed"
     assert converge(steps, ctx).ok and ops.containers[("homelab", "db")] == "running"
     assert not ctx.layout.restart_pending("db")
+
+
+def test_a_homelab_net_that_setup_did_not_create_is_refused(ctx, ops):
+    ops.network, ops.ours = True, False
+    state = Network(ops).check(ctx)
+    assert state.status.value == "blocked" and "not created by local setup" in state.reason
+    assert not ops.calls
