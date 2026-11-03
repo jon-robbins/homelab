@@ -162,6 +162,35 @@ def test_empty_plan_moves_pointers(tmp_path, monkeypatch):
     assert pinger.calls == [("ok", None)]
 
 
+def test_candidate_plan_failure_halts_before_pull_until_ack(tmp_path, monkeypatch):
+    ops = Ops()
+    ops.path_exists = lambda path: False
+    state, root, candidate = prepared(monkeypatch, tmp_path, ops, release_state="stateful")
+    app = json.loads((root / "app.json").read_text())
+    app["services"]["svc"]["volumes"] = [
+        {"type": "bind", "source": "/srv/homelab/data/svc", "target": "/config"}
+    ]
+    (root / "app.json").write_text(json.dumps(app))
+    pinger = Pinger()
+
+    result = controller.reconcile(state, object(), root.parent, ops, pinger, now=False)
+
+    assert f"release {candidate.sequence} blocked: data dir missing: svc" in result
+    assert "homelabctl ack" in result
+    assert state.read("DEGRADED") == result + "\n"
+    assert state.highwater() == 0
+    assert pinger.calls == [("fail", result)]
+    assert not {call[0] for call in ops.calls} & {"pull", "stop", "snapshot", "run"}
+
+    assert controller.reconcile(state, object(), root.parent, ops, pinger, now=False) == result
+    assert not {call[0] for call in ops.calls} & {"pull", "stop", "snapshot", "run"}
+
+    state.remove("DEGRADED")
+    ops.path_exists = lambda path: True
+    assert controller.reconcile(state, object(), root.parent, ops, pinger, now=False) == "ok"
+    assert state.highwater() == candidate.sequence
+
+
 def test_preapply_failures_keep_highwater_and_fail_on_third(tmp_path, monkeypatch):
     ops = Ops()
     ops.pull_error = "pull failed"

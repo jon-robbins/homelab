@@ -36,7 +36,10 @@ To stop a service and keep it stopped: `docker compose -p homelab stop <svc>`, t
 ## DEGRADED
 
 A failed apply writes `/srv/homelab/state/DEGRADED` with the service, the snapshot ID and the next command, and
-every tick sends a fail ping until you act.
+every tick sends a fail ping until you act. A candidate release with a planning failure (such as a missing stateful
+data directory) also stops before image pulls or snapshots, writes the reason to `DEGRADED`, and sends a fail ping
+immediately. `homelabctl status` shows the blocked release and condition. Once the condition is fixed, run
+`homelabctl ack --reason "<what you fixed>"` and then `homelabctl reconcile --now`.
 
 1. `homelabctl status` and `docker compose -p homelab logs --tail 100 <svc>`.
 2. Either roll back (`homelabctl rollback <svc>`) or merge a fix; a fix ships as a new release.

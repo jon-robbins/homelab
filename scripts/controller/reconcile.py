@@ -66,6 +66,14 @@ def _degraded(state: State, sequence: int, service: str, snapshot: str | None, r
     return text
 
 
+def _blocked(state: State, sequence: int, failures: tuple[str, ...], pinger: Pinger) -> str:
+    reason = f"release {sequence} blocked: {'; '.join(failures)}"
+    message = f"{reason}\nnext: fix the reported condition, then homelabctl ack --reason <reason>"
+    state.write("DEGRADED", message + "\n")
+    pinger.fail(message)
+    return message
+
+
 def _preapply(state: State, cause: str, pinger: Pinger, causes: list[str]) -> str:
     # Nothing has been changed yet: keep highwater, retry next tick, alert on the third failure in a row.
     count = int(state.read("failures", "0").strip()) + 1
@@ -146,6 +154,8 @@ def reconcile(state: State, feed_policy: Any, releases: Path, ops: Ops, pinger: 
                 return _ping(pinger, causes)
             release = materialize(candidate, releases)
             p = plan(release, ops)
+            if p.failures:
+                return _blocked(state, candidate.sequence, p.failures, pinger)
             if state.read("observe-only") is not None and not now:
                 return _ping(pinger, causes)
             if not p.recreate and not p.create_stopped:
