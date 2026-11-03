@@ -32,7 +32,7 @@ if [[ -n $slug_file ]]; then
 fi
 [[ -n $slug && -n $to && ${#from[@]} -gt 0 ]] || usage
 [[ $slug != *"$PLACEHOLDER"* ]] || { echo "slug must not be the placeholder" >&2; exit 1; }
-[[ $slug =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "invalid Infisical project slug: $slug" >&2; exit 1; }
+[[ $slug =~ ^[[:alnum:]][[:alnum:]_-]*$ ]] || { echo "invalid Infisical project slug: $slug" >&2; exit 1; }
 
 mkdir -p "$to"
 count=0
