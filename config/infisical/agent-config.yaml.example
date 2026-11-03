@@ -1,6 +1,7 @@
 # Runtime host copy only: install this as /etc/infisical-agent/config.yaml.
 # This checked-in example intentionally contains no client credentials, project ID, or secret values.
-# Templates are copied from config/infisical/templates to /srv/homelab/infisical/templates (docs/operations.md).
+# Stamp skeletons from config/infisical/templates (and plugin templates) into /srv/homelab/infisical/templates
+# with host/stamp-infisical-templates and the site's config/infisical/project-slug (docs/operations.md).
 # Containers read /run/homelab-secrets (HOMELAB_SECRET_DIR) and the controller restarts services, so there are no
 # reload commands.
 templates:

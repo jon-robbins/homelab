@@ -1,4 +1,4 @@
-{{- with listSecretsByProjectSlug "homelab-r-tg-j" "prod" "/network" -}}
+{{- with listSecretsByProjectSlug "@INFISICAL_PROJECT_SLUG@" "prod" "/network" -}}
 {{- range . -}}
 {{- if eq .Key "CLOUDFLARE_TOKEN" -}}{{ .Value }}{{ end -}}
 {{- end -}}
