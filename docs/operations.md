@@ -44,9 +44,9 @@ every tick sends a fail ping until you act.
 
 ## Edge
 
-Edge (caddy, cloudflared) is applied by its own timer, `homelab-edge-update`, never by the controller
-([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json` if it
-changed, waits for both services to be healthy, and otherwise puts the last good one back and skips that release
+The edge tier (Traefik or Caddy, and cloudflared) is applied by its own timer, `homelab-edge-update`, never by the
+controller ([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json`
+if it changed, waits for its services to be healthy, and otherwise puts the last good one back and skips that release
 until a newer one. It applies exactly the services in `edge.json`, so a service a release drops is removed. While
 the running edge differs from the release, the deadman ping fails with "edge change pending".
 

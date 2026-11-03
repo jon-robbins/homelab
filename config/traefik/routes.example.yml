@@ -5,12 +5,13 @@
 # - Routers without entryPoints join only `tailnet` (the default).
 # - Join `tunnel` only for routes that should be public via Cloudflare Tunnel.
 # - Traefik orders rules by length, so set `priority` when paths overlap.
+# Every router starts with `strip-identity`, so a client cannot forge an identity header (0020).
 http:
   routers:
     # Private app: tailnet only. Wildcard certificate on one router serves all subdomains.
     sonarr:
       rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
-      middlewares: [compress]
+      middlewares: [strip-identity, compress]
       service: sonarr
       tls:
         certResolver: cloudflare
@@ -22,6 +23,7 @@ http:
     requests:
       rule: Host(`requests.{{ env "BASE_DOMAIN" }}`)
       entryPoints: [tunnel]
+      middlewares: [strip-identity]
       service: overseerr
 
     # --- Authentik forward-auth gate ----------------------------------------------------
@@ -29,20 +31,34 @@ http:
     outpost:
       rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/outpost.goauthentik.io/`)
       priority: 1000
+      middlewares: [strip-identity]
       service: authentik
 
     gated-sonarr:
       rule: Host(`gate.{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
       priority: 800
-      middlewares: [authentik]
+      middlewares: [strip-identity, authentik]
       service: sonarr
 
   middlewares:
+    # An empty value deletes the request header. Names are listed because the middleware has no wildcard.
+    strip-identity:
+      headers:
+        customRequestHeaders:
+          Remote-User: ""
+          X-Authentik-Username: ""
+          X-Authentik-Groups: ""
+          X-Authentik-Email: ""
+          X-Authentik-Name: ""
+          X-Authentik-Uid: ""
+          X-Authentik-Jwt: ""
+          X-Authentik-Entitlements: ""
+
     compress:
       compress:
         encodings: [gzip, zstd]
 
-    # authResponseHeadersRegex purges client X-Authentik-* headers before copying the outpost response.
+    # authResponseHeadersRegex also purges any other client X-Authentik-* header before copying the outpost response.
     # If Authentik is unreachable, gated routes fail closed with 500.
     authentik:
       forwardAuth:

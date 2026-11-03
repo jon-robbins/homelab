@@ -42,7 +42,7 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
      - the file provider on `/etc/traefik/dynamic/`;
      - every entry point with `aliasHeadersStrategy: delete`, `forwardedHeaders.trustedIPs: []`, and the
        encoded-character options set explicitly, so a Traefik minor release can't flip them;
-     - `api`, the dashboard and plugins off, and version checks and usage reporting off.
+     - `api`, the dashboard and plugins off, and version checks off (usage reporting is opt-in in Traefik, so it stays at its default).
    - *Dynamic configuration* has two files in that directory. The platform's `health.yml` routes `/healthz` on `ping`
      to `ping@internal`. The site's `routes.yml` holds routers, services and middlewares, and comes from
      `edge/traefik.yml` in the site, inlined by the renderer as a Compose `configs` entry

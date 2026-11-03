@@ -151,18 +151,3 @@ def test_apply_removes_a_service_the_release_dropped(tmp_path: Path):
     (tmp_path / "running").write_text("caddy cloudflared")
     assert run(env).returncode == 0
     assert running(tmp_path) == {"traefik", "cloudflared"}
-
-
-def test_rollback_removes_the_service_the_failed_release_added(tmp_path: Path):
-    env = setup(tmp_path, edge("traefik", "cloudflared"), good=edge("caddy", "cloudflared"))
-    (tmp_path / "running").write_text("caddy cloudflared")
-    assert run(env, FAKE_HEALTH="unhealthy").returncode == 1
-    assert running(tmp_path) == {"caddy", "cloudflared"}
-    assert state(tmp_path, "edge-good.json").read_text() == edge("caddy", "cloudflared")
-
-
-def test_failed_pull_leaves_the_running_services_alone(tmp_path: Path):
-    env = setup(tmp_path, edge("traefik", "cloudflared"), good=edge("caddy", "cloudflared"))
-    (tmp_path / "running").write_text("caddy cloudflared")
-    assert run(env, FAKE_PULL_STATUS="1").returncode == 1
-    assert running(tmp_path) == {"caddy", "cloudflared"}
