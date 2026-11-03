@@ -95,7 +95,7 @@ def world(tmp_path):
     layout = Layout(tmp_path / "srv", owner_root=tmp_path / "owner", unit_dir=tmp_path / "units")
     layout.claim()
     ops = cli.LocalOps()
-    ops.ensure_network("homelab_net", layout.setup_dir, ops.network_spec(layout.setup_dir))
+    ops.create_network("homelab_net")
     # The macOS gate runs inside Docker. Join only this test's network so its HTTP probes can reach Caddy.
     runner = os.uname().nodename if Path("/.dockerenv").exists() else None
     if runner:
