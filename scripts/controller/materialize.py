@@ -20,7 +20,7 @@ def materialize(candidate: Any, releases: str | Path) -> Path:
     with tempfile.TemporaryDirectory(prefix=f".{candidate.sequence}-", dir=root) as directory:
         temporary = Path(directory)
         with tarfile.open(fileobj=BytesIO(candidate.bundle_bytes), mode="r:") as archive:
-            archive.extractall(temporary)
+            archive.extractall(temporary, filter="tar")
         for path in sorted(temporary.rglob("*"), key=lambda item: len(item.parts), reverse=True):
             os.chmod(path, 0o555 if path.is_dir() else 0o444)
         os.chmod(temporary, 0o555)
