@@ -48,6 +48,8 @@ certificatesResolvers:
   cloudflare:
     acme:
       storage: /acme/acme.json
+      keyType: RSA2048                # Plex needs RSA on the X1 chain; one resolver serves every host (0020 §2)
+      preferredChain: "ISRG Root X1"  # lego keeps the default chain when no alternate chain matches
       dnsChallenge:
         provider: cloudflare        # reads CF_DNS_API_TOKEN_FILE
         resolvers: ["1.1.1.1:53", "1.0.0.1:53"]   # lego's zone lookup fails against Docker's embedded resolver
