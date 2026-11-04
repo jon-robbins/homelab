@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
+import shutil
 import subprocess
 import time
 from typing import Any, Protocol
@@ -187,8 +188,8 @@ class SubprocessOps:
         return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
 
     def free_pct(self, path):
-        value = os.statvfs(path)
-        return value.f_bavail * 100 / value.f_blocks
+        usage = shutil.disk_usage(path)
+        return usage.free * 100 / usage.total
 
     def path_exists(self, path):
         return Path(path).exists()
