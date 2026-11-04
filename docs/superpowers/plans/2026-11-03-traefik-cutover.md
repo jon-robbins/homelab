@@ -11,7 +11,7 @@
 ## Owner decisions (2026-11-03)
 
 - **Downtime is acceptable.** No quiet window, no manual rollback from an old release and no long observation. Security failures are silent rather than outages, so the authentication and exposure checks stay.
-- **Authorisation by host.** Authentik decides access per application, and each application is one host. The base host becomes admin-only. Navidrome, the only family app on it, moves to its own one-level host so the tunnel's free Cloudflare certificate covers it. Its ungated Subsonic API path stays on the base host for existing phone apps.
+- **Authorisation by host.** Authentik decides access per application, and each application is one host. The base host becomes admin-only. Navidrome, the only family app on it, moves to its own one-level host so the tunnel's free Cloudflare certificate covers it. Its ungated Subsonic API (`/rest/`) moves with it; phone apps are reconfigured to the music host (2026-11-04), so the base host keeps no Navidrome path.
 - **Plex keeps an RSA certificate with the ISRG Root X1 chain.** Plex's custom server URLs list all three proxied Plex hosts.
 - **The tunnel origin stays HTTPS**, so the scheme reaching Authentik and the backends stays `https`. The site's cloudflared origins don't change. The client address the backends see stays the connector's, as with Caddy today.
 - **Short rollback window:** 7 days after a successful cutover, then remove Caddy. Keep the last signed Caddy bundle, its pinned images and Caddy's certificate data for 90 days.
@@ -40,7 +40,7 @@
 Three workstreams run at once. The owner's cutover (Task 4) is the only serial step that touches the host.
 
 ```text
-WS-A platform   Task 1 ──PR──merge──► owner installs tooling ─┐
+WS-A platform   Task 1 ──PR──merge──────────────────────────────┐
 WS-B site       Task 2 ──PR──merge──► owner verifies (Caddy) ─┼─► Task 3 rehearsal ─► Task 4 ─► 7 days ─► Task 6
                          └─ Task 3 drafted on a branch stacked on Task 2 ─┘
 WS-C setup      Task 5 rename ─► PR ─► review ─► merge ──────────────────────────────────┘ (before Task 6)
@@ -73,7 +73,7 @@ At most five agents at once: the three owners, the Architect and a CI babysitter
 ### Owner actions, in one batch
 
 1. Done: the defaults above are confirmed, and the rehearsal host is a disposable native-Linux VM with the production Docker and Compose versions and a clean snapshot to reset to. It has no tailnet identity and no Cloudflare token, so real tailnet source addresses and certificate issuance are checked live in Task 4.
-2. After A merges, run the tooling install over `ssh -t`.
+2. Merge A. No host step: the host already runs tooling with `--remove-orphans` (checked 2026-11-04).
 3. After Task 2 merges, run its checks with a family account, an admin account and a phone app. If family reach music remotely, run the provided script that creates the music host's DNS record.
 4. Run Task 4 at a time of your choosing.
 
@@ -92,13 +92,7 @@ At most five agents at once: the three owners, the Architect and a CI babysitter
   - G8: states that `/healthz` proves only that the dynamic files parsed on a fresh start, not that the expected routes are present.
 - [ ] Correct the updater's header comment and `docs/operations.md:57`. The "edge change pending" notice does not fail the controller's deadman ping, because `scripts/controller/reconcile.py` uses only plan failures. Document that an edge rollback shows as a failed `homelab-edge-update.service`. Open an issue if that needs alerting.
 - [ ] Run `scripts/dev/gate` and merge.
-- [ ] On the owner's host, install the merged tooling:
-  - Update the trusted checkout to the merged commit and confirm that the `homelab-secrets` user exists.
-  - Run `host/install.sh --sha <sha>`. The host's current tooling lacks `--remove-orphans`.
-- [ ] Verify the result on the host:
-  - `tooling/current/host/homelab-edge-update` contains `--remove-orphans`.
-  - The edge service's `ExecStart` points at it.
-  - `state/observe-only` is absent.
+- [x] Host tooling: already at `87abf1d`, whose edge updater has `--remove-orphans` (checked 2026-11-04). The resolver change ships in the signed release, not the tooling, so no install is needed.
 
 **Exit:** the platform renders a Traefik site with RSA certificates, and the host runs tooling whose updater removes orphans.
 
@@ -126,7 +120,7 @@ Application-tier changes ship before the cutover, because the edge rollback rest
 - [ ] Merge and let the release apply, then verify:
   - **Family account:** auto-login to Navidrome on the music host works. Every admin application shows Authentik's access-denied page, and its backend receives no request.
   - **Admin account:** reaches every application.
-  - **Phone apps:** still sync through the base host's API path.
+  - **Phone apps:** reconfigured to the music host; sync, streaming and cover art work.
   - **Forged headers:** a client-supplied `X-Authentik-Username` on that API path, and on the music host without a session, does not log anyone in.
 
 **Exit:** under Caddy, family access is decided by Authentik alone. The Caddy `admins_only` checks are still in place but now duplicate Authentik's decision.
@@ -146,7 +140,7 @@ Application-tier changes ship before the cutover, because the edge rollback rest
     - redirects admin paths with the same exclusions as Caddy;
     - denies everything else.
   - **Identity headers:** strip `Remote-User`, `X-Authentik-*`, `X-Real-IP` and `True-Client-IP` on every router, ungated ones included, before forward auth. Navidrome's user header comes from Authentik's response.
-  - **Gating:** the Authentik outpost path on every gated host, ahead of the gated routes; the ungated Subsonic API (prefix stripped) and VPN subscription paths.
+  - **Gating:** the Authentik outpost path on every gated host, ahead of the gated routes; the music host's ungated `/rest/` and VPN subscription paths.
   - **Paths:**
     - trailing-slash redirects for the apps that have them;
     - `stripPrefix` where Caddy uses `handle_path`; Traefik's `X-Forwarded-Prefix`, which it sets automatically, is what AudioMuse needs;
