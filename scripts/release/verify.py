@@ -1,7 +1,7 @@
 """Offline-testable authority checks for release inputs.
 
 The client is deliberately tiny: callers provide an object with methods for
-``commit`` and ``pull_request``.  The methods may return
+``read_commit`` and ``pull_requests_for_commit``.  The methods may return
 dicts or objects with the same attribute names.
 """
 
@@ -17,7 +17,7 @@ class VerificationError(ValueError):
 
 class GitHubClient(Protocol):
     def read_commit(self, repository: str, sha: str) -> Any: ...
-    def pull_request(self, repository: str, sha: str) -> Any | None: ...
+    def pull_requests_for_commit(self, repository: str, sha: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -25,10 +25,6 @@ class VerificationResult:
     sources: tuple[str, ...]
     images: dict[str, str]
     runs: dict[str, dict[str, Any]]
-
-
-ReleaseDenied = VerificationError
-Verification = VerificationResult
 
 
 def _get(value: Any, name: str, default: Any = None) -> Any:
@@ -42,31 +38,6 @@ def _repository(heads: Mapping[str, str], name: str) -> str:
     if not isinstance(value, str) or not value:
         raise VerificationError(f"missing head: {name}")
     return value
-
-
-def _check_head(client: GitHubClient, repository: str, sha: str, bootstrap: set[str], owners: set[str]) -> None:
-    if sha in bootstrap:
-        return
-    commit = client.read_commit(repository, sha)
-    if commit is None:
-        raise VerificationError(f"unknown head: {repository}@{sha}")
-    parents = _get(commit, "parents", ())
-    if not isinstance(parents, (list, tuple)) or len(parents) < 2:
-        raise VerificationError(f"head is not a merge commit: {repository}@{sha}")
-    pull = client.pull_request(repository, sha)
-    if pull is None or _get(pull, "merged", False) is not True:
-        raise VerificationError(f"head has no owner-merged PR: {repository}@{sha}")
-    if _get(pull, "base", _get(pull, "base_ref")) not in ("main", "refs/heads/main"):
-        raise VerificationError(f"PR was not merged into main: {repository}@{sha}")
-    merged_by = _get(pull, "merged_by", _get(pull, "author"))
-    login = _get(merged_by, "login", merged_by)
-    if not owners:
-        raise VerificationError(f"owner policy is not configured: {repository}@{sha}")
-    if login not in owners:
-        raise VerificationError(f"PR was not merged by an owner: {repository}@{sha}")
-    merge_commit_sha = _get(pull, "merge_commit_sha", _get(pull, "merge_sha"))
-    if merge_commit_sha != sha:
-        raise VerificationError(f"PR merge commit does not match head: {repository}@{sha}")
 
 
 def verify_release(
@@ -108,23 +79,23 @@ def verify_release(
         parents = _get(commit, "parents", ())
         if not isinstance(parents, (list, tuple)) or len(parents) < 2:
             raise VerificationError(f"head is not a merge commit: {repo}@{sha}")
-        if hasattr(client, "pull_requests_for_commit"):
-            prs = client.pull_requests_for_commit(repo, sha)
-            if isinstance(owners, Mapping):
-                owner_policy = owners.get(name, owners.get("*", ()))
-            else:
-                owner_policy = owners
-            if not owner_policy and sha not in set(bootstrap_shas.get(name, ())):
-                raise VerificationError(f"owner policy is not configured: {name}@{sha}")
-            if not any(_get(pr, "merged", _get(pr, "merged_at", False))
-                       and _get(_get(pr, "base_ref", _get(pr, "base", "")), "ref", _get(pr, "base_ref", _get(pr, "base", ""))) == "main"
-                       and _get(pr, "merge_commit_sha", _get(pr, "merge_sha")) == sha
-                       and _get(_get(pr, "merged_by"), "login", _get(pr, "merged_by")) in owner_policy
-                       for pr in prs) and sha not in set(bootstrap_shas.get(name, ())):
-                raise VerificationError(f"head has no owner-merged PR: {name}@{sha}")
+        prs = client.pull_requests_for_commit(repo, sha)
+        if isinstance(owners, Mapping):
+            owner_policy = owners.get(name, owners.get("*", ()))
         else:
-            owner_policy = owners.get(name, owners.get("*", ())) if isinstance(owners, Mapping) else owners
-            _check_head(client, repo, sha, set(bootstrap_shas.get(name, ())), set(owner_policy))
+            owner_policy = owners
+        if not owner_policy and sha not in bootstrap:
+            raise VerificationError(f"owner policy is not configured: {name}@{sha}")
+        if sha not in bootstrap and not any(
+            (
+                _get(pr, "merged", _get(pr, "merged_at", False))
+                and _get(_get(pr, "base_ref", _get(pr, "base", "")), "ref", _get(pr, "base_ref", _get(pr, "base", ""))) == "main"
+                and _get(pr, "merge_commit_sha", _get(pr, "merge_sha")) == sha
+                and _get(_get(pr, "merged_by"), "login", _get(pr, "merged_by")) in owner_policy
+            )
+            for pr in prs
+        ):
+            raise VerificationError(f"head has no owner-merged PR: {name}@{sha}")
         sources.append(sha)
 
     wanted = set(required_images) if not isinstance(required_images, Mapping) else set(required_images)
@@ -156,11 +127,3 @@ def verify_release(
         result[image] = digest
         selected[image] = dict(spec)
     return VerificationResult(tuple(sources), result, selected)
-
-
-def verify_heads(client: GitHubClient, heads: Mapping[str, str], builds: Mapping[str, Mapping[str, Any]], **kwargs: Any) -> VerificationResult | str:
-    """Compatibility entry point using the injected client's original API."""
-    return verify_release(client, heads, builds, **kwargs)
-
-
-verify = verify_release

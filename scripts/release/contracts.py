@@ -1,12 +1,10 @@
 """Strict validators for the v1 release contracts.
 
-JSON is the wire format.  YAML loading is provided only as a convenience for
-human-authored source and uses PyYAML's safe loader.
+JSON is the wire format.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
 import re
 from typing import Any, Mapping
@@ -32,7 +30,6 @@ class ValidationErrors(ValidationError):
 
 
 NAME_PATTERN = r"[a-z][a-z0-9-]{0,62}"
-SECRET_NAME_PATTERN = r"[A-Z][A-Z0-9_]{0,127}"
 GIT_SHA_PATTERN = r"[0-9a-f]{40}"
 DIGEST_PATTERN = r"sha256:[0-9a-f]{64}"
 # A registry/repository must contain a registry component and may include
@@ -190,20 +187,6 @@ def parse_json(text: str | bytes) -> Any:
         raise ValidationError("$", f"invalid JSON: {exc.msg}") from exc
 
 
-def _load_contract(source: str | bytes, validator, *, yaml: bool = False) -> dict[str, Any]:
-    if yaml:
-        try:
-            import yaml as yaml_module
-            value = yaml_module.safe_load(source)
-        except ImportError as exc:
-            raise RuntimeError("PyYAML is required for YAML contracts") from exc
-        except Exception as exc:
-            raise ValidationError("$", f"invalid YAML: {exc}") from exc
-    else:
-        value = parse_json(source)
-    return validator(value)
-
-
-def load_release_record(source: str | bytes, *, yaml: bool = False) -> dict[str, Any]:
+def load_release_record(source: str | bytes) -> dict[str, Any]:
     """Parse and validate a ReleaseRecord."""
-    return _load_contract(source, validate_release_record, yaml=yaml)
+    return validate_release_record(parse_json(source))
