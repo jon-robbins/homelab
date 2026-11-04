@@ -54,7 +54,9 @@ The edge tier (Traefik or Caddy, and cloudflared) is applied by its own timer, `
 controller ([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json`
 if it changed, waits for its services to be healthy, and otherwise puts the last good one back and skips that release
 until a newer one. It applies exactly the services in `edge.json`, so a service a release drops is removed. While
-the running edge differs from the release, the deadman ping fails with "edge change pending".
+the running edge differs from the release, the controller shows "edge change pending" as a notice. The deadman ping
+does not fail on it. A rollback exits 1, so `homelab-edge-update.service` shows as failed until the next timer run,
+which skips the release and exits 0. The journal records `edge: rolled back`.
 
 - Last run: `journalctl -u homelab-edge-update -n 20`.
 - After a rollback: fix forward with a new release, or apply the skipped one by hand once you know why it failed

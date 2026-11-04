@@ -4,7 +4,7 @@ Compose hardening and the module's health are covered by the policy tests and th
 `tests/release/test_render_docker.py`; inlining the config files by `tests/release/test_render.py`.
 """
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -51,3 +51,22 @@ def test_example_routes_are_consistent_and_every_router_strips_identity_headers_
         first = http["middlewares"][router["middlewares"][0]]
         assert {"Remote-User", "X-Authentik-Username"} <= set(first["headers"]["customRequestHeaders"]), name
         assert all(v == "" for v in first["headers"]["customRequestHeaders"].values()), name
+
+
+def _acme_resolvers() -> dict:
+    return yaml.safe_load((CONFIG / "traefik.yml").read_text())["certificatesResolvers"]
+
+
+def test_one_acme_resolver_issues_rsa_certificates_on_the_x1_chain():
+    """Plex needs an RSA certificate on the X1 chain. A second resolver would not isolate certificates (0020 §2)."""
+    resolvers = _acme_resolvers()
+    assert list(resolvers) == ["cloudflare"]
+    assert resolvers["cloudflare"]["acme"]["keyType"] == "RSA2048"
+    assert resolvers["cloudflare"]["acme"]["preferredChain"] == "ISRG Root X1"
+
+
+def test_acme_storage_is_on_a_bind_mount_so_certificates_survive_a_recreate():
+    """A release recreates the container, so the resolver's storage file must live on a host bind mount (0020 §4)."""
+    storage = PurePosixPath(_acme_resolvers()["cloudflare"]["acme"]["storage"])
+    binds = {volume["target"] for volume in _traefik()["volumes"] if volume["type"] == "bind"}
+    assert str(storage.parent) in binds

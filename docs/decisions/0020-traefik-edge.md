@@ -39,6 +39,12 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
      `lan-tls` (:8443), and `ping` on loopback :8082 (never published). It also defines:
      - one ACME resolver `cloudflare` (DNS-01, storage `/acme/acme.json`, no email, explicit public resolvers for
        lego's zone lookup);
+     - an RSA2048 key and the ISRG Root X1 chain (`preferredChain`), which Plex needs. There is no second resolver:
+       Traefik skips issuing a name that a stored certificate already covers, wildcards included, and router
+       certificates from every resolver share the default TLS store
+       ([provider.go](https://github.com/traefik/traefik/blob/v3.7.17/pkg/provider/acme/provider.go#L965-L998),
+       [isDomainAlreadyChecked](https://github.com/traefik/traefik/blob/v3.7.17/pkg/provider/acme/provider.go#L1088-L1097)),
+       so a second resolver would not isolate certificates. RSA handshakes cost little here;
      - the file provider on `/etc/traefik/dynamic/`;
      - every entry point with `aliasHeadersStrategy: delete`, `forwardedHeaders.trustedIPs: []`, and the
        encoded-character options set explicitly, so a Traefik minor release can't flip them;
@@ -90,14 +96,17 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
    - The outpost path `/outpost.goauthentik.io/` routes to Authentik ahead of gated routes.
    - Authentik admits only pre-approved people. There is no enrollment, self-signup or invitation flow. Someone
      without an account gets the login page and nothing else, with no hint about which apps exist.
-   - Authorization moves into Authentik as policy bindings on per-host applications. The family host (Jellyfin web,
-     Seerr) is bound to `family` and `admins`. The admin host (every other UI) is bound to `admins` only. Both are
-     covered by the wildcard certificate. Traefik never matches on identity headers.
+   - Authorization moves into Authentik host by host: each application covers one host, and its policy bindings
+     decide who can use it. The family host (Jellyfin web, Seerr) is bound to `family` and `admins`. The admin host
+     (every other UI) is bound to `admins` only. A policy denial reaches the client as Authentik's access-denied page
+     with HTTP 200, not 403, and the backend gets no request. Both are covered by the wildcard certificate. Traefik
+     never matches on identity headers.
    - Native Jellyfin clients can't complete a browser login, so they reach Jellyfin directly on its tailnet port
      using Jellyfin's own accounts ([0018](0018-local-setup-path.md) item 4). The gate covers only the web route.
    - GATE-1's probe becomes a transient, digest-pinned `traefik/whoami` container that setup starts for the proof
      and removes afterwards, behind the same middleware chain on both hosts. The static `/.homelab/whoami` responder
-     is gone.
+     is gone. The setup engine on `main` has no GATE-1 step or Authentik wiring, so this probe is deferred to the
+     wizard's gate rebuild. The deferral does not block acceptance of this decision.
 8. **Budgets** ([0011](0011-complexity-budgets.md)). There are no budget changes. `host/` gains one flag on an existing
    line. The controller and renderer don't change. Setup swaps a Caddy snippet for a Traefik one of about the same
    size. The platform removes a Dockerfile, an entrypoint shim, the Caddy module and example, a build matrix entry, a
@@ -117,7 +126,8 @@ script).
   `asDefault` keeps routers without `entryPoints` off `tunnel`.
 - **G3 Token and ACME:** lego in the pinned version reads `CF_DNS_API_TOKEN_FILE`, tolerates a trailing newline, and
   needs no more than DNS edit and zone read on one zone. It issues from the staging CA with no email. `acme.json` is
-  created 0600 by the non-root user on the acme bind.
+  created 0600 by the non-root user on the acme bind. G3 covers RSA issuance: an RSA2048 key on the ISRG Root X1 chain
+  is proven only by a real issuance, which the cutover checks.
 - **G4 Header stripping:** forged `X-Authentik-*`, `Remote-User` and their underscore and dot aliases never reach the
   upstream through the gate chain.
 - **G5 Probe:** `traefik/whoami` behind the chain shows only Authentik's identity. With Authentik stopped, every gated
@@ -128,9 +138,10 @@ script).
 - **G7 Source addresses behind Docker NAT:** record what Traefik sees as the client address for tailnet, LAN,
   loopback (tunnel) and host-local traffic, and confirm the entry-point rule in decision 3 is required.
 - **G8 Health:** with the platform's `health.yml` and a broken site `routes.yml` in the same provider directory,
-  `/healthz` fails at startup, so the container is unhealthy.
+  `/healthz` fails at startup, so the container is unhealthy. A passing `/healthz` proves only that the dynamic files
+  parsed on a fresh start, not that the expected routes are present.
 - **G9 Dependabot:** a dry run on a branch bumps `docker.io/library/traefik:vX@sha256` in `modules/edge` and the probe
-  pin in `setup/config`.
+  pin in `setup/config`. That pin is deferred with GATE-1 to the wizard's gate rebuild and does not block acceptance.
 - **G10 Swap:** on a disposable Docker host, the updater with `--remove-orphans` swaps Caddy for Traefik, rolls back to
   Caddy on a forced failure, and loses no certificate.
 
