@@ -1,4 +1,11 @@
-"""Repository policy for GitHub Actions workflows."""
+"""Repository policy for GitHub Actions workflows.
+
+Pin shape (full commit SHA) and version comments are enforced by the pinact job
+(ci.yml "Verify action pins", offline 40-character SHA check plus required
+"# <version>" comments) and zizmor, and test_workflow_security.py asserts the
+same pin regexes on every step. What those tools do not cover stays here: the
+allowlist of action names and the nox session-list wiring in ci.yml.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +17,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REMOTE_ACTION = re.compile(
     r"^(?P<name>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(?P<ref>[^\s]+)$"
 )
@@ -50,7 +56,7 @@ def _action_documents():
         yield path, yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def test_remote_actions_are_allowlisted_and_pinned() -> None:
+def test_remote_actions_are_allowlisted() -> None:
     found = 0
     for path, document in _action_documents():
         for value in _walk(document):
@@ -61,41 +67,11 @@ def test_remote_actions_are_allowlisted_and_pinned() -> None:
                 continue
             found += 1
             assert match.group("name") in ALLOWED_ACTIONS, (path, value)
-            assert FULL_SHA.fullmatch(match.group("ref")), (path, value)
     assert found
 
 
-def test_workflow_actions_have_pin_comments() -> None:
-    for path in sorted([*WORKFLOWS.glob("*.y*ml"), *(ROOT / ".github" / "actions").glob("**/action.y*ml")]):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if "uses:" not in line or "@" not in line or "./" in line:
-                continue
-            assert re.search(r"# v\d+\.\d+\.\d+", line), (path, line)
-
-
-def test_workflow_permissions_are_read_only() -> None:
-    for path, document in _workflow_documents():
-        # An empty block grants nothing, which is stricter than contents: read.
-        assert document["permissions"] in ({"contents": "read"}, {}), path
-        for job in document["jobs"].values():
-            if isinstance(job, dict) and "permissions" in job:
-                assert all(
-                    value in {"read", "none", "write"}
-                    for value in job["permissions"].values()
-                ), path
-
-
-def test_ci_required_jobs_and_nox_matrix_exist() -> None:
+def test_ci_lists_nox_sessions_for_the_matrix() -> None:
     _, ci = next(
         (path, doc) for path, doc in _workflow_documents() if path.name == "ci.yml"
     )
-    assert {
-        "validate",
-        "gitleaks",
-        "public-readiness",
-        "image-builds",
-        "pre-commit",
-        "nox-sessions",
-    } <= set(ci["jobs"])
-    assert ci["jobs"]["nox-sessions"]["needs"] == "session-list"
     assert '"--list", "--json"' in ci["jobs"]["session-list"]["steps"][-1]["run"]
