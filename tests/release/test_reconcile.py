@@ -32,6 +32,27 @@ class Client:
         return destination
 
 
+def test_render_uses_the_selected_platform_revision_instead_of_workflow_checkout(tmp_path, monkeypatch):
+    selected = tmp_path / "selected-platform"
+    selected.mkdir()
+
+    class PlatformClient(Client):
+        def fetch(self, repository, sha, directory):
+            if repository == "platform":
+                self.fetches.append((repository, sha))
+                return selected
+            return super().fetch(repository, sha, directory)
+
+    client = PlatformClient(ROOT / "examples/site")
+    monkeypatch.setattr(reconcile, "render", lambda platform, _site, _plugins: platform)
+    sources, rendered = reconcile.render_release(
+        client, ROOT, "site", "b" * 40, "c" * 40, tmp_path / "out/bundle.tar",
+        platform_repository="platform",
+    )
+    assert rendered == selected
+    assert client.fetches[0] == ("platform", sources["homelab"])
+
+
 @pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI with Compose")
 def test_reconcile_renders_fetched_plugin_and_records_source(tmp_path):
     site = tmp_path / "site"

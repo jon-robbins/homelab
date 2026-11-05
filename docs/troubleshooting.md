@@ -23,6 +23,12 @@ Run `scripts/dev/gate` locally to reproduce.
    `image-policy.json`, an expired `PRIVATE_INPUT_READ_TOKEN` or `SITE_FEED_TOKEN`.
 3. For a site change: did `notify-release.yml` run in the site repo? An expired `RELEASE_DISPATCH_TOKEN` fails
    there. The hourly schedule catches up either way.
+4. A stacked merge can leave a build-input commit without its own main push build. The reconciler advances past
+   that commit only when a later first-parent revision has a complete, verified build of every approved image.
+   Running or failed builds are not bypassed. If the bounded recovery search finds no complete build, review and
+   merge a build-recipe change to rebuild the full image set, then reconcile again; repeatedly dispatching the
+   same blocked plan cannot create missing build evidence. Never reuse another commit's artifacts or edit a
+   signed record to move the release position.
 
 ## The host did not pick up a release
 
