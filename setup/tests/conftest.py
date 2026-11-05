@@ -130,10 +130,10 @@ def models(world):
             "WEB_KEY": {"file": str(secrets / "WEB_KEY")},
         },
     }
-    edge = {"services": {"caddy": {"image": "caddy@sha256:" + "d" * 64}}}
+    edge = {"services": {"traefik": {"image": "traefik@sha256:" + "d" * 64}}}
     site = {
-        "managed": ["db", "web", "worker", "caddy"],
-        "services": {"db": {}, "web": {}, "worker": {}, "caddy": {}},
+        "managed": ["db", "web", "worker", "traefik"],
+        "services": {"db": {}, "web": {}, "worker": {}, "traefik": {}},
     }
     return app, edge, site
 
