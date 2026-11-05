@@ -49,4 +49,4 @@ def test_reconcile_renders_fetched_plugin_and_records_source(tmp_path):
 
 def test_reconcile_does_not_watch_caddy_directory():
     from scripts.release import reconcile
-    assert "config/caddy/" not in reconcile.REBUILD_PATHS
+    assert "config/caddy/" not in reconcile.BUILD_INPUT_PREFIXES

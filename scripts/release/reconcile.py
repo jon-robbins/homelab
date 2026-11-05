@@ -29,7 +29,6 @@ BUILD_INPUT_PREFIXES = (
     "config/release/approved-ghcr-destinations.json",
     "config/seerr-oidc/",
 )
-REBUILD_PATHS = BUILD_INPUT_PREFIXES
 # The commit API lists at most this many files per page; a full page may be truncated.
 COMMIT_FILES_LIMIT = 300
 RELEASE_INPUTS_DIR_DEFAULT = "release-inputs"
