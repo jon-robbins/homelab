@@ -45,8 +45,8 @@ def test_local_images_prepare_before_docker_and_clean_temporary_context(monkeypa
     first = Session()
     noxfile.images(first)
     assert first.prepared is not None and not first.prepared.exists()
-    assert len([args for args in first.commands if args[:2] == ("docker", "build")]) == 2
-    assert len([args for args in first.commands if args[:2] == ("docker", "run")]) == 1
+    assert len([args for args in first.commands if args[:2] == ("docker", "build")]) == 1
+    assert len([args for args in first.commands if args[:2] == ("docker", "run")]) == 0
     second = Session()
     noxfile.images(second)
     assert second.prepared != first.prepared

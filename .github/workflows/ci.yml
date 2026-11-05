@@ -141,8 +141,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {dockerfile: config/caddy/Dockerfile, context: config/caddy, cap_drop_check: true}
-          - {dockerfile: build/seerr-oidc/context/Dockerfile, context: build/seerr-oidc/context, prepare: config/seerr-oidc/build.py, prepare_destination: build/seerr-oidc, source_lock: config/seerr-oidc/source.json, cap_drop_check: false}
+          - {dockerfile: build/seerr-oidc/context/Dockerfile, context: build/seerr-oidc/context, prepare: config/seerr-oidc/build.py, prepare_destination: build/seerr-oidc, source_lock: config/seerr-oidc/source.json}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -172,11 +171,6 @@ jobs:
             )
           fi
           docker build "${build_args[@]}" --file "$DOCKERFILE" --tag "ci-$JOB_INDEX" "$BUILD_CONTEXT"
-      - name: Start Caddy without capabilities
-        if: matrix.cap_drop_check
-        env:
-          JOB_INDEX: ${{ strategy.job-index }}
-        run: docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "ci-$JOB_INDEX" version
 
   public-readiness:
     runs-on: ubuntu-latest
