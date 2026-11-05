@@ -46,12 +46,12 @@ def test_seerr_preparation_and_build_matrix_parity():
     assert steps["matrix"]["env"]["FILTER_SEERR_OIDC"] == "${{ steps.filter.outputs.seerr-oidc }}"
     # jq command spans multiple lines; run the workflow exactly, with all filters set.
     command = steps["matrix"]["run"].replace('echo "matrix=$matrix" >> "$GITHUB_OUTPUT"', 'echo "$matrix"')
-    result = subprocess.check_output(["bash", "-c", command], env={"FILTER_CADDY": "false", "FILTER_SEERR_OIDC": "true", "FILTER_RECIPE": "false"}, text=True)
+    result = subprocess.check_output(["bash", "-c", command], env={"FILTER_SEERR_OIDC": "true", "FILTER_RECIPE": "false"}, text=True)
     selected = json.loads(result)["include"]
     assert len(selected) == 1 and selected[0]["image"] == "seerr-oidc"
-    result = subprocess.check_output(["bash", "-c", command], env={"FILTER_CADDY": "false", "FILTER_SEERR_OIDC": "false", "FILTER_RECIPE": "true"}, text=True)
+    result = subprocess.check_output(["bash", "-c", command], env={"FILTER_SEERR_OIDC": "false", "FILTER_RECIPE": "true"}, text=True)
     published = json.loads(result)["include"]
-    assert {item["image"] for item in published} == {"caddy", "seerr-oidc"}
+    assert {item["image"] for item in published} == {"seerr-oidc"}
     keys = ("dockerfile", "context", "prepare", "prepare_destination", "source_lock")
     assert [{key: item.get(key) for key in keys} for item in published] == [
         {key: item.get(key) for key in keys} for item in ci["strategy"]["matrix"]["include"]

@@ -29,20 +29,15 @@ jobs:
             recipe:
               - '.github/workflows/post-merge-build.yml'
               - 'config/release/approved-ghcr-destinations.json'
-            caddy:
-              - 'config/caddy/**'
-              - 'config/caddy/Dockerfile'
             seerr-oidc:
               - 'config/seerr-oidc/**'
       - name: Create build matrix
         id: matrix
         env:
-          FILTER_CADDY: ${{ steps.filter.outputs.caddy }}
           FILTER_SEERR_OIDC: ${{ steps.filter.outputs.seerr-oidc }}
           FILTER_RECIPE: ${{ steps.filter.outputs.recipe }}
         run: |
           matrix=$(jq -cn '[
-            {"dockerfile":"config/caddy/Dockerfile","context":"config/caddy","image":"caddy","changed":env.FILTER_CADDY},
             {"dockerfile":"build/seerr-oidc/context/Dockerfile","context":"build/seerr-oidc/context","image":"seerr-oidc","prepare":"config/seerr-oidc/build.py","prepare_destination":"build/seerr-oidc","source_lock":"config/seerr-oidc/source.json","changed":env.FILTER_SEERR_OIDC}
           ] | map(select(.changed == "true" or env.FILTER_RECIPE == "true") | del(.changed)) | {include:.}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"

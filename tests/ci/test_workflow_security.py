@@ -531,7 +531,6 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertEqual(
             {entry["dockerfile"] for entry in image_builds["strategy"]["matrix"]["include"]},
             {
-                "config/caddy/Dockerfile",
                 "build/seerr-oidc/context/Dockerfile",
             },
         )
@@ -543,11 +542,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                 entry["dockerfile"]: entry["cap_drop_check"]
                 for entry in image_builds["strategy"]["matrix"]["include"]
             },
-            {"config/caddy/Dockerfile": "true", "build/seerr-oidc/context/Dockerfile": "false"},
+            {"build/seerr-oidc/context/Dockerfile": "false"},
         )
-        check = next(step for step in image_builds["steps"] if step.get("if") == "matrix.cap_drop_check")
-        self.assertIn("--cap-drop ALL --security-opt no-new-privileges:true", check["run"])
-        self.assertIn(" version", check["run"])
 
         public_readiness = workflow["jobs"]["public-readiness"]
         self.assertEqual(
