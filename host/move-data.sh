@@ -41,7 +41,7 @@ for spec in "${specs[@]}"; do
 done
 
 if (( ! rollback )); then
-  read -r _ size avail < <(df -Pk "$data" | awk 'NR == 2 {print $1, $2, $4}')
+  { read -r _; read -r _ size _ avail _; } < <(df -Pk "$data")
   need=$((total + size / 10))
   if (( total > avail - size / 10 )); then
     echo "insufficient space: need $need KiB" >&2
