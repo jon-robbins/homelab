@@ -129,6 +129,11 @@ def test_traefik_is_allowed_only_under_its_official_namespace():
             check({"traefik": service(image=image)}, tiers={"traefik": "edge"})
 
 
+def test_net_bind_service_capability_is_not_allowed():
+    with pytest.raises(ValidationError, match="capability NET_BIND_SERVICE is not on the allowlist"):
+        check({"svc": service(cap_add=["NET_BIND_SERVICE"])})
+
+
 def test_code_plugin_images_must_be_strictly_under_its_namespace():
     namespace = {"svc": "ghcr.io/me/plugin"}
     check({"svc": service(image="ghcr.io/me/plugin/tl-auth" + DIGEST)}, namespaces=namespace)
