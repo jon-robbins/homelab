@@ -32,7 +32,7 @@ the site repo, inlined into the release as a Compose config). The platform ships
 
 - Define `routers`, `middlewares`, and `services` in `edge/traefik.yml`.
 - Access is controlled by `entryPoints`: routers without `entryPoints` join only `tailnet` (the default).
-- Match rules use Go templating, such as `Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)`.
+- Match rules use Go templating, such as ``Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)``.
 - For applications expecting path prefixes stripped, attach a `stripPrefix` middleware. For apps with configurable URL
   bases (Sonarr, Radarr, Prowlarr, Bazarr), configure the URL base in the app settings.
 - Gated routes forward authentication to Authentik using `forwardAuth` middleware, paired with `headers` middleware
@@ -55,9 +55,6 @@ A router with no `entryPoints` joins only `tailnet`. Only a route meant to be pu
 that is not published cannot be reached, and one bound to every interface must be in `exposed`
 ([0015](decisions/0015-exposure-policy.md)). `ipAllowList` is a second layer on private routes; never use it to tell
 tunnel traffic from LAN traffic, because tunnel requests arrive from the Docker bridge, a private address.
-
-Where routes overlap, set `priority`: Traefik orders them by rule length, not file order. A route change reaches
-Traefik only through a recreate, so a release is the only way to change routes.
 
 ### Health
 
