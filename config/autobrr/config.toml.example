@@ -4,7 +4,7 @@
 host = "0.0.0.0"
 port = 7474
 
-# Required for Caddy handle_path subpath (see docs/example-autobrr-ops.md)
+# Required for Traefik strip-prefix middleware
 baseUrl = "/autobrr/"
 baseUrlModeLegacy = true
 

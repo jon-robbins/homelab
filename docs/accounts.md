@@ -8,9 +8,9 @@ What you need before setting up a host, what each one is for, and where its cred
 |---|---|---|---|
 | **GitHub** (free plan is enough) | the platform repo (your fork, public), the site repo (private), Actions for CI and releases, GHCR for first-party images | see [GitHub tokens](#github-tokens) | GitHub Actions secrets; host `trust/` |
 | **Infisical** (cloud free tier or self-hosted) | runtime secret values (API keys, passwords, tokens) | a machine identity for the host's Infisical agent | `/etc/infisical-agent/` on the host |
-| **Tailscale** (free personal plan) | private remote access to admin UIs; Caddy binds the host's Tailscale address | device login on the host | `/var/lib/tailscale` |
-| **A domain name** | HTTPS hostnames for Caddy | none | `BASE_DOMAIN` in `site.env` |
-| **DNS provider with an API** (Cloudflare is what the Caddy image includes) | ACME DNS-01 certificates, so Caddy gets real TLS certificates without opening port 80 to the internet | API token scoped to *Zone:DNS:Edit* on that one zone | Infisical → `CLOUDFLARE_TOKEN` |
+| **Tailscale** (free personal plan) | private remote access to admin UIs; Traefik binds the host's Tailscale address | device login on the host | `/var/lib/tailscale` |
+| **A domain name** | HTTPS hostnames for Traefik | none | `BASE_DOMAIN` in `site.env` |
+| **DNS provider with an API** (Cloudflare is what the Traefik image includes) | ACME DNS-01 certificates, so Traefik gets real TLS certificates without opening port 80 to the internet | API token scoped to *Zone:DNS:Edit* on that one zone | Infisical → `CLOUDFLARE_TOKEN` |
 | **healthchecks.io** (free plan) | deadman alerts for the controller and backups | two ping URLs | `/srv/homelab/trust/deadman.env` |
 
 ## Optional

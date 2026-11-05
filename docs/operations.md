@@ -50,7 +50,7 @@ container still counts as stopped by the owner.
 
 ## Edge
 
-The edge tier (Traefik or Caddy, and cloudflared) is applied by its own timer, `homelab-edge-update`, never by the
+The edge tier (Traefik and cloudflared) is applied by its own timer, `homelab-edge-update`, never by the
 controller ([0016](decisions/0016-edge-updater.md)). Every five minutes it applies the current release's `edge.json`
 if it changed, waits for its services to be healthy, and otherwise puts the last good one back and skips that release
 until a newer one. It applies exactly the services in `edge.json`, so a service a release drops is removed. While
@@ -66,6 +66,116 @@ which skips the release and exits 0. The journal records `edge: rolled back`.
 ```bash
 docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps --remove-orphans
 ```
+
+### Proxy cutover (old proxy to Traefik) ([0020](decisions/0020-traefik-edge.md))
+
+These commands are a draft: rehearse the whole sequence on a disposable Docker host first, then obtain the owner's
+operational approval; run them on a live host only in the approved window. Variables: `<prev-release>` the deployed
+release before the swap, `<candidate>` the approved signed release number, `<approved-sha>`
+the sha256 of the intended `edge.json`, `<old-image>@sha256:<digest>` the pinned proxy image the previous `edge.json`
+ran.
+
+1. Save recovery material and record current pause/timer state (whether `observe-only` already exists, whether
+   `dependabot-automerge.yml` and the two timers are already off) so you can restore exactly that:
+
+   ```bash
+   sudo mkdir /srv/homelab/state/cutover
+   sudo cp /srv/homelab/releases/<prev-release>/edge.json /srv/homelab/state/cutover/prev-edge.json
+   docker pull <old-image>@sha256:<digest>   # before the outage window, while it is still available
+   ```
+
+   Retain the previous verified signed record and bundle as well as this model. Record both certificate-store bind
+   paths and preserve their contents through the acceptance window; never run `down -v` or prune these resources.
+
+2. Pause automation, then let in-flight work finish; do not interrupt running units. The updater checks `observe-only`
+   only on entry, so an apply already running still finishes. Wait until both services report `inactive`:
+
+   ```bash
+   gh workflow disable dependabot-automerge.yml
+   sudo touch /srv/homelab/state/observe-only
+   sudo systemctl stop homelab-controller.timer homelab-edge-update.timer
+   systemctl is-active homelab-controller.service homelab-edge-update.service   # wait for "inactive"
+   ```
+
+3. Land the candidate deliberately. There is no stage-only command: plain `reconcile` fetches, verifies and
+   materialises a release, then refuses to advance `current` while `observe-only` exists. `homelabctl reconcile --now`
+   intentionally overrides the pause and applies app-tier changes (never the edge) with the timers above stopped.
+   Hold release publication (including manual dispatches and merges) throughout admission. Materialise under the pause:
+
+   ```bash
+   sudo homelabctl reconcile
+   cmp /srv/homelab/releases/current/app.json /srv/homelab/releases/<candidate>/app.json
+   homelabctl status
+   ```
+
+   For this proxy-only procedure, `cmp` must exit zero and status must show no app recreates, stopped-service creates
+   or failures. Status describes the current model, so it is not a candidate preview: the byte comparison is required.
+   If app models differ, stop and separately review the app deployment. Check the materialised candidate's record
+   contains both approved source commits and its edge hash matches before the override:
+
+   ```bash
+   sudo homelabctl reconcile --now
+   homelabctl status
+   ```
+
+   Require `current` to advance to exactly `<candidate>` without DEGRADED. Stop on a different release or an unexpected
+   app change; do not touch the proxy. There is no CLI option to pin `--now` to a release, hence the publication hold.
+
+4. Verify before the outage: `current` names the intended release,
+   `sha256sum /srv/homelab/releases/current/edge.json` equals `<approved-sha>`, and the release records both intended
+   commits — the platform and site halves must land as one signed candidate, because an intermediate pairing can fail
+   rendering once the old module is removed.
+
+5. Apply by hand with the updater's own flags — its unit does nothing while `observe-only` is set:
+
+   ```bash
+   docker compose -p homelab-edge -f /srv/homelab/state/cutover/prev-edge.json stop <old-proxy-service>
+   docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps --wait --wait-timeout 180 --remove-orphans
+   ```
+
+   Stopping the old proxy first releases its ports and starts the accepted outage. Expected: it is removed as an
+   orphan; Traefik and cloudflared come up healthy inside the timeout. Mirror a configured `EDGE_HEALTH_TIMEOUT`
+   instead of the default 180 when applicable. Verify both certificate stores survive apply, rollback and cleanup.
+
+6. Accept with real requests, not container lists: tailnet TLS, LAN HTTP and TLS on the exposed pairs, the tunnel
+   origin, Authentik group allow and deny, forged `Remote-User` and `X-Authentik-*` headers stripped, representative
+   upstream paths, and each store holding a real key and chain. On any failure — including a healthy apply whose
+   routes are wrong — roll back by hand from the saved model while automation stays paused (under the updater a
+   healthy-but-wrong apply overwrites `edge-good.json`; the saved copy is the rollback either way):
+
+   ```bash
+   docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json stop traefik
+   docker compose -p homelab-edge -f /srv/homelab/state/cutover/prev-edge.json up -d --no-deps --wait --wait-timeout 180 --remove-orphans
+   ```
+
+   Verify the old proxy's routes answer again. Stop conditions: if the rollback itself fails, or there is no good
+   model, stop, keep the saved image and model, recover by hand in break-glass style, and do not unpause.
+
+7. Only after the candidate passes every acceptance check, record it as good before unpausing:
+
+   ```bash
+   sudo install -m 0644 /srv/homelab/releases/current/edge.json /srv/homelab/state/edge-good.json
+   ```
+
+   Inspect `state/edge-failed`: remove it only if its contents equal the accepted edge model's SHA-256. A marker for
+   another release needs investigation and is never overwritten. After rollback, `current` still names the rejected
+   model, so a resumed timer would apply it again: keep `observe-only` set, and record that model's hash so a later
+   unpause skips it even after the pause is cleared. The manual apply never writes the marker, so write it when none
+   exists:
+
+   ```bash
+   [[ -s /srv/homelab/state/edge-failed ]] ||
+     sudo tee /srv/homelab/state/edge-failed >/dev/null <<<"$(sudo sha256sum /srv/homelab/releases/current/edge.json | cut -d' ' -f1)"
+   ```
+
+   Do not copy the rejected current model into `edge-good.json`, and do not clear its failed hash to retry unattended.
+
+   Keep `observe-only` set until a corrected signed release is staged after a rollback; otherwise the restarted timer
+   immediately reapplies the rejected candidate. Restore only what step 1 recorded — never clear an owner's earlier
+   pause or re-enable an already-disabled workflow — then start the timers and watch one updater run
+   (`journalctl -u homelab-edge-update -n 20`): it must apply nothing, since `edge-good.json` now equals current.
+   After rollback, repeat this procedure with a corrected signed candidate before resuming. Close the rollback window
+   explicitly before removing any saved material; preserve certificate stores and an image still used by a container.
 
 ## New host
 

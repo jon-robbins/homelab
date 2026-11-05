@@ -1,7 +1,8 @@
 # 0003: Host, edge, app and unmanaged tiers
 
 - **Status:** Accepted (2026-10-15); the edge row and the first **Don't** superseded by
-  [0016](0016-edge-updater.md) (2026-10-25)
+  [0016](0016-edge-updater.md) (2026-10-25); the edge member `caddy` superseded by
+  [0020](0020-traefik-edge.md) (2026-11-02): the edge tier is now `traefik` and `cloudflared`
 - **Code:** `modules/app/`, `modules/edge/`, `host/`, `scripts/controller/`
 - **Related:** [0005](0005-slim-controller.md), [operations](../operations.md)
 

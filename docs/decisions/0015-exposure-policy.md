@@ -1,6 +1,6 @@
 # 0015: Nothing is reachable from the internet unless allowlisted
 
-- **Status:** Proposed (2026-10-20, post-migration security audit; applies to the local setup path per [0018](0018-local-setup-path.md), 2026-10-31)
+- **Status:** Proposed (2026-10-20, post-migration security audit; applies to the local setup path per [0018](0018-local-setup-path.md), 2026-10-31); step 3 superseded by [0020](0020-traefik-edge.md) (2026-11-02)
 - **Code:** `modules/`, `scripts/release/compose_policy.py` (steps 1 and 2, enforced since 2026-10-31); steps 3 to 6 (`host/install.sh`, the firewall and the socket check) are not implemented
 - **Related:** [0008](0008-compose-policy.md), [0010](0010-secrets.md), [security](../security.md), [ingress](../ingress.md)
 
@@ -19,6 +19,9 @@ platform had no rule about which ports may face the internet.
    peer ports of the torrent and Soulseek clients.
 3. Admin UIs (the *arr apps, qBittorrent, Prowlarr, the Caddy admin API) are reachable only from the LAN or
    Tailscale, through Caddy with a `remote_ip` guard.
+   *(Superseded by [0020](0020-traefik-edge.md): the edge is Traefik, which has no admin API or dashboard; private
+   routers join only `tailnet` by default, and `ipAllowList` is defense in depth — it is not a `remote_ip` guard
+   and never separates tunnel traffic from LAN traffic.)*
 4. The host installs `DOCKER-USER` rules: from the WAN interface, accept only allowlisted ports; drop the rest.
 5. The router forwards only the allowlisted ports, and UPnP is off.
 6. A check compares the host's listening sockets with the allowlist after each apply and fails the deadman ping

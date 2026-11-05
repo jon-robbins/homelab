@@ -1,6 +1,6 @@
 # 0009: Digest pins, allowlisted namespaces, attested first-party images
 
-- **Status:** Accepted (2026-10-12; 2026-10-15; caddy became the only first-party image 2026-10-25, see [0017](0017-personal-services-are-plugins.md))
+- **Status:** Accepted (2026-10-12; 2026-10-15; caddy became the only first-party image 2026-10-25, see [0017](0017-personal-services-are-plugins.md); that claim superseded by [0020](0020-traefik-edge.md) (2026-11-02): seerr-oidc is the only first-party image left)
 - **Code:** `config/release/image-policy.json`, `config/release/approved-ghcr-destinations.json`,
   `.github/workflows/post-merge-build.yml`, `.github/workflows/reusable-publish.yml`, `.github/dependabot.yml`
 - **Related:** [0004](0004-signed-full-state-releases.md), [0014](0014-dependabot-automerge.md)
@@ -13,6 +13,8 @@
 - The only first-party image is caddy; it is built post-merge with GitHub artifact attestations; the release
   verifies the attestation, byte-copies the image to its published name and injects the digest. The digest in a
   first-party module file is a placeholder that the release replaces.
+- *(Superseded by [0020](0020-traefik-edge.md), 2026-11-02: seerr-oidc is now the only first-party image; the
+  Caddy edge build, attestation and digest injection were retired with the module.)*
 - GitHub Actions are pinned by full SHA. Nobody types a SHA: Dependabot bumps them, pinact writes version
   comments, zizmor and actionlint run in pre-commit and CI.
 

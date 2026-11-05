@@ -18,9 +18,13 @@ combination is insufficient. Keep baseline and candidate site copies outside the
 3. **Host preparation:** create and verify the placeholder directories with the script below. Check permissions for
    the service UIDs and retain all existing disk markers. This is an operator action, separate from merging code.
 4. **Site PR 2, then platform stage 2 immediately:** move GPU fields to site overrides and land the module change
-   (commit `f6d9fbf` plus the reviewed Caddy fix). Pre-render this pair before either merge. The intermediate site
-   with GPU overrides and old modules can fail rendering due to duplicate GPU requests; never apply it. A failed
-   render must produce no release. Verify that final signed release names both intended commits before applying it.
+   (commit `f6d9fbf`, which in that era also carried the reviewed Caddy fix). Both platform stages are merged
+   history, so a site adopting the catalog now only needs the site PRs and the host preparation below: pre-render
+   each site PR against the merged platform before merging it. The proxy half of that era is historical — the
+   current edge is Traefik, and swapping a site onto it is the separate procedure in [operations](operations.md).
+   The intermediate site with GPU overrides and old modules could fail rendering due to duplicate GPU requests in
+   that pairing; never apply a mismatched pairing, and a failed render must produce no release. Verify the
+   resulting signed release names the intended commits before applying it.
    If stage 2 cannot merge immediately, revert site PR 2 and keep stage 1 with site PR 1. After a stage 2 rollback,
    restore the matching site revision too; do not leave GPU overrides with the old modules.
 
@@ -34,7 +38,7 @@ The site PR 1 patch must include:
   Bazarr, Lidarr, Jellyfin, Plex, qBittorrent, slskd, Soularr and Navidrome. Preserve existing seeding binds, Plex
   symlink trees, app environment and plugin mounts. slskd and Soularr also need their old download environment paths.
   Keep qBittorrent categories and save paths unchanged.
-- Preserve needed Caddy listeners (`80:80`, `8443:443`) in its override, plus existing tunnel loopback listeners.
+- Preserve needed Traefik listeners (`80:8080`, `8443:8443`) in its override, plus existing tunnel loopback listeners.
   Declare wildcard listeners in `exposed`. Compose deduplicates identical ports with the old catalog; verify the
   unchanged render rather than assuming that. The new module supplies only tailnet HTTPS.
 - If using a personal TMDB key, add the optional `TMDB_API_KEY` secret to the Seerr override as in the fixture.
@@ -44,10 +48,8 @@ Site PR 2 adds only the GPU fields removed from modules: `gpus: all` for NVIDIA 
 supplementary groups where used. Preserve any GPU fields already supplied by the site rather than duplicating them.
 The fixture shows the final site; omit its newly moved GPU fields when constructing site PR 1.
 
-Caddy also needs `cap_add: [NET_BIND_SERVICE]` with the pinned image, even as a non-root user: the executable has a
-file capability and fails to execute when Docker drops it from the bounding set. The catalog fix and capability
-allowlist widening need their own reviewed commit under [0008](decisions/0008-compose-policy.md). If the site already
-adds it, Compose must retain one equivalent capability. This is an expected render addition for a site missing it.
+Traefik drops all capabilities (`cap_drop: [ALL]`) and requires no capability additions: all container listeners
+run on unprivileged ports. Unlike earlier Caddy images, no `NET_BIND_SERVICE` exception is needed.
 
 Run this preparation on the target host only after reviewing the site's settings. It creates empty placeholder
 folders; it does not start services. `SITE_DIR` is the path to the operator's site checkout. The script reads values
@@ -88,7 +90,7 @@ python3 -m scripts.release.compare "$OLD_PLATFORM" "$PREPARED_SITE" "$NEW_PLATFO
 
 Exit 2 means render or policy failure. Exit 1 means a service or protected setting was removed; stop and investigate.
 Exit 0 still requires reviewing **every** reported difference. Stage 1 must report `{}`. Stage 2 should add only empty
-placeholder mounts and Caddy's capability where previously absent, plus the reviewed Soularr config digest change.
+placeholder mounts, plus the reviewed Soularr config digest change.
 The comparison ignores port and mount ordering and keeps an omitted host address distinct from explicit `0.0.0.0`: Docker may publish an omitted address on both IPv4 and IPv6, while the explicit address selects IPv4. Treat this transition as a listener loss requiring review. It reports other
 changed settings, including environment, health checks and resource settings; a changed `deploy.resources` is
 conservatively a loss requiring review. It does not prove that application paths, actual permissions or a GPU work.

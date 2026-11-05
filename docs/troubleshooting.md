@@ -55,13 +55,13 @@ Usually a secret file is missing or stale.
 2. `systemctl status homelab-infisical-agent` and its journal.
 3. Force-recreate the service after the file is right ([operations](operations.md#rotate-a-secret)).
 
-## A route through Caddy returns 404 or 403
+## A route through Traefik returns 404 or 403
 
-- 404: no `handle` matched. Check the path prefix and `handle` versus `handle_path`
-  ([ingress](ingress.md#caddy-routes)).
-- 403: a `remote_ip` guard rejected the client. Check you're on the LAN or Tailscale.
+- 404: no router matched or service was unreachable. Check router rules, path prefix, and priority
+  ([ingress](ingress.md#traefik-routes)).
+- 403: an IP allowlist middleware or access policy rejected the client. Check you're on the LAN or Tailscale.
 - 502: the backend container is down or listening on another port; `docker compose -p homelab ps`.
-- After changing the Caddyfile, the edge must be applied by hand ([operations](operations.md#edge)).
+- After changing the routes file, the edge must be applied by hand or via the updater ([operations](operations.md#edge)).
 
 ## Everything got recreated at once
 

@@ -9,7 +9,7 @@ that a small controller on the host verifies and applies, with a snapshot before
 something fails.
 
 It ships a media-server catalog (Plex, Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, qBittorrent, Seerr, autobrr,
-FlareSolverr, Caddy, cloudflared), but the platform doesn't care what the services are.
+FlareSolverr, Traefik, cloudflared), but the platform doesn't care what the services are.
 
 ## How it works
 
@@ -60,7 +60,7 @@ never starts a container.
 modules/      one Compose file per service (app and edge tiers)
 scripts/      release tooling (runs in Actions) and the controller (runs on the host)
 host/         install, backup and migration scripts for the host
-config/       Caddy image, Infisical templates, release policy allowlists, CI budgets
+config/       Traefik configuration, Infisical templates, release policy allowlists, CI budgets
 examples/     a synthetic site and plugin
 docs/         guides and decision records
 tests/        see docs/development.md
