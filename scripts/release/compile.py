@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -19,7 +20,7 @@ def pin_first_party(model: Mapping[str, Any], image_refs: Mapping[str, str]) -> 
     A module's own pin for ghcr.io/jon-robbins/homelab/<name> is only a placeholder: the release record's
     `images` map (image_refs) is what runs, so the bundle and the record always agree.
     """
-    pinned = json.loads(json.dumps(model))
+    pinned = copy.deepcopy(model)
     for name, service in (pinned.get("services") or {}).items():
         image = service.get("image", "")
         if image.startswith(FIRST_PARTY):
