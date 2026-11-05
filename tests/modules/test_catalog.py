@@ -40,15 +40,15 @@ def test_catalog_modules_validate(path):
 def test_catalog_site_renders_every_module():
     result = render(ROOT, SITE, {})
     assert set(result.app["services"]) == {_service(path) for path in ROOT.glob("modules/app/*.compose.yml")}
-    assert set(result.edge["services"]) == {"caddy", "cloudflared"}
+    assert set(result.edge["services"]) == {"traefik", "cloudflared"}
 
 
 def test_catalog_render_has_production_limits_and_service_settings():
     services = render(ROOT, SITE, {}).app["services"]
     edge = render(ROOT, SITE, {}).edge["services"]
-    assert edge["caddy"]["user"] == "1000:1000"
-    assert edge["caddy"]["cap_drop"] == ["ALL"]
-    assert edge["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
+    assert edge["traefik"]["user"] == "1000:1000"
+    assert edge["traefik"]["cap_drop"] == ["ALL"]
+    assert "cap_add" not in edge["traefik"]
     assert services["overseerr"]["user"] == "1000:1000"
     for name in ("sonarr", "radarr", "lidarr", "bazarr", "qbittorrent"):
         assert services[name]["environment"]["UMASK"] == "002"
@@ -152,7 +152,7 @@ def test_published_ports_bind_the_site_addresses():
         ("qbittorrent", "51423", "udp"): peer,
         ("slskd", "50300", "tcp"): peer,
         ("overseerr", "5055", "tcp"): "127.0.0.1",
-        ("caddy", "443", "tcp"): tailnet,
+        ("traefik", "443", "tcp"): tailnet,
     }
 
 

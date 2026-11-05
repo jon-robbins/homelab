@@ -3,7 +3,7 @@ import pytest
 from scripts.release import reconcile
 from scripts.release.verify import VerificationError
 
-IMAGES = {"caddy", "agent"}
+IMAGES = {"seerr-oidc", "agent"}
 
 
 class BootstrapClient:

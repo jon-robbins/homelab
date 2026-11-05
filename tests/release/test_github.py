@@ -105,7 +105,7 @@ def test_artifact_download_never_sends_token_to_storage(monkeypatch, tmp_path):
     monkeypatch.setattr(github, "urlopen", storage_open)
 
     client = GitHubClient("token")
-    path = client.download_artifact_member("owner/repo", {"id": 9, "name": "oci-caddy"}, "oci-layout.tar", tmp_path)
+    path = client.download_artifact_member("owner/repo", {"id": 9, "name": "oci-seerr-oidc"}, "oci-layout.tar", tmp_path)
 
     assert path.read_bytes() == b"layout-bytes"
     assert [request.full_url for request in storage_requests] == ["https://storage.example/artifact.zip?sig=x"]

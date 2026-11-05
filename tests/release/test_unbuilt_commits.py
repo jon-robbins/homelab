@@ -28,7 +28,7 @@ def test_commit_without_build_inputs_needs_no_build():
 
 
 @pytest.mark.parametrize("path", [
-    "config/caddy/Dockerfile",
+    "config/seerr-oidc/README.md",
     "config/seerr-oidc/build.py",
     "config/seerr-oidc/source.json",
     ".github/workflows/post-merge-build.yml",
@@ -42,7 +42,7 @@ def test_commit_with_build_inputs_waits_for_its_build(path):
 
 def test_renamed_build_input_waits_for_its_build():
     client = CommitClient([])
-    client.commit["files"] = [{"filename": "docs/caddy.md", "previous_filename": "config/caddy/README.md"}]
+    client.commit["files"] = [{"filename": "docs/seerr-oidc.md", "previous_filename": "config/seerr-oidc/README.md"}]
     with pytest.raises(VerificationError, match="not visible yet"):
         reconcile._attested_builds(client, "homelab", "h1")
 
