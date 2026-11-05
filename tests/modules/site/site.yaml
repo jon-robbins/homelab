@@ -4,7 +4,7 @@ bind_roots: [APP_DATA_DIR, MEDIA_DIR]
 marker_roots: [MEDIA_DIR]
 plugins: {}
 services:
-  caddy: {}
+  traefik: {}
   cloudflared: {}
   sonarr: {}
   radarr: {}
@@ -24,4 +24,4 @@ services:
   authentik-server: {}
   authentik-worker: {}
   sabnzbd: {}
-managed: [caddy, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker, sabnzbd]
+managed: [traefik, cloudflared, sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker, sabnzbd]

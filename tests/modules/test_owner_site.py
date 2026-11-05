@@ -114,10 +114,10 @@ def test_split_disk_site_listens_where_it_always_has(result):
         ("qbittorrent", "51423", "udp"): everywhere,
         ("slskd", "50300", "tcp"): everywhere,
         ("overseerr", "5055", "tcp"): "127.0.0.1",
-        ("caddy", "443", "tcp"): ENV["TAILSCALE_IP"],
-        ("caddy", "9443", "tcp"): "127.0.0.1",
-        ("caddy", "80", "tcp"): None,
-        ("caddy", "8443", "tcp"): None,
+        ("traefik", "443", "tcp"): ENV["TAILSCALE_IP"],
+        ("traefik", "9443", "tcp"): "127.0.0.1",
+        ("traefik", "80", "tcp"): None,
+        ("traefik", "8443", "tcp"): None,
     }
 
 

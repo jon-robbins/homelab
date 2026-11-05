@@ -124,7 +124,7 @@ def test_missing_tier_is_rejected():
 
 def test_traefik_is_allowed_only_under_its_official_namespace():
     check({"traefik": service(image="docker.io/library/traefik:v3.7.17" + DIGEST)}, tiers={"traefik": "edge"})
-    for image in ("traefik:v3.7.17" + DIGEST, "docker.io/library/caddy:2.11.7" + DIGEST):
+    for image in ("traefik:v3.7.17" + DIGEST, "docker.io/other/traefik:v3.7.17" + DIGEST):
         with pytest.raises(ValidationError, match="namespace is not permitted"):
             check({"traefik": service(image=image)}, tiers={"traefik": "edge"})
 
@@ -201,9 +201,3 @@ def test_exposure_is_per_service_port_and_protocol():
 
 def test_an_exposed_declaration_does_not_excuse_an_explicit_address_elsewhere():
     check({"svc": service(ports=[port(8096, "192.0.2.10"), port(9000, "0.0.0.0")])}, exposed={"svc:9000/tcp"})
-
-
-def test_caddy_can_keep_its_image_bind_capability():
-    check({"caddy": service(image="ghcr.io/jon-robbins/homelab/caddy" + DIGEST,
-                             cap_drop=["ALL"], cap_add=["NET_BIND_SERVICE"])},
-          tiers={"caddy": "edge"})

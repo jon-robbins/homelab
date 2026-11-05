@@ -58,7 +58,7 @@ def test_scoped_ipv6_and_unscoped_ipv6_addresses_are_distinct_listeners():
 
 def test_port_order_does_not_matter():
     second = {"host_ip": "127.0.0.1", "published": "9443", "target": 5443, "protocol": "tcp"}
-    assert compare({"caddy": {"ports": [PLEX["ports"][0], second]}}, {"caddy": {"ports": [second, PLEX["ports"][0]]}}) == {}
+    assert compare({"traefik": {"ports": [PLEX["ports"][0], second]}}, {"traefik": {"ports": [second, PLEX["ports"][0]]}}) == {}
 
 
 def test_a_vanished_service_is_an_error():

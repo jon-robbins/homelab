@@ -1,10 +1,10 @@
 {
   "services": {
     "alpha": {
-      "image": "ghcr.io/jon-robbins/homelab/caddy"
+      "image": "ghcr.io/jon-robbins/homelab/seerr-oidc"
     },
     "beta": {
-      "image": "ghcr.io/jon-robbins/homelab/caddy"
+      "image": "ghcr.io/jon-robbins/homelab/seerr-oidc"
     }
   }
 }

@@ -1,5 +1,5 @@
 services:
-  caddy:
+  traefik:
     # Appended to the module's tailnet port: the tunnel-only loopback listener, and the LAN and direct-media
     # listeners this site has always had (all declared in site.yaml exposed).
     ports:
