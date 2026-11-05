@@ -1,0 +1,8 @@
+http:
+  routers:
+    sonarr:
+      rule: Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)
+      service: sonarr
+  services:
+    sonarr:
+      loadBalancer: {servers: [{url: "http://sonarr:8989"}]}

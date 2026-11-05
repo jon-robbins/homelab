@@ -4,7 +4,7 @@ bind_roots: [APP_DATA_DIR, MEDIA_HDD_PATH, MEDIA_NVME_PATH, MEDIA_PLEX_PATH]
 marker_roots: [MEDIA_HDD_PATH, MEDIA_NVME_PATH]
 plugins: {}
 services:
-  caddy: {}
+  traefik: {}
   cloudflared: {}
   sonarr: {}
   radarr: {}
@@ -23,5 +23,5 @@ services:
   authentik-postgres: {}
   authentik-server: {}
   authentik-worker: {}
-exposed: [caddy:80/tcp, caddy:8443/tcp, jellyfin:8096/tcp, plex:32400/tcp, qbittorrent:51423/tcp, qbittorrent:51423/udp, slskd:50300/tcp]
+exposed: [traefik:80/tcp, traefik:8443/tcp, jellyfin:8096/tcp, plex:32400/tcp, qbittorrent:51423/tcp, qbittorrent:51423/udp, slskd:50300/tcp]
 managed: [sonarr, radarr, bazarr, prowlarr, flaresolverr, overseerr, qbittorrent, autobrr, plex, jellyfin, lidarr, navidrome, slskd, soularr, authentik-postgres, authentik-server, authentik-worker]
