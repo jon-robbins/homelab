@@ -119,7 +119,7 @@ def test_port_check_can_be_skipped_for_a_host_that_setup_already_serves(monkeypa
         hostprep.preflight()
 
 
-def test_listening_port_parser_uses_local_address_and_ignores_setup_caddy_peer(monkeypatch):
+def test_listening_port_parser_uses_local_address_and_ignores_a_remote_proxy_peer(monkeypatch):
     output = """LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*
 LISTEN 0 4096 0.0.0.0:443 8.8.8.8:52344
 LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*

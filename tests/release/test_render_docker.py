@@ -3,8 +3,12 @@
 import json
 from pathlib import Path
 import shutil
+import socket
+import ssl
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 import yaml
@@ -152,8 +156,13 @@ def test_an_import_through_the_rendered_data_mount_is_a_real_hardlink(tmp_path):
 _GOOD_ROUTES = "http:\n  routers:\n    r: {rule: 'PathPrefix(`/x`)', service: s}\n  services:\n    s: {loadBalancer: {servers: [{url: 'http://127.0.0.1:1'}]}}\n"
 
 
-def _traefik_edge(tmp_path: Path, routes: str) -> tuple[tuple, str]:
-    """Render the traefik fixture site against a scratch data dir; return the compose command and project."""
+def _traefik_edge(tmp_path: Path, routes: str, ports: dict[str, int] | None = None,
+                  upstream_image: str | None = None) -> tuple[tuple, str]:
+    """Render the traefik fixture site against a scratch data dir; return the compose command and project.
+
+    `ports` maps container listener ports to host ports published on numeric loopback; `upstream_image` adds a
+    disposable upstream service on the same temporary network.
+    """
     site = tmp_path / "site"
     shutil.copytree(ROOT / "tests/modules/site_traefik", site)
     (site / "edge/traefik.yml").write_text(routes)
@@ -168,8 +177,14 @@ def _traefik_edge(tmp_path: Path, routes: str) -> tuple[tuple, str]:
     model = render(ROOT, site, {}).edge
     service = {k: v for k, v in model["services"]["traefik"].items() if k not in ("ports", "extra_hosts")}
     service["networks"] = {"n": None}
+    services = {"traefik": service}
+    if ports:
+        service["ports"] = [f"127.0.0.1:{host}:{target}" for target, host in sorted(ports.items())]
+    if upstream_image:
+        services["up"] = {"image": upstream_image, "networks": {"n": None},
+                          "labels": {"homelab.state": "stateless"}}
     compose = tmp_path / "edge.json"
-    compose.write_text(json.dumps({"services": {"traefik": service}, "configs": model["configs"],
+    compose.write_text(json.dumps({"services": services, "configs": model["configs"],
                                    "secrets": model["secrets"], "networks": {"n": {}}}))
     project = "homelab-traefik-" + uuid.uuid4().hex[:8]
     return ("compose", "-p", project, "-f", compose), service["healthcheck"]["test"][1:]
@@ -207,4 +222,87 @@ def test_traefik_module_is_healthy_hardened_and_unhealthy_when_routes_do_not_loa
                 assert _wait(failed)
                 assert not probe()
         finally:
+            _docker(*command, "down", "-v", check=False)
+
+
+def _loopback_ports(count: int) -> list[int]:
+    """`count` ports the OS handed out for a loopback bind, then releases so docker can bind them."""
+    socks = []
+    for _ in range(count):
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        socks.append(sock)
+    ports = [sock.getsockname()[1] for sock in socks]
+    for sock in socks:
+        sock.close()
+    return ports
+
+
+def _fetch(url: str) -> tuple[int, str]:
+    """GET url with the shipped config's self-signed TLS ignored; (0, "") when the listener refused."""
+    request = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(request, context=ssl._create_unverified_context(), timeout=10) as response:
+            return response.status, response.read().decode(errors="replace")
+    except urllib.error.HTTPError as error:  # 404 from a listener that refuses the route
+        return error.code, error.read().decode(errors="replace")
+    except (urllib.error.URLError, OSError):  # refused connection or failed TLS handshake
+        return 0, ""
+
+
+_UPSTREAM_MARKER = "Hostname:"  # whoami's reply line, absent from Traefik's own 404 body
+
+
+def test_traefik_listeners_deliver_and_a_default_router_reaches_only_tailnet(tmp_path):
+    """Every published listener delivers to a disposable upstream; a router without entryPoints is tailnet-only."""
+    _docker("pull", "traefik/whoami:v1.10.3")
+    up_image = json.loads(_docker("image", "inspect", "traefik/whoami:v1.10.3").stdout)[0]["RepoDigests"][0]
+    routes = (
+        "http:\n"
+        "  routers:\n"
+        "    default: {rule: 'PathPrefix(`/default`)', service: probe}\n"
+        "    tunnel: {rule: 'PathPrefix(`/explicit`)', entryPoints: [tunnel], service: probe}\n"
+        "    lan: {rule: 'PathPrefix(`/lan`)', entryPoints: [lan], service: probe}\n"
+        "    lan-tls: {rule: 'PathPrefix(`/lan`)', entryPoints: [lan-tls], service: probe}\n"
+        "  services:\n"
+        "    probe: {loadBalancer: {servers: [{url: 'http://up:80'}]}}\n"
+    )
+    commands = []
+    try:
+        for attempt in range(5):
+            run = tmp_path / str(attempt)
+            run.mkdir()
+            tailnet_p, tunnel_p, lan_p, lan_tls_p = _loopback_ports(4)
+            command, _health = _traefik_edge(
+                run, routes,
+                ports={"4443": tailnet_p, "5443": tunnel_p, "8080": lan_p, "8443": lan_tls_p},
+                upstream_image=up_image,
+            )
+            commands.append(command)
+            started = _docker(*command, "up", "-d", check=False)
+            if started.returncode == 0:
+                break
+            assert "address already in use" in (started.stdout + started.stderr).lower(), started.stderr
+        else:
+            raise AssertionError("loopback host ports still in use after five tries")
+
+        assert _wait(lambda: _fetch(f"https://127.0.0.1:{tailnet_p}/default")[0] == 200), \
+            _docker(*command, "logs").stdout + _docker(*command, "logs").stderr
+
+        status, body = _fetch(f"https://127.0.0.1:{tailnet_p}/default")
+        assert status == 200 and _UPSTREAM_MARKER in body  # tailnet TLS, the asDefault entry point
+
+        status, body = _fetch(f"http://127.0.0.1:{tunnel_p}/explicit")
+        assert status == 200 and _UPSTREAM_MARKER in body  # positive control: tunnel HTTP is live
+
+        status, body = _fetch(f"http://127.0.0.1:{tunnel_p}/default")
+        assert status != 200 and _UPSTREAM_MARKER not in body  # the default router stays off the tunnel
+
+        status, body = _fetch(f"http://127.0.0.1:{lan_p}/lan")
+        assert status == 200 and _UPSTREAM_MARKER in body  # LAN HTTP
+
+        status, body = _fetch(f"https://127.0.0.1:{lan_tls_p}/lan")
+        assert status == 200 and _UPSTREAM_MARKER in body  # LAN TLS
+    finally:
+        for command in commands:
             _docker(*command, "down", "-v", check=False)

@@ -1,6 +1,10 @@
 # Caddy Retirement Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical plan:** the work described here landed on the `cleanup/retire-caddy` branch; a follow-up review found it
+> left active Caddy behaviour in setup, Traefik port/route/test/decision gaps, and a wrong constant name below:
+> `scripts/release/reconcile.py` defines `BUILD_INPUT_PREFIXES`, not `REBUILD_PATHS` (corrected in this file).
+> Unchecked steps here are unverified. Do not execute this plan; follow `2026-11-05-traefik-retirement-remediation.md`
+> in this folder for the current work.
 
 **Goal:** Decommission and remove all Caddy configuration, images, capability exceptions, and first-party build workflows from the platform repository, aligning documentation and test fixtures with Traefik as the sole edge proxy per Decision 0020.
 
@@ -56,13 +60,13 @@ In `tests/release/test_reconcile.py`, add assertion:
 ```python
 def test_reconcile_does_not_watch_caddy_directory():
     from scripts.release import reconcile
-    assert "config/caddy/" not in reconcile.REBUILD_PATHS
+    assert "config/caddy/" not in reconcile.BUILD_INPUT_PREFIXES
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/release/test_reconcile.py::test_reconcile_does_not_watch_caddy_directory -v`
-Expected: FAIL (assertion error: `"config/caddy/"` is currently in `REBUILD_PATHS`)
+Expected: FAIL (assertion error: `"config/caddy/"` is currently in `BUILD_INPUT_PREFIXES`)
 
 - [ ] **Step 3: Remove Caddy files and configuration references**
 
@@ -90,7 +94,7 @@ In `.github/dependabot.yml`, remove the `/config/caddy` docker entry:
 
 In `scripts/release/reconcile.py`, remove `"config/caddy/"`:
 ```diff
- REBUILD_PATHS = (
+ BUILD_INPUT_PREFIXES = (
 -    "config/caddy/",
      "config/seerr-oidc/",
      "build/seerr-oidc/",

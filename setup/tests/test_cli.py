@@ -31,7 +31,7 @@ def wired(monkeypatch, ops, models, world, tmp_path):
         cli,
         "defaults",
         lambda: (
-            (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",))),
+            (("database", ("db",)), ("apps", ("*",)), ("traefik", ("traefik",))),
             ("DB_PASSWORD",),
         ),
     )
@@ -93,7 +93,7 @@ def test_apply_then_status_reports_a_healthy_stack(wired, ops, capsys):
     capsys.readouterr()
     assert cli.main([*wired, "status"]) == 0
     out = capsys.readouterr().out
-    assert "phase.caddy" in out and "needed" not in out and "blocked" not in out
+    assert "phase.traefik" in out and "needed" not in out and "blocked" not in out
 
 
 def test_a_killed_apply_says_how_to_resume_and_resumes(wired, ops, world, capsys):

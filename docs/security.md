@@ -25,7 +25,7 @@ whatever UFW says.
 
 Rules ([0015](decisions/0015-exposure-policy.md)):
 
-1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:443"` or a LAN address, not `"443:443"`. Compose policy
+1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:4443"` or a LAN address, not `"443:443"`. Compose policy
    rejects a port without one.
 2. A port may listen on all interfaces only if the site lists it under `exposed` in `site.yaml`; the usual entries are
    the media server's streaming port and the peer ports (torrent, Soulseek).

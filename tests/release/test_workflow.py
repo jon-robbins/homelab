@@ -34,6 +34,20 @@ def test_reconcile_build_inputs_cover_every_post_merge_filter():
     assert uncovered == []
 
 
+def test_every_reconcile_build_input_prefix_has_a_workflow_filter_or_release_input():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/post-merge-build.yml").read_text(encoding="utf-8"))
+    steps = {step.get("id"): step for step in workflow["jobs"]["changed-images"]["steps"]}
+    filters = yaml.safe_load(steps["filter"]["with"]["filters"])
+    patterns = [pattern.removesuffix("**") for paths in filters.values() for pattern in paths]
+    release_input = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))["env"]["RELEASE_INPUTS_DIR"]
+    unjustified = [
+        prefix
+        for prefix in BUILD_INPUT_PREFIXES
+        if prefix != release_input and not any(pattern == prefix or pattern.startswith(prefix) for pattern in patterns)
+    ]
+    assert unjustified == []
+
+
 def test_seerr_preparation_and_build_matrix_parity():
     import json
     import subprocess

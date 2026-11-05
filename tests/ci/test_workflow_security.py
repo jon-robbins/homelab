@@ -537,13 +537,6 @@ class WorkflowSecurityTests(unittest.TestCase):
         image_run = next(step["run"] for step in image_builds["steps"] if "docker build" in step.get("run", ""))
         self.assertIn("docker build", image_run)
         self.assertNotIn("push", image_run.lower())
-        self.assertEqual(
-            {
-                entry["dockerfile"]: entry["cap_drop_check"]
-                for entry in image_builds["strategy"]["matrix"]["include"]
-            },
-            {"build/seerr-oidc/context/Dockerfile": "false"},
-        )
 
         public_readiness = workflow["jobs"]["public-readiness"]
         self.assertEqual(

@@ -18,9 +18,13 @@ combination is insufficient. Keep baseline and candidate site copies outside the
 3. **Host preparation:** create and verify the placeholder directories with the script below. Check permissions for
    the service UIDs and retain all existing disk markers. This is an operator action, separate from merging code.
 4. **Site PR 2, then platform stage 2 immediately:** move GPU fields to site overrides and land the module change
-   (commit `f6d9fbf` plus the reviewed Caddy fix). Pre-render this pair before either merge. The intermediate site
-   with GPU overrides and old modules can fail rendering due to duplicate GPU requests; never apply it. A failed
-   render must produce no release. Verify that final signed release names both intended commits before applying it.
+   (commit `f6d9fbf`, which in that era also carried the reviewed Caddy fix). Both platform stages are merged
+   history, so a site adopting the catalog now only needs the site PRs and the host preparation below: pre-render
+   each site PR against the merged platform before merging it. The proxy half of that era is historical — the
+   current edge is Traefik, and swapping a site onto it is the separate procedure in [operations](operations.md).
+   The intermediate site with GPU overrides and old modules could fail rendering due to duplicate GPU requests in
+   that pairing; never apply a mismatched pairing, and a failed render must produce no release. Verify the
+   resulting signed release names the intended commits before applying it.
    If stage 2 cannot merge immediately, revert site PR 2 and keep stage 1 with site PR 1. After a stage 2 rollback,
    restore the matching site revision too; do not leave GPU overrides with the old modules.
 

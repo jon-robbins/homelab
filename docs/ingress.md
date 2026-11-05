@@ -56,6 +56,11 @@ that is not published cannot be reached, and one bound to every interface must b
 ([0015](decisions/0015-exposure-policy.md)). `ipAllowList` is a second layer on private routes; never use it to tell
 tunnel traffic from LAN traffic, because tunnel requests arrive from the Docker bridge, a private address.
 
+A site override picks the host port; the container target must name the entry point's port. A site publishing all
+three non-tailnet entry points writes, for example, `"127.0.0.1:9443:5443"` (tunnel on loopback), `"80:8080"` (lan
+HTTP) and `"8443:8443"` (lan-tls). `exposed` names the host-published port (`traefik:80/tcp`), so it stays correct
+while a container target moves.
+
 ### Health
 
 The healthcheck calls `/healthz`, which exists only when every dynamic file loaded. A syntax or template error in

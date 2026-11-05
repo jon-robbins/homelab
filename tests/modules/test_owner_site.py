@@ -101,23 +101,25 @@ def test_no_extra_disk_marker_is_added_by_the_placeholder(result):
 
 def test_split_disk_site_listens_where_it_always_has(result):
     ports = {
-        (name, port["published"], port["protocol"]): port.get("host_ip")
+        (name, port["published"], port["target"], port["protocol"]): port.get("host_ip")
         for model in (result.app, result.edge)
         for name, service in model["services"].items()
         for port in service.get("ports", [])
     }
     everywhere = "0.0.0.0"
+    # Traefik's container targets are its entryPoints (tailnet 4443, tunnel 5443, lan 8080, lan-tls 8443);
+    # the host ports stay where this site has always listened.
     assert ports == {
-        ("jellyfin", "8096", "tcp"): everywhere,
-        ("plex", "32400", "tcp"): everywhere,
-        ("qbittorrent", "51423", "tcp"): everywhere,
-        ("qbittorrent", "51423", "udp"): everywhere,
-        ("slskd", "50300", "tcp"): everywhere,
-        ("overseerr", "5055", "tcp"): "127.0.0.1",
-        ("traefik", "443", "tcp"): ENV["TAILSCALE_IP"],
-        ("traefik", "9443", "tcp"): "127.0.0.1",
-        ("traefik", "80", "tcp"): None,
-        ("traefik", "8443", "tcp"): None,
+        ("jellyfin", "8096", 8096, "tcp"): everywhere,
+        ("plex", "32400", 32400, "tcp"): everywhere,
+        ("qbittorrent", "51423", 51423, "tcp"): everywhere,
+        ("qbittorrent", "51423", 51423, "udp"): everywhere,
+        ("slskd", "50300", 50300, "tcp"): everywhere,
+        ("overseerr", "5055", 5055, "tcp"): "127.0.0.1",
+        ("traefik", "443", 4443, "tcp"): ENV["TAILSCALE_IP"],
+        ("traefik", "9443", 5443, "tcp"): "127.0.0.1",
+        ("traefik", "80", 8080, "tcp"): None,
+        ("traefik", "8443", 8443, "tcp"): None,
     }
 
 

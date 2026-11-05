@@ -45,8 +45,3 @@ def test_reconcile_renders_fetched_plugin_and_records_source(tmp_path):
     assert "whoami" in rendered.app["services"]
     # compile runs later, once the built image digests are known; it reads this copy of site.yaml
     assert (tmp_path / "out" / "site.yaml").read_text() == document
-
-
-def test_reconcile_does_not_watch_caddy_directory():
-    from scripts.release import reconcile
-    assert "config/caddy/" not in reconcile.BUILD_INPUT_PREFIXES
