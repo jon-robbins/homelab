@@ -9,12 +9,12 @@ import pytest
 from setup.engine.checkpoints import Checkpoints
 from setup.engine.contract import Result, State
 from setup.engine.layout import Layout
-from setup.engine.local import Release, build_steps
+from setup.engine.local import Release, build_steps, defaults
 from setup.engine.runner import run, status
 from setup.engine.steps import Dirs, Network
 from setup.tests.conftest import argv_text
 
-PHASES = (("database", ("db",)), ("apps", ("*",)), ("caddy", ("caddy",)))
+PHASES = (("database", ("db",)), ("apps", ("*",)), ("traefik", ("traefik",)))
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +86,7 @@ def test_phases_start_services_one_at_a_time_in_order(steps, ctx, ops):
         ("homelab", "db"),
         ("homelab", "web"),
         ("homelab", "worker"),
-        ("homelab-edge", "caddy"),
+        ("homelab-edge", "traefik"),
     ]
 
 
@@ -100,13 +100,13 @@ def test_every_start_is_no_deps_never_builds_and_never_pulls_implicitly(steps, c
 def test_images_are_pulled_before_they_are_started(steps, ctx, ops):
     provide_web_key(ctx)
     converge(steps, ctx)
-    assert ("app", ("db",)) in ops.pulled and ("edge", ("caddy",)) in ops.pulled
+    assert ("app", ("db",)) in ops.pulled and ("edge", ("traefik",)) in ops.pulled
 
 
 def test_edge_services_run_from_the_edge_model(steps, ctx, ops, release):
     provide_web_key(ctx)
     converge(steps, ctx)
-    edge = next(c for c in ops.calls if c[-1] == "caddy")
+    edge = next(c for c in ops.calls if c[-1] == "traefik")
     assert edge[edge.index("-f") + 1] == str(release.directory / "edge.json")
 
 
@@ -234,11 +234,11 @@ def test_extra_steps_slot_into_the_order_through_requires(ctx, release, ops):
         phases=PHASES,
         generated=("DB_PASSWORD",),
         extra=[Gate()],
-        requires={"phase.caddy": ("GATE-1",)},
+        requires={"phase.traefik": ("GATE-1",)},
     )
     provide_web_key(ctx)
     assert converge(steps, ctx).ok
-    assert ("homelab-edge", "caddy") not in seen[0] and ("homelab", "web") in seen[0]
+    assert ("homelab-edge", "traefik") not in seen[0] and ("homelab", "web") in seen[0]
 
 
 def test_status_reads_everything_and_changes_nothing(steps, ctx, ops, world):
@@ -260,7 +260,7 @@ def test_unmanaged_site_manages_everything_it_runs(ctx, models, ops):
     app, edge, site = models
     site.pop("managed")
     release = Release.from_models(ctx.layout, app, edge, site)
-    assert set(release.site["managed"]) == {"db", "web", "worker", "caddy"}
+    assert set(release.site["managed"]) == {"db", "web", "worker", "traefik"}
 
 
 def test_services_in_a_phase_that_the_site_does_not_run_are_dropped(ctx, models, ops):
@@ -270,12 +270,12 @@ def test_services_in_a_phase_that_the_site_does_not_run_are_dropped(ctx, models,
         ctx,
         release,
         ops,
-        phases=(("database", ("db", "ghost")), ("apps", ("*",)), ("caddy", ("caddy",))),
+        phases=(("database", ("db", "ghost")), ("apps", ("*",)), ("traefik", ("traefik",))),
     )
     assert [s.id for s in steps if s.id.startswith("phase.")] == [
         "phase.database",
         "phase.apps",
-        "phase.caddy",
+        "phase.traefik",
     ]
 
 
@@ -287,6 +287,38 @@ def test_repeated_apply_never_restarts_an_owner_stopped_service(steps, ctx, ops)
     assert not converge(steps, ctx).ok
     assert not converge(steps, ctx).ok
     assert ops.ups() == []
+
+
+def test_setup_phase_names_resolve_to_platform_modules():
+    catalog = {
+        path.name.removesuffix(".compose.yml") for path in Path(__file__).parents[2].glob("modules/*/*.compose.yml")
+    }
+    phases, _ = defaults()
+    named = {service for _, services in phases for service in services if service != "*"}
+    assert named <= catalog and {"traefik", "cloudflared"} <= named
+
+
+def test_traefik_and_cloudflared_start_in_their_own_phases_not_the_wildcard_apps(ctx, models, ops):
+    app, edge, site = models
+    edge["services"]["cloudflared"] = {"image": "tunnel@sha256:" + "e" * 64}
+    site["managed"].append("cloudflared")
+    chosen = {
+        s.id: s
+        for s in build_steps(ctx, Release.from_models(ctx.layout, app, edge, site), ops)
+        if s.id.startswith("phase.")
+    }
+    assert "traefik" in chosen["phase.traefik"].services and "traefik" not in chosen["phase.apps"].services
+    assert chosen["phase.tunnel"].services == ("cloudflared",)
+    assert "GATE-1" in chosen["phase.tunnel"].needs
+
+
+def test_named_phases_for_services_the_site_does_not_run_are_skipped(ctx, models, ops):
+    app, edge, site = models
+    site["managed"] = ["web", "worker", "traefik"]
+    steps = build_steps(ctx, Release.from_models(ctx.layout, app, edge, site), ops)
+    assert [s.id for s in steps if s.id.startswith("phase.")] == ["phase.apps", "phase.traefik"]
+    provide_web_key(ctx)
+    assert converge(steps, ctx).ok
 
 
 def test_explicit_empty_managed_does_not_adopt_services(ctx, models, ops):
@@ -413,16 +445,16 @@ def test_a_requires_entry_for_a_step_that_does_not_exist_is_an_error_not_ignored
 
 def test_existing_stateful_edge_is_never_recreated_without_manual_backup(ctx, models, ops):
     app, edge, site = models
-    edge["services"]["caddy"]["labels"] = {"homelab.state": "stateful"}
-    ops.containers[("homelab-edge", "caddy")] = "running"
-    changed(ops, "caddy")
+    edge["services"]["traefik"]["labels"] = {"homelab.state": "stateful"}
+    ops.containers[("homelab-edge", "traefik")] = "running"
+    changed(ops, "traefik")
     provide_web_key(ctx)
     steps = build_steps(
         ctx, Release.from_models(ctx.layout, app, edge, site), ops, phases=PHASES, generated=("DB_PASSWORD",)
     )
     outcome = converge(steps, ctx)
     assert not outcome.ok and "recreated over existing data" in outcome.reason
-    assert ("homelab-edge", "caddy") not in ops.ups()
+    assert ("homelab-edge", "traefik") not in ops.ups()
 
 
 @pytest.mark.parametrize("lost_checkpoint", [False, True])
