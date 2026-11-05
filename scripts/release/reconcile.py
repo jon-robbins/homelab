@@ -36,13 +36,20 @@ _DESTINATION = re.compile(r"^ghcr\.io/[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9._/-]*$
 _DEFAULT_APPROVED_DESTINATIONS = Path(__file__).parents[2] / "config/release/approved-ghcr-destinations.json"
 
 
+class MissingBuild(VerificationError):
+    """A build-input commit has no main push producer to await."""
+
+
 def render_release(client: Any, platform: Path, site_repository: str, site_sha: str,
                    homelab_sha: str, output: Path,
-                   source_shas: Mapping[str, str] | None = None) -> tuple[dict[str, str], Any]:
+                   source_shas: Mapping[str, str] | None = None,
+                   platform_repository: str | None = None) -> tuple[dict[str, str], Any]:
     """Fetch the declared plugin trees and render the site; site.yaml is kept next to *output* for compile."""
 
     with tempfile.TemporaryDirectory(prefix="release-sources-") as directory:
         root = Path(directory)
+        if platform_repository is not None:
+            platform = client.fetch(platform_repository, homelab_sha, root / "platform")
         site = client.fetch(site_repository, site_sha, root / "site")
         site_document = yaml.safe_load((site / "site.yaml").read_bytes())
         plugins: dict[str, Path] = {}
@@ -178,11 +185,12 @@ def _successful_build_run_id(client: Any, repository: str, sha: str) -> int | No
     return None
 
 
-def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str]) -> str:
-    """Pick the first release's commit: the newest first-parent commit with a full build.
+def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str], *, after: str | None = None) -> str:
+    """Find the newest first-parent full build, optionally strictly after a blocked commit.
 
-    Every image is still built and attested at that one commit; this only lets
-    the first release survive merges that landed after the full rebuild.
+    Bootstrap and missing-producer recovery share this bounded search. Every image
+    must still be built and attested at the selected commit; recovery never reaches
+    the blocked commit or any earlier revision.
     """
     if not callable(getattr(client, "workflow_runs", None)) or not callable(getattr(client, "read_commit", None)):
         return head
@@ -190,6 +198,8 @@ def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str]) ->
     artifacts = response.get("artifacts", ()) if isinstance(response, Mapping) else response
     sha = head
     for _ in range(BOOTSTRAP_SEARCH_DEPTH):
+        if sha == after:
+            break
         run_id = _successful_build_run_id(client, repository, sha)
         if run_id is not None:
             built = {
@@ -213,7 +223,8 @@ def _bootstrap_sha(client: Any, repository: str, head: str, images: set[str]) ->
         if not isinstance(sha, str):
             raise VerificationError("homelab main has an invalid first-parent link")
     raise VerificationError(
-        f"first release requires one main commit with verified builds for all images within {BOOTSTRAP_SEARCH_DEPTH} commits; "
+        f"{'release recovery' if after else 'first release'} requires one main commit with verified builds for all images "
+        f"within {BOOTSTRAP_SEARCH_DEPTH} commits; "
         "push a change to the build recipe to rebuild every image"
     )
 
@@ -256,7 +267,7 @@ def _attested_builds(client: Any, repository: str, sha: str) -> dict[str, dict[s
         if not exact_runs:
             if _changes_no_build_input(client, repository, sha):
                 return {}
-            raise VerificationError(f"post-merge build for {sha} is not visible yet; waiting")
+            raise MissingBuild(f"post-merge build for {sha} is not visible yet; waiting")
         successful_run = next(
             (
                 run for run in exact_runs
@@ -354,6 +365,27 @@ def _destination_images(approved: set[str] | frozenset[str]) -> set[str]:
     prefix = "ghcr.io/jon-robbins/homelab/"
     return {destination.removeprefix(prefix) for destination in approved if destination.startswith(prefix)}
 
+
+def _candidate_builds(client: Any, repository: str, head: str, previous: Mapping[str, Any] | None,
+                      images: set[str]) -> tuple[str | None, dict[str, dict[str, Any]], set[str]]:
+    sha = _next_tooling_sha(client, repository, head, previous)
+    full = previous is None
+    if full:
+        sha = _bootstrap_sha(client, repository, head, images)
+    if sha is None:
+        return None, {}, set()
+    try:
+        builds = _attested_builds(client, repository, sha)
+    except MissingBuild:
+        sha = _bootstrap_sha(client, repository, head, images, after=sha)
+        builds = _attested_builds(client, repository, sha)
+        full = True
+    builds = {image: spec for image, spec in builds.items() if spec.get("head_sha") == sha}
+    if full and not images.issubset(builds):
+        raise VerificationError(f"full release requires verified builds for all images; missing {sorted(images - set(builds))[0]}")
+    return sha, builds, images if full else set(builds)
+
+
 def plan(client: Any | None = None, *, repository: str | None = None, site_repository: str = SITE_REPOSITORY, output: Path | None = None) -> dict[str, Any]:
     client = client or GitHubClient()
     repository = repository or os.environ.get("GITHUB_REPOSITORY", "jon-robbins/homelab")
@@ -365,9 +397,8 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     if not main_head:
         raise VerificationError("release plan requires GITHUB_SHA (run inside the release workflow)")
     _check_homelab_head_ancestry(ancestry_client, repository, main_head)
-    sha = _next_tooling_sha(client, repository, main_head, previous)
-    if previous is None:
-        sha = _bootstrap_sha(client, repository, main_head, _destination_images(load_approved_destinations()))
+    approved = load_approved_destinations()
+    sha, builds, required = _candidate_builds(client, repository, main_head, previous, _destination_images(approved))
     tooling_sha = sha or (previous.get("sources", {}).get("homelab") or previous.get("tooling_git_sha") if previous else main_head)
     site_sha = client.ref(site_repository, "main")
     site_yaml = client.read(site_repository, site_sha, "site.yaml")
@@ -384,23 +415,12 @@ def plan(client: Any | None = None, *, repository: str | None = None, site_repos
     }
     input_root = Path(os.environ.get("RELEASE_INPUTS_DIR", RELEASE_INPUTS_DIR_DEFAULT))
     source_path = input_root / "bundle.tar"
-    sources, rendered = render_release(client, Path("."), site_repository, site_sha, tooling_sha, source_path)
+    sources, rendered = render_release(client, Path("."), site_repository, site_sha, tooling_sha, source_path,
+                                       platform_repository=repository)
     if previous and previous.get("sources") == sources:
         result = {"release": False, "sha": tooling_sha, "sequence": next_sequence, "images": [],
                   "image_refs": previous.get("images", {}), "sources": sources}
     else:
-        approved = load_approved_destinations()
-        all_images = _destination_images(approved)
-        homelab_changed = sha is not None
-        if homelab_changed:
-            builds = _attested_builds(client, repository, sha)
-            builds = {image: spec for image, spec in builds.items() if spec.get("head_sha") == sha}
-        else:
-            builds = {}
-        required = all_images if previous is None else set(builds)
-        if previous is None and not all_images.issubset(builds):
-            missing = sorted(all_images - set(builds))
-            raise VerificationError(f"first release requires verified builds for all images; missing {missing[0]}")
         owners = set(os.environ.get("RELEASE_OWNERS", "jon-robbins").split(","))
         repositories = {"homelab": repository, "homelab-site": site_repository, **plugin_repositories}
         verified = verify_release(client, sources, builds, required_images=required, repositories=repositories,

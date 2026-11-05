@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (signing 2026-10-12; trigger 2026-10-15; owner-pipeline scope clarified by [0018](0018-local-setup-path.md), 2026-10-31)
 - **Code:** `.github/workflows/release.yml`, `scripts/release/`, `scripts/controller/feed.py`,
-  `scripts/controller/admission.py`
+  `scripts/controller/admission.py`, `tests/release/test_release_recovery.py`
 - **Related:** [0005](0005-slim-controller.md), [0009](0009-image-trust.md), [architecture](../architecture/overview.md)
 
 ## Context
@@ -25,6 +25,12 @@ every image digest and the hash of the rendered Compose bundle. Releases are app
   on push. An hourly schedule is only a backstop. Releases never depend on dev tooling.
 - **Full state:** a release is the whole desired state, never a patch, so the controller only ever applies the
   newest one.
+- **Missing producer recovery:** if a stacked intermediate merge changes build inputs but has no main push build,
+  reconciliation may advance to a later first-parent commit with a complete, unexpired build for every approved
+  first-party image. It reuses the bounded full-build search used at bootstrap, never searches behind the blocked
+  commit, and verifies native attestations and source authority before releasing. Existing running or failed
+  builds still block release. The selected platform revision is fetched for rendering, so recorded sources,
+  rendered modules and verified images refer to the same commit. Signing and feed admission do not change.
 
 ## Consequences
 
