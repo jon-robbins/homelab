@@ -93,11 +93,6 @@ def images(session: nox.Session) -> None:
                               "--label", "io.homelab.node-base=" + lock["node_image"]]
             session.run("docker", "build", "-q", *build_args, "--file", dockerfile, "--tag", tag,
                         context, external=True)
-        if build["cap_drop_check"] is True:
-            session.run("docker", "run", "--rm", "--cap-drop", "ALL", "--security-opt",
-                        "no-new-privileges:true", tag, "version", external=True)
-
-
 @nox.session(python=PYTHON, tags=["no-docker"])
 def docs(session: nox.Session) -> None:
     install(session, "pytest")

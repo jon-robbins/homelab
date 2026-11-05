@@ -17,13 +17,6 @@ updates:
       stateless:
         patterns:
           - "ghcr.io/flaresolverr/flaresolverr"
-  - package-ecosystem: docker
-    directory: /config/caddy
-    schedule:
-      interval: weekly
-    groups:
-      docker:
-        patterns: ["*"]
   - package-ecosystem: pip
     directory: /config/release
     schedule:
