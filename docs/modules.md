@@ -39,12 +39,9 @@ site's workflow (a seeding folder, Plex's symlink tree) belongs in the same plac
 Existing split-disk sites must complete the [migration prerequisites](module-migration.md) before adopting this catalog.
 
 Published ports bind an address from `site.env`: `MEDIA_BIND_IP` for Jellyfin's and Plex's direct ports,
-`PEER_BIND_IP` for the torrent and Soulseek peer ports, `TAILSCALE_IP` for Caddy. A port that listens on every
+`PEER_BIND_IP` for the torrent and Soulseek peer ports, `TAILSCALE_IP` for Traefik. A port that listens on every
 interface (no address, `0.0.0.0` or `::`) fails policy unless the site lists it under `exposed` in `site.yaml`, as
 `service:port/proto`. Overrides can add ports but not replace them, so a module publishes only what every site wants.
-
-Caddy retains `NET_BIND_SERVICE` alongside `cap_drop: [ALL]`: the pinned executable carries that file capability
-and cannot execute under the module's non-root UID without it. Its published listeners still follow the site policy.
 
 GPU access isn't in any module. A site that has a GPU adds it in `overrides/<service>.yml` (`gpus: all` for NVIDIA,
 `devices: ["/dev/dri:/dev/dri"]` and `group_add` for Intel and AMD); policy checks it as usual. Compose rejects a

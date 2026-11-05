@@ -6,7 +6,7 @@
 2. [Accounts and external services](accounts.md): what to sign up for and why.
 3. [Getting started](getting-started.md): try it off-host, then set up a real host.
 4. [Configuration](configuration.md): the site repo, `site.yaml`, `site.env`, secrets.
-5. [Ingress](ingress.md): LAN, Tailscale, Cloudflare Tunnel, port forwards, Caddy routes.
+5. [Ingress](ingress.md): LAN, Tailscale, Cloudflare Tunnel, port forwards, Traefik routes.
 6. [Security](security.md): threat model, exposure policy, checklist.
 7. [Operations](operations.md): day-to-day commands, updates, backups, alerts.
 8. [Troubleshooting](troubleshooting.md): by symptom.

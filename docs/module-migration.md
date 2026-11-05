@@ -34,7 +34,7 @@ The site PR 1 patch must include:
   Bazarr, Lidarr, Jellyfin, Plex, qBittorrent, slskd, Soularr and Navidrome. Preserve existing seeding binds, Plex
   symlink trees, app environment and plugin mounts. slskd and Soularr also need their old download environment paths.
   Keep qBittorrent categories and save paths unchanged.
-- Preserve needed Caddy listeners (`80:80`, `8443:443`) in its override, plus existing tunnel loopback listeners.
+- Preserve needed Traefik listeners (`80:8080`, `8443:8443`) in its override, plus existing tunnel loopback listeners.
   Declare wildcard listeners in `exposed`. Compose deduplicates identical ports with the old catalog; verify the
   unchanged render rather than assuming that. The new module supplies only tailnet HTTPS.
 - If using a personal TMDB key, add the optional `TMDB_API_KEY` secret to the Seerr override as in the fixture.
@@ -44,10 +44,8 @@ Site PR 2 adds only the GPU fields removed from modules: `gpus: all` for NVIDIA 
 supplementary groups where used. Preserve any GPU fields already supplied by the site rather than duplicating them.
 The fixture shows the final site; omit its newly moved GPU fields when constructing site PR 1.
 
-Caddy also needs `cap_add: [NET_BIND_SERVICE]` with the pinned image, even as a non-root user: the executable has a
-file capability and fails to execute when Docker drops it from the bounding set. The catalog fix and capability
-allowlist widening need their own reviewed commit under [0008](decisions/0008-compose-policy.md). If the site already
-adds it, Compose must retain one equivalent capability. This is an expected render addition for a site missing it.
+Traefik drops all capabilities (`cap_drop: [ALL]`) and requires no capability additions: all container listeners
+run on unprivileged ports. Unlike earlier Caddy images, no `NET_BIND_SERVICE` exception is needed.
 
 Run this preparation on the target host only after reviewing the site's settings. It creates empty placeholder
 folders; it does not start services. `SITE_DIR` is the path to the operator's site checkout. The script reads values

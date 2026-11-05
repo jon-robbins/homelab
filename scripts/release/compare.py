@@ -2,7 +2,7 @@
 
 Renders one site twice, as it is now (OLD) and as it would be (NEW), and lists every difference per service. Losing a
 port, GPU, device, group, capability, mount or secret, or a whole service, is an error: a site that stops passing
-`gpus` or a Caddy port still renders and passes policy, so only a comparison sees it. Added and changed settings are
+`gpus` or a Traefik port still renders and passes policy, so only a comparison sees it. Added and changed settings are
 printed for review (for example a config digest after a script changed).
 
     python3 -m scripts.release.compare OLD_PLATFORM OLD_SITE NEW_PLATFORM NEW_SITE [--plugin NAME=DIR]

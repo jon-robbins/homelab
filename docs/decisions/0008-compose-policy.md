@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-10-15)
 - **Code:** `scripts/release/compose_policy.py`, `scripts/release/render.py`, `config/release/cap-allowlist.json`,
-  `config/release/gpu-allowlist.json`, `modules/edge/caddy.compose.yml` (retained file capability)
+  `config/release/gpu-allowlist.json`
 - **Related:** [0001](0001-compose-modules.md), [0006](0006-host-layout.md), [security](../security.md)
 
 ## Decision

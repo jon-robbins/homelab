@@ -17,7 +17,7 @@ services:
   sonarr: {}
   autobrr: {state: stopped}            # created by the controller, never started
   my-service: {from: my-plugin}
-  caddy: {}                            # the tier comes from the module's directory
+  traefik: {}                          # the tier comes from the module's directory
 managed: [sonarr, autobrr, my-service] # what the controller may change
 ```
 
@@ -43,8 +43,8 @@ Non-secret values only. Modules may interpolate only keys defined here.
 | `PUID`, `PGID` | the user and group the services run as |
 | `TZ` | time zone |
 | `HOMELAB_SECRET_DIR` | where the Infisical agent writes secret files |
-| `BASE_DOMAIN` | the domain Caddy serves |
-| `TAILSCALE_IP` | the host's Tailscale address; Caddy binds 443 there |
+| `BASE_DOMAIN` | the domain Traefik serves |
+| `TAILSCALE_IP` | the host's Tailscale address; Traefik binds 443 there |
 | `QBT_PEER_PORT` | qBittorrent's peer port |
 
 `.env.example` lists every key the catalog uses, with synthetic values.
@@ -56,7 +56,7 @@ device). Policy runs after the merge, so an override cannot add anything a modul
 
 ## `files/` and `edge/`
 
-Config files that modules mount (`edge/Caddyfile`, `edge/config.yml` for cloudflared).
+Config files that modules mount (`edge/traefik.yml`, `edge/config.yml` for cloudflared).
 Modules refer to them as Compose `configs` with `file: site:<path>`; the renderer inlines their content into the
 release.
 
