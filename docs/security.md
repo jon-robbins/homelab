@@ -25,12 +25,12 @@ whatever UFW says.
 
 Rules ([0015](decisions/0015-exposure-policy.md)):
 
-1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:443"` or a LAN address, not `"443:443"`. Compose policy
+1. Publish ports on an explicit address: `"${TAILSCALE_IP}:443:4443"` or a LAN address, not `"443:443"`. Compose policy
    rejects a port without one.
 2. A port may listen on all interfaces only if the site lists it under `exposed` in `site.yaml`; the usual entries are
    the media server's streaming port and the peer ports (torrent, Soulseek).
-3. Admin UIs are reachable only from the LAN and Tailscale, through Caddy with a `remote_ip` guard
-   ([ingress](ingress.md#caddy-routes)). Never port-forward an admin UI.
+3. Admin UIs are reachable only from the LAN and Tailscale, through Traefik
+   ([ingress](ingress.md#traefik-routes)). Never port-forward an admin UI.
 4. Add `DOCKER-USER` rules so that traffic from the WAN interface reaches only the allowlisted ports.
 5. Turn UPnP off on the router.
 
@@ -38,8 +38,7 @@ What the catalog publishes today:
 
 | Module | Published | Recommendation |
 |---|---|---|
-| caddy | `443` on the Tailscale address | a site adds anything else in an override; a wildcard one needs `exposed` |
-| traefik | `443` on the Tailscale address (container `4443`) | the same; other entry points are the site's to publish ([ingress](ingress.md#entry-points-decide-who-can-reach-a-route)) |
+| traefik | `443` on the Tailscale address (container `4443`) | a site adds anything else in an override; other entry points are the site's to publish ([ingress](ingress.md#entry-points-decide-who-can-reach-a-route)) |
 | plex | `32400` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` (remote streaming) needs `exposed`, harden per [ingress](ingress.md#plex-remote-access) |
 | jellyfin | `8096` on `MEDIA_BIND_IP` | set it to the Tailscale address; `0.0.0.0` needs `exposed` |
 | qbittorrent | `51423` TCP and UDP on `PEER_BIND_IP` | peer port; `0.0.0.0` needs `exposed`; the web UI is not published |
@@ -75,7 +74,7 @@ For a new host, and again after any change to modules, the router or the host:
 - [ ] SSH: key-only (`PasswordAuthentication no`), ideally reachable only over Tailscale.
 - [ ] No unused login accounts with a shell.
 - [ ] Plex: secure connections required; no unauthenticated networks.
-- [ ] Every admin UI has its own authentication turned on, even behind Caddy.
+- [ ] Every admin UI has its own authentication turned on, even behind Traefik.
 - [ ] `CLOUDFLARE_TOKEN` is limited to DNS edits on one zone.
 - [ ] Your GitHub account has 2FA; the platform repo's `main` ruleset has no bypass.
 - [ ] healthchecks.io alerts reach you (send a test fail ping).

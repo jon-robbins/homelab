@@ -85,7 +85,7 @@ a subnet from its own address pools that no host route or other network uses; to
 phases. Core IDs are `engine.release`, `engine.network`, `engine.dirs`, `engine.secrets` and `phase.<name>`.
 Use `extra` for provider/wiring/gate steps and `requires={"phase.tunnel": ("GATE-1",)}` to hold a phase until its
 external check succeeds. Defaults in `config/phases.json` order Postgres, Authentik server and worker, remaining apps,
-Caddy and tunnel. Every phase containing cloudflared requires `GATE-1` by default. Integration wiring supplies that step; `requires` can add dependencies but cannot remove this gate.
+Traefik and tunnel. Every phase containing cloudflared requires `GATE-1` by default. Integration wiring supplies that step; `requires` can add dependencies but cannot remove this gate.
 Absent it, `runner.run` validates the graph and refuses the run before step effects. The standalone CLI therefore
 cannot start a tunnel until integration wiring supplies a forward-auth gate.
 

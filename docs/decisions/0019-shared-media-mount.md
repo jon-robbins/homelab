@@ -21,7 +21,8 @@ runtime. Both suit one owner's machine and fail a stranger's.
 2. A site with media on several disks can't hardlink across them. It points `MEDIA_DIR` at an empty directory and restores
    its own mounts in overrides. The per-role keys stay in `site.env` for that, and for plugins.
 3. Published ports use `MEDIA_BIND_IP`, `PEER_BIND_IP` or `TAILSCALE_IP`. Policy rejects a port on every interface
-   unless `site.yaml` `exposed` lists it. Caddy's module publishes only its tailnet port.
+   unless `site.yaml` `exposed` lists it. *(At this decision's writing, Caddy's module published only its tailnet
+   port; current Traefik listener targets are documented in [ingress](../ingress.md) and [0020](0020-traefik-edge.md).)*
 4. No module declares a GPU. The site adds one in an override.
 5. Seerr's module no longer requires `TMDB_API_KEY`.
 

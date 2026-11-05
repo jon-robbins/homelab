@@ -12,58 +12,35 @@
 The default is: admin UIs on LAN and Tailscale only, web apps through the tunnel if needed, and a port forward
 only for the media server's streaming port.
 
-## Caddy
-
-Caddy is being retired in favour of Traefik (decision 0020); a site switches by selecting `traefik` instead of
-`caddy`. Until then Caddy is the edge reverse proxy (`modules/edge/caddy.compose.yml`, image built from `config/caddy/Dockerfile`
-with the Cloudflare DNS module). It joins `homelab_net` and reaches services by container name.
-
-Certificates: Caddy uses the ACME DNS-01 challenge with `CLOUDFLARE_TOKEN`, so it gets real certificates for
-`*.BASE_DOMAIN` without port 80 or 443 being reachable from the internet. In the site's Caddyfile, a site block
-uses a `tls` block with `dns <provider> {env.CLOUDFLARE_TOKEN}`, or the equivalent global `acme_dns` option.
-
-Binds: the module publishes only the host's Tailscale address for 443 (`${TAILSCALE_IP}:443`). Any other listener
-(LAN HTTP, a loopback port for `cloudflared`) is added in the site's `overrides/caddy.yml`, and one on every
-interface must be listed under `exposed` in `site.yaml` ([0015](decisions/0015-exposure-policy.md)).
-
-### Caddy routes
-
-The platform ships an example Caddyfile at `config/caddy/Caddyfile`; your real routes live in the site repo's
-`edge/Caddyfile`, inlined into the release as a Compose config.
-
-- Use `handle /service*` when the app is configured with that URL base and expects to see the prefix (Sonarr,
-  Radarr, Prowlarr and Bazarr with a URL base set in their settings).
-- Use `handle_path /service*` when the app expects the prefix removed (Seerr, qBittorrent).
-- Restrict a route to trusted sources with a matcher:
-
-  ```caddyfile
-  @trusted remote_ip private_ranges <tailscale-cidr>
-  handle /sonarr* {
-      handle @trusted {
-          reverse_proxy sonarr:8989
-      }
-      respond 403
-  }
-  ```
-
-  `private_ranges` covers loopback and the RFC 1918 LAN ranges; Tailscale addresses come from the CGNAT range
-  (`100.64/10`), which you add yourself.
-- End every site block with a catch-all `handle { respond 404 }` so unknown paths don't fall through.
-
-After changing the Caddyfile, merge to the site repo and apply the edge yourself
-([operations](operations.md#edge)).
-
 ## Traefik
 
-Traefik is the replacement edge proxy (`modules/edge/traefik.compose.yml`, the official image). A site selects it
-instead of `caddy`. It joins `homelab_net` and reaches services by container name. Configuration is files only: there
-is no Docker socket, no dashboard and no API.
+Traefik is the edge reverse proxy (`modules/edge/traefik.compose.yml`, the official image). It joins `homelab_net`
+and reaches services by container name. Configuration is files only: there is no Docker socket, no dashboard and no API.
 
 - **Static configuration** is the platform's (`config/traefik/traefik.yml`). A site cannot change it.
 - **Routes** are the site's `edge/traefik.yml`, inlined into the release. Start from
   `config/traefik/routes.example.yml`. Hosts use `{{ env "BASE_DOMAIN" }}`.
 - **Certificates** come from the `cloudflare` resolver (DNS-01, `CLOUDFLARE_TOKEN`). Name the domains on one router,
   as the example does; the wildcard certificate then serves every host below it.
+
+### Traefik routes
+
+Dynamic configuration uses Traefik's file provider on `/etc/traefik/dynamic/`. The platform supplies `health.yml`
+(routing `/healthz` on the loopback `ping` entry point) and the site supplies `routes.yml` (from `edge/traefik.yml` in
+the site repo, inlined into the release as a Compose config). The platform ships an example file at
+`config/traefik/routes.example.yml`.
+
+- Define `routers`, `middlewares`, and `services` in `edge/traefik.yml`.
+- Access is controlled by `entryPoints`: routers without `entryPoints` join only `tailnet` (the default).
+- Match rules use Go templating, such as ``Host(`{{ env "BASE_DOMAIN" }}`) && PathPrefix(`/sonarr`)``.
+- For applications expecting path prefixes stripped, attach a `stripPrefix` middleware. For apps with configurable URL
+  bases (Sonarr, Radarr, Prowlarr, Bazarr), configure the URL base in the app settings.
+- Gated routes forward authentication to Authentik using `forwardAuth` middleware, paired with `headers` middleware
+  to prevent header spoofing.
+- Where routes overlap, set `priority` explicitly: Traefik orders them by rule length, not declaration order.
+- A route change reaches Traefik only through a recreate, so a release is the only way to change routes. After
+  changing `edge/traefik.yml`, merge to the site repo and apply the edge yourself ([operations](operations.md#edge)) or
+  let `homelab-edge-update` apply it.
 
 ### Entry points decide who can reach a route
 
@@ -79,8 +56,10 @@ that is not published cannot be reached, and one bound to every interface must b
 ([0015](decisions/0015-exposure-policy.md)). `ipAllowList` is a second layer on private routes; never use it to tell
 tunnel traffic from LAN traffic, because tunnel requests arrive from the Docker bridge, a private address.
 
-Where routes overlap, set `priority`: Traefik orders them by rule length, not file order. A route change reaches
-Traefik only through a recreate, so a release is the only way to change routes.
+A site override picks the host port; the container target must name the entry point's port. A site publishing all
+three non-tailnet entry points writes, for example, `"127.0.0.1:9443:5443"` (tunnel on loopback), `"80:8080"` (lan
+HTTP) and `"8443:8443"` (lan-tls). `exposed` names the host-published port (`traefik:80/tcp`), so it stays correct
+while a container target moves.
 
 ### Health
 
@@ -109,10 +88,10 @@ Containers reach each other by service name on the `homelab_net` bridge, never b
 ## Cloudflare Tunnel
 
 `cloudflared` runs in the edge tier with host networking (`modules/edge/cloudflared.compose.yml`). Its
-`config.yml` lives in the site repo's `edge/` folder; the tunnel credentials JSON is a host file. Create the tunnel
-once with `cloudflared tunnel login` and `cloudflared tunnel create <name>`, route only the hostnames you want
-public, and put Cloudflare Access in front of anything that has no login of its own. If a UI breaks behind
-Cloudflare, disable Rocket Loader for that hostname.
+`config.yml` lives in the site repo's `edge/` folder; the tunnel credentials JSON is a host file. Tunnel ingress
+rules are managed remotely in the Cloudflare Zero Trust dashboard. Route only the hostnames you want public, and put
+Cloudflare Access in front of anything that has no login of its own. If a UI breaks behind Cloudflare, disable
+Rocket Loader for that hostname.
 
 ## Plex remote access
 

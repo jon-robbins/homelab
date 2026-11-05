@@ -16,21 +16,21 @@ Rules:
 |---|---|---|
 | [0001](0001-compose-modules.md) | Services are plain Compose files with `homelab.*` labels | Accepted |
 | [0002](0002-public-platform-private-site.md) | Public platform, private site repo, plugin repos | Accepted |
-| [0003](0003-tiers.md) | Host, edge, app and unmanaged tiers | Accepted |
+| [0003](0003-tiers.md) | Host, edge, app and unmanaged tiers | Accepted; edge row and first Don't by 0016, edge member by 0020 |
 | [0004](0004-signed-full-state-releases.md) | Signed, full-state releases on an event-driven trigger | Accepted |
 | [0005](0005-slim-controller.md) | A slim custom controller with file state | Accepted |
 | [0006](0006-host-layout.md) | Everything the platform owns lives under `/srv/homelab` | Accepted |
 | [0007](0007-disk-markers.md) | Disk markers instead of mount ordering | Accepted |
-| [0008](0008-compose-policy.md) | Compose policy v2 and inlined config files | Accepted |
-| [0009](0009-image-trust.md) | Digest pins, allowlisted namespaces, attested first-party images | Accepted |
+| [0008](0008-compose-policy.md) | Compose policy v2 and inlined config files | Accepted; Caddy capability exception superseded by 0020 |
+| [0009](0009-image-trust.md) | Digest pins, allowlisted namespaces, attested first-party images | Accepted; first-party edge-image claim superseded by 0020 |
 | [0010](0010-secrets.md) | Secrets are files rendered by the Infisical agent | Accepted |
 | [0011](0011-complexity-budgets.md) | Complexity budgets with a kill switch | Accepted |
 | [0012](0012-backups.md) | Nightly restic plus off-site copy; snapshot before change | Accepted |
 | [0013](0013-deadman-alerting.md) | Deadman alerting through healthchecks.io | Accepted |
-| [0014](0014-dependabot-automerge.md) | App-tier patch and minor updates merge and deploy unattended | Accepted |
+| [0014](0014-dependabot-automerge.md) | App-tier patch and minor updates merge and deploy unattended | Accepted; amended by 0016 and 0020 |
 | [0015](0015-exposure-policy.md) | Nothing is reachable from the internet unless allowlisted | Proposed |
-| [0016](0016-edge-updater.md) | The edge tier updates itself, with rollback | Accepted |
+| [0016](0016-edge-updater.md) | The edge tier updates itself, with rollback | Accepted; amended by 0020 |
 | [0017](0017-personal-services-are-plugins.md) | Personal services are plugins, not catalog modules | Accepted |
 | [0018](0018-local-setup-path.md) | Guided local setup for new homelabs | Accepted |
 | [0019](0019-shared-media-mount.md) | One shared media mount, explicit ports, GPU in the site | Accepted |
-| [0020](0020-traefik-edge.md) | Traefik from the official image is the edge proxy | Proposed |
+| [0020](0020-traefik-edge.md) | Traefik from the official image is the edge proxy | Proposed; owner direction 2026-11-05; gates open or evidence unavailable |

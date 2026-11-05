@@ -28,6 +28,7 @@ move.
    | Layer | Holds | Lives in |
    |---|---|---|
    | core | controller, renderer, Compose policy, host scripts, edge (caddy, cloudflared) | this repository |
+   *(Historical 2026-10-25 inventory; the edge members were superseded by Traefik and cloudflared in [0020](0020-traefik-edge.md).)*
    | catalog | services anyone running homelab could use: the *arr stack, qBittorrent, Seerr, Plex, Jellyfin, music | `modules/` in this repository |
    | personal | services shaped by one setup | a private plugin |
 
@@ -36,7 +37,8 @@ move.
 3. The four services above moved to a private plugin, with their package name, service names and console-script
    names unchanged, so state directories, site overrides and health checks need no change.
 4. This repository ships no worker image and no `homelab_workers` package. The only first-party image is caddy
-   ([0009](0009-image-trust.md)).
+   ([0009](0009-image-trust.md)). *(The image claim was superseded by [0020](0020-traefik-edge.md): `seerr-oidc`
+   is now the only first-party image.)*
 5. A worker that is later generalized (missing-search is the likeliest) may come back as a catalog module.
 
 ## Consequences

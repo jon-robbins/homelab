@@ -55,7 +55,7 @@ budget. The owner also uses this repository to publish signed releases for the o
 | DEGRADED alert | [operations](docs/operations.md#degraded) |
 | A media service won't start after reboot | disk markers, [0007](docs/decisions/0007-disk-markers.md) |
 | Service can't read a secret | Infisical agent and `HOMELAB_SECRET_DIR`, [configuration](docs/configuration.md#secrets) |
-| Route returns 404/403 through Caddy | [ingress](docs/ingress.md#caddy-routes) |
+| Route returns 404/403 through Traefik | [ingress](docs/ingress.md#traefik-routes) |
 
 ## How to work here
 

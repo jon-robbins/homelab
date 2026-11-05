@@ -56,7 +56,7 @@ site.yaml        # which services run, which the controller manages
 site.env         # non-secret values: paths, PUID/PGID, TZ, BASE_DOMAIN, TAILSCALE_IP
 files/           # config files modules mount (e.g. a mounted config file)
 overrides/       # per-service Compose fragments the policy allows
-edge/Caddyfile   # your routes; start from config/caddy/Caddyfile
+edge/traefik.yml # your dynamic routes; start from config/traefik/routes.example.yml
 plugins/         # optional code-free plugins
 .github/workflows/notify-release.yml
 ```
@@ -122,11 +122,11 @@ For backups, set `/etc/homelab-backup/env` (`REPO`, `OFFSITE_REPO`), the restic 
 
 ### 7. Edge
 
-Apply Caddy (and cloudflared, if you use it) from the first release, then check that you can reach a route over
+Apply Traefik (and cloudflared, if you use it) from the first release, then check that you can reach a route over
 Tailscale:
 
 ```bash
-docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps caddy
+docker compose -p homelab-edge -f /srv/homelab/releases/current/edge.json up -d --no-deps traefik
 ```
 
 The current release exists after the first `homelabctl reconcile --now` (next step). Read
