@@ -1,6 +1,6 @@
 services:
   sonarr:
-    image: lscr.io/linuxserver/sonarr:v4-4.0.0.124-ls2@sha256:d3b8087a67410468cad3d1d40d2266f1cf0d09a2e0114265c78d3c861cab868c
+    image: lscr.io/linuxserver/sonarr:4.0.20.3014-ls2@sha256:386c962ee6e260e3a5656b25df2ed056bcc9b6410e197d075f9547fd14c23bca
     pids_limit: 500
     networks: [homelab_net]
     cap_drop: [ALL]
