@@ -21,6 +21,16 @@ Exception (2026-10-25): Soularr's image (`mrusse08/soularr`) waits for the owner
 person's Docker Hub image with no outside review, it holds the Lidarr and slskd API keys, and it is not
 internet-facing, so an unattended bump carries the risk without the security-patch benefit.
 
+Exception (2026-11-06): Dependabot ignores major Postgres bumps (`library/postgres`, `.github/dependabot.yml`). A
+major image swap cannot start on a data directory written by the previous major, so it needs a dump and restore, not
+a pin change. Merging the 16 to 18 bump on 2026-11-05 crash-looped Authentik's database until it was rolled back.
+Minor and patch bumps within a major still flow as above; plan a major upgrade by hand.
+
+Exception (2026-11-07): Dependabot ignores `linuxserver/sonarr` versions below 4.0.17. It ranked the legacy
+`v4-4.0.0.124-ls2` tag above `4.0.20.3014-ls2`, and automerge then merged that 2023 build over the current one
+(PR #128, reverted by #133). 4.0.17 is the first build with the fixes for CVE-2026-30975 and CVE-2026-30976, so
+nothing below it is an update. Newer builds still flow.
+
 Pause: `gh workflow disable dependabot-automerge.yml`, or `sudo touch /srv/homelab/state/observe-only` on the host.
 
 ## Consequences
