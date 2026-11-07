@@ -26,10 +26,12 @@ major image swap cannot start on a data directory written by the previous major,
 a pin change. Merging the 16 to 18 bump on 2026-11-05 crash-looped Authentik's database until it was rolled back.
 Minor and patch bumps within a major still flow as above; plan a major upgrade by hand.
 
-Exception (2026-11-07): Dependabot ignores `linuxserver/sonarr` versions below 4.0.17. It ranked the legacy
-`v4-4.0.0.124-ls2` tag above `4.0.20.3014-ls2`, and automerge then merged that 2023 build over the current one
-(PR #128, reverted by #133). 4.0.17 is the first build with the fixes for CVE-2026-30975 and CVE-2026-30976, so
-nothing below it is an update. Newer builds still flow.
+Exception (2026-11-07): Dependabot ignores the legacy `v4-4.0.0.*-lsN` tags of `linuxserver/sonarr`. Dependabot
+reads `v4-4.0.0.124-ls2` as version `4.4.0.0.124`, which ranks above the current `4.0.20.3014-ls2`, so it proposed
+that 2023 build as an upgrade and automerge merged it (PR #128, reverted by #133). That build predates the fixes for
+CVE-2026-30975 and CVE-2026-30976. The ignore is the range `>= 4.4.0.0.0, < 4.4.0.1`, the derived versions of that
+series; no real 4.x build falls in it. An earlier floor of `< 4.0.17` (PR #134) never matched, because it was
+compared against the derived `4.4...` number. Real newer builds still flow. Check the next weekly Dependabot run.
 
 Pause: `gh workflow disable dependabot-automerge.yml`, or `sudo touch /srv/homelab/state/observe-only` on the host.
 
