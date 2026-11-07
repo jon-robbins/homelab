@@ -17,6 +17,13 @@ What the platform protects, what it relies on you to do, and a checklist for a h
 Not protected: anyone with root on the host (or in the `docker` group, which is equivalent) can read every
 secret and change every service. The defence is keeping the host unreachable.
 
+Accepted risk, edge access log: the edge keeps Traefik's default access log (`accessLog: {}` in
+`config/traefik/traefik.yml`), which writes the full request line. A Plex client sends its `X-Plex-Token` in the URL
+query, so tokens appear in the edge container's on-host log (Docker `json-file`, rotated), readable only by root and
+the `docker` group. The owner accepted this on 2026-11-06 with no mitigation and no token rotation. Revisit it if
+container logs are ever shipped off the host; the likely fix is redacting or dropping the request-path log field,
+tested before a release.
+
 ## Exposure policy
 
 Docker publishes ports with its own iptables rules, which run **before** UFW. A module that publishes
