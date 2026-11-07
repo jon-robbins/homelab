@@ -16,6 +16,8 @@ updates:
     ignore:
       - dependency-name: "library/postgres"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "linuxserver/sonarr"
+        versions: ["v4-*"]
     groups:
       stateless:
         patterns:
