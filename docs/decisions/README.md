@@ -33,4 +33,4 @@ Rules:
 | [0017](0017-personal-services-are-plugins.md) | Personal services are plugins, not catalog modules | Accepted |
 | [0018](0018-local-setup-path.md) | Guided local setup for new homelabs | Accepted |
 | [0019](0019-shared-media-mount.md) | One shared media mount, explicit ports, GPU in the site | Accepted |
-| [0020](0020-traefik-edge.md) | Traefik from the official image is the edge proxy | Proposed; owner direction 2026-11-05; gates open or evidence unavailable |
+| [0020](0020-traefik-edge.md) | Traefik from the official image is the edge proxy | Accepted (2026-11-07); G4 runtime half, G5 at the live provider and G9 open as known gaps |

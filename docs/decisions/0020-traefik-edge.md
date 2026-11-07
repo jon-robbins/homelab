@@ -1,9 +1,9 @@
 # 0020: Traefik from the official image is the edge proxy
 
-- **Status:** Proposed (2026-11-02). Owner direction (2026-11-05): Caddy is deprecated long term unless a serious
-  tooling gap makes it necessary, so Traefik is the long-term edge proxy. That direction is not operational
-  acceptance: the gate evidence below stays open until proven (see **Gate evidence**), and the production cutover
-  needs the owner's operational approval
+- **Status:** Accepted (2026-11-07; Proposed 2026-11-02). The owner accepted it on the live evidence in **Gate
+  evidence**, with three open items taken as known gaps rather than proven: the runtime half of G4, G5 at the live
+  provider, and G9. Production has served from Traefik and cloudflared since the cutover (certificates issued
+  2026-11-04), and Caddy is removed from the repo and no longer runs on the host
 - **Supersedes:** in [0009](0009-image-trust.md), "the only first-party image is caddy" and the Caddy build,
   attestation and digest injection for the edge; in [0008](0008-compose-policy.md), the `NET_BIND_SERVICE`
   exception for the Caddy executable; in [0016](0016-edge-updater.md), "Caddy's admin API answers" as the edge
@@ -118,7 +118,7 @@ The official Traefik image ships the Cloudflare DNS provider (lego). It reads a 
    Dependabot entry, an allowlisted GHCR destination and a capability exception, and adds one module and one example.
    The net is about −20 lines and one image build fewer.
 
-## Gate evidence (each gate must be proven before Accepted)
+## Gate evidence
 
 Spike `bc1f937` on branch `spike/traefik-edge` reported `spike/traefik/FINDINGS.md` (66 assertions) covering G1, G3
 (except a real issuance), G4, G5 (fail closed is 500), G7 (parity with Caddy; native-Linux source addresses
@@ -129,26 +129,28 @@ not acceptance of the current private site. Current Docker tests use the platfor
 `docker.io/library/traefik:v3.7.17@sha256:30ff6249…`
 in `modules/edge/traefik.compose.yml`.
 
-| Gate | Evidence as of 2026-11-05 | Status |
+| Gate | Evidence as of 2026-11-07 | Status |
 |---|---|---|
-| G1 Hardening | recovered spike report; current `test_render_docker.py` checks non-root UID, zero effective capabilities and NoNewPrivs | partial — current runtime hardening checked; historical file-capability scan retained |
-| G2 Ports | current listener probe passed on Docker Desktop and in the isolated native Linux VM: four published listeners deliver upstream; default router answers on tailnet and is absent from tunnel, with a positive tunnel control | partial — synthetic listener behaviour proven on native Linux; actual site acceptance pending |
-| G3 Token and ACME | recovered spike tests file credential reading and newline handling; current Docker test checks `acme.json` 0600 | partial — real RSA2048 issuance and ISRG Root X1 chain remain open |
-| G4 Header stripping | recovered spike report, using an authentication stub | partial — historical synthetic evidence; current site verification pending |
-| G5 Probe | recovered spike report (fail closed = 500), using an authentication stub | partial — real provider integration remains deferred with GATE-1 |
-| G6 Authorization in Authentik | none | open — real Authentik group allow/deny unproven |
-| G7 Source addresses | recovered spike report, Docker Desktop only | partial — native Linux source addresses remain unproven |
-| G8 Health | recovered spike report plus current native Linux Docker test: invalid dynamic YAML makes `/healthz` fail; VM rehearsal triggers unhealthy-update rollback | partial — synthetic health failure and recovery proven; site acceptance pending |
-| G9 Dependabot | recovered spike establishes tag/digest shape; it explicitly says Dependabot itself could not run locally | partial — actual update evidence pending; the probe pin remains deferred with GATE-1 |
-| G10 Swap | isolated native Linux VM: Caddy-to-Traefik swap, forced-unhealthy rollback, failed-hash skip and manual recovery from a healthy but incorrect route; both locally generated certificate/key pairs unchanged and verified HTTPS returns 200 after recovery | partial — disposable recovery mechanics proven; certificate fixtures are self-signed, not production ACME stores |
+| G1 Hardening | live edge container: `PUID:PGID`, `cap_drop: [ALL]`, no `cap_add`, `no-new-privileges` (docker inspect); `test_render_docker.py` asserts zero effective capabilities and NoNewPrivs. `getcap` on the binary was not run | confirmed live |
+| G2 Ports | live: tailnet publishes the tailnet address only, tunnel is loopback only, `lan` and `lan-tls` bind every interface and are on the site's `exposed` list, `ping` is unpublished; real traffic served on all four. Routers not joining `tunnel` are refused through the public path (Cloudflare TLS refusal or no DNS record) and the app is never reached. `asDefault` is set on `tailnet` only, but every production router names `entryPoints`, so the default path is proven only synthetically | confirmed live; `asDefault` default synthetic only |
+| G3 Token and ACME | live: every served hostname presents a Let's Encrypt production certificate, RSA-2048, chain ending at ISRG Root X1, issued 2026-11-04, no staging or self-signed certificates; `acme.json` is mode 0600 (owner-confirmed) | confirmed live |
+| G4 Header stripping | deployed config: every entry point has `aliasHeadersStrategy: delete` and `trustedIPs: []`, every router runs the stripping middleware first, file provider only, no api or plugins. Unauthenticated requests with forged `Remote-User` and `X-Authentik-*` headers get the login redirect, identical to clean requests. Not shown at runtime: header absence at an upstream, and alias deletion | confirmed in config; runtime half is an accepted gap |
+| G5 Probe | spike with an authentication stub (fail closed = 500). Live: the 2026-11-05 Authentik outage returned HTTP 500 on Authentik's own host route, from a log that no longer exists; gated application routes were never observed failing closed | unverified at the live provider; deferred with GATE-1 |
+| G6 Authorization in Authentik | the owner ran the family, admin and unknown-user checks on the live outpost and reported them working. Per-cell results were not recorded. An unknown Google account sees an HTTP 500 on the source callback, not Authentik's denial page; access is refused, but a flow for unknown users is still to be added | owner-confirmed; per-cell evidence not recorded |
+| G7 Source addresses | live, native Linux: tailnet and LAN-addressed sources keep their addresses; loopback, host-local and Cloudflare-tunnel traffic all arrive as the Docker bridge gateway, so `ipAllowList` cannot separate tunnel from LAN and decision 3's entry-point rule is required. No remote tailnet peer or other LAN device was tested | confirmed live |
+| G8 Health | native-Linux Docker test: good routes pass the probe; a broken `routes.yml` fails the provider and the probe. Passed in the isolated VM gate on 2026-11-05. Production `/healthz` passes | accepted on this evidence by the owner |
+| G9 Dependabot | the pin follows Dependabot like any upstream image; no Traefik bump has been observed yet. Ignore rules were added to `dependabot.yml` after a major Postgres bump and a legacy Sonarr tag misranking ([0014](0014-dependabot-automerge.md)); the probe pin remains deferred with GATE-1 | deferred; does not block acceptance |
+| G10 Swap | isolated native Linux VM: swap, forced-unhealthy rollback, failed-hash skip and manual recovery with self-signed fixtures. Then the real production cutover, with real certificates issued (G3). No production rollback drill, deliberately: it would take the edge down | accepted by the owner (2026-11-06) on the rehearsal, the cutover and G3 |
 
-No gate is owner-waived; partial evidence is not operational acceptance. The current Docker test file passed
-all five tests on Docker Desktop and again in the isolated native Linux VM on 2026-11-05. The full VM gate
-passed, including controller and wizard end-to-end sessions and the image build. The separate VM recovery
-rehearsal used the shipped updater and configuration-digest function, pinned proxy images and synthetic site
-configuration. It did not use production credentials or prove real DNS issuance, Authentik authorisation or
-production certificate-store recovery. See the [handoff](../superpowers/plans/2026-11-05-traefik-retirement-handoff.md)
-for evidence provenance and the earlier production incident, which is not rehearsal evidence.
+Acceptance is an owner decision, not a claim that every gate is proven. G4 (runtime half), G5 (at the live provider)
+and G9 stay open as known gaps, and G6 rests on the owner's report. The current Docker test file passed all five tests
+on Docker Desktop and again in the isolated native Linux VM on 2026-11-05. The full VM gate passed, including controller
+and wizard end-to-end sessions and the image build. The separate VM recovery rehearsal used the shipped updater and
+configuration-digest function, pinned proxy images and synthetic site configuration. It did not use production
+credentials, and it did not prove real DNS issuance or Authentik authorisation (both checked live afterwards, see the
+table) or production certificate-store recovery. See the
+[handoff](../superpowers/plans/2026-11-05-traefik-retirement-handoff.md) for evidence provenance and the earlier
+production incident, which is not rehearsal evidence.
 
 - **G1 Hardening:** the pinned image runs as `PUID:PGID` with `cap_drop: [ALL]`, no `cap_add` and
   `no-new-privileges`, and `getcap` on the binary is empty.
