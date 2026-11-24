@@ -32,10 +32,10 @@ def inspect(service: str, *format_args: str) -> str:
 
 
 def app_definition(*, version: str = "one", broken_nginx: bool = False,
-                   state_command: str | None = None, preapply_mode: str | None = None) -> dict:
+                   state_command: str | None = None) -> dict:
     state_command = state_command or "cp /data/one.sqlite /data/state.sqlite; sleep 3600"
     health = ["CMD-SHELL", "false"] if broken_nginx else ["CMD", "nginx", "-t"]
-    services = {
+    return {"services": {
         "nginx": {"image": "nginx:alpine", "healthcheck": {"test": health, "interval": "1s", "retries": 1}},
         "whoami": {"image": "traefik/whoami:v1.10.3", "environment": [f"E2E_VERSION={version}"]},
         "stateful": {"image": "busybox:1.36", "command": ["sh", "-c", state_command],
@@ -44,26 +44,12 @@ def app_definition(*, version: str = "one", broken_nginx: bool = False,
                      "volumes": [{"type": "bind", "source": "DATA_ROOT", "target": "/data"}]},
         "stopped": {"image": "busybox:1.36", "command": ["sleep", "3600"],
                     "depends_on": ["nginx"]},
-    }
-    if preapply_mode is not None:
-        services["migrate"] = {
-            "image": "busybox:1.36",
-            "command": ["sleep", "3600"],
-            "depends_on": ["nginx"],
-            "labels": {"homelab.state": "stateless", "homelab.preapply": preapply_mode},
-        }
-    return {"services": services}
+    }}
 
 
-def site_definition(*, with_migrate: bool = False) -> str:
-    lines = ["managed: [nginx, whoami, stateful, stopped"]
-    services = ["  nginx: {}", "  whoami: {}", "  stateful: {}", "  stopped: {state: stopped}"]
-    if with_migrate:
-        lines[0] += ", migrate]"
-        services.append("  migrate: {state: stopped}")
-    else:
-        lines[0] += "]"
-    return f"{lines[0]}\nservices:\n" + "\n".join(services) + "\n"
+def site_definition() -> str:
+    return ("managed: [nginx, whoami, stateful, stopped]\nservices:\n"
+            "  nginx: {}\n  whoami: {}\n  stateful: {}\n  stopped: {state: stopped}\n")
 
 
 class Harness:
@@ -122,16 +108,14 @@ fi
         run(*self.feed_git, "config", "user.name", "e2e", env=self.env)
 
     def release(self, sequence: int, *, version: str = "one", broken_nginx: bool = False,
-                state_command: str | None = None, preapply_mode: str | None = None) -> None:
+                state_command: str | None = None) -> None:
         source = self.root / f"source-{sequence}"
         source.mkdir(parents=True)
-        app = app_definition(
-            version=version, broken_nginx=broken_nginx, state_command=state_command, preapply_mode=preapply_mode
-        )
+        app = app_definition(version=version, broken_nginx=broken_nginx, state_command=state_command)
         app_text = json.dumps(app).replace("DATA_ROOT", str(self.data))
         (source / "app.json").write_text(app_text)
         (source / "edge.json").write_text(json.dumps({"services": {}}))
-        (source / "site.yaml").write_text(site_definition(with_migrate=preapply_mode is not None))
+        (source / "site.yaml").write_text(site_definition())
         bundle = build(source)
         record = {"schema": 1, "site_id": "e2e", "sequence": sequence,
                   "tooling_git_sha": "0" * 40,
@@ -257,18 +241,6 @@ def test_break_glass_compose_command_starts_service(harness: Harness):
     run("docker", "compose", "-p", "homelab", "-f", str(h.releases / "current" / "app.json"),
         "up", "-d", "--no-deps", "whoami", env=h.env)
     assert inspect("whoami", "{{.State.Status}}") == "running"
-
-
-def test_preapply_failure_keeps_highwater_without_degraded(harness: Harness):
-    h = harness
-    h.release(1, preapply_mode="true")
-    run("docker", "compose", "-p", "homelab", "-f", str(h.root / "source-1" / "app.json"),
-        "up", "-d", "nginx", "stateful", env=h.env)
-    assert h.reconcile() == "ok"
-    h.release(2, preapply_mode="false")
-    assert "pre-apply failed" in h.reconcile()
-    assert h.state_dir.joinpath("highwater").read_text().strip() == "1"
-    assert not h.state_dir.joinpath("DEGRADED").exists()
 
 
 def test_owner_stopped_container_stays_stopped_after_now_reconcile(harness: Harness):

@@ -94,7 +94,7 @@ def _preapply_label(name: str, service: Mapping[str, Any], ctx: Context) -> Iter
         return
     if labels.get("homelab.state") != "stateless":
         yield "homelab.preapply is only permitted on stateless services"
-    if not mode or mode.split() != [mode]:
+    if not isinstance(mode, str) or not mode or mode.split() != [mode]:
         yield "homelab.preapply must be a single command token"
 
 

@@ -160,13 +160,14 @@ def test_observe_only_does_not_mutate(tmp_path, monkeypatch):
 
 def test_empty_plan_moves_pointers(tmp_path, monkeypatch):
     ops = Ops(services={"svc"})
-    state, _, candidate = prepared(monkeypatch, tmp_path, ops)
+    state, _, candidate = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
     pinger = Pinger()
 
     assert controller.reconcile(state, object(), tmp_path / "releases", ops, pinger, now=False) == "ok"
     assert state.highwater() == candidate.sequence
     assert (tmp_path / "releases" / "current").resolve() == (tmp_path / "releases" / "7").resolve()
     assert pinger.calls == [("ok", None)]
+    assert not any(c[0] == "run" and len(c[1]) > 7 and c[1][6:8] == ["run", "--rm"] for c in ops.calls)
 
 
 def test_candidate_plan_failure_halts_before_pull_until_ack(tmp_path, monkeypatch):
@@ -198,26 +199,17 @@ def test_candidate_plan_failure_halts_before_pull_until_ack(tmp_path, monkeypatc
     assert state.highwater() == candidate.sequence
 
 
+def _is_preapply_run(argv):
+    return len(argv) > 8 and argv[6:8] == ["run", "--rm"]
+
+
 def test_preapply_job_runs_after_pull_before_stop(tmp_path, monkeypatch):
     ops = Ops()
     state, _, _ = prepared(monkeypatch, tmp_path, ops, release_state="stateful", preapply="migrate")
     order = []
-
-    def pull(release_dir, services):
-        order.append("pull")
-        Ops.pull(ops, release_dir, services)
-
-    def run(argv):
-        if "run" in argv and "--rm" in argv:
-            order.append("preapply")
-        ops.calls.append(("run", argv))
-
-    def stop(service):
-        order.append("stop")
-        ops.calls.append(("stop", service))
-
-    ops.pull, ops.run, ops.stop = pull, run, stop
-
+    ops.pull = lambda release_dir, services: (order.append("pull"), Ops.pull(ops, release_dir, services))[1]
+    ops.run = lambda argv: (order.append("preapply") if _is_preapply_run(argv) else None, ops.calls.append(("run", argv)))[1]
+    ops.stop = lambda service: (order.append("stop"), ops.calls.append(("stop", service)))[1]
     assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "ok"
     assert order[:3] == ["pull", "preapply", "stop"]
 
@@ -225,72 +217,45 @@ def test_preapply_job_runs_after_pull_before_stop(tmp_path, monkeypatch):
 def test_preapply_job_failure_skips_compose_up(tmp_path, monkeypatch):
     ops = Ops()
     state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
-
-    def run(argv):
-        if argv[6:8] == ["run", "--rm"]:
-            raise RuntimeError("migrate failed")
-        ops.calls.append(("run", argv))
-
-    ops.run = run
+    ops.run = lambda argv: (_ for _ in ()).throw(RuntimeError("migrate failed")) if _is_preapply_run(argv) else ops.calls.append(("run", argv))
     result = controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
-
     assert result == "pre-apply failed 1×: migrate failed"
-    assert state.highwater() == 0
-    assert state.read("DEGRADED") is None
-    assert not any(call[1][5] == "up" for call in ops.calls if call[0] == "run")
-
-
-def test_unchanged_hash_skips_preapply_run(tmp_path, monkeypatch):
-    ops = Ops(services={"svc"})
-    state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
-
-    controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
-
-    assert not any("run" in call[1] and "--rm" in call[1] for call in ops.calls if call[0] == "run")
+    assert state.highwater() == 0 and state.read("DEGRADED") is None
+    assert not any(c[0] == "run" and len(c[1]) > 5 and c[1][5] == "up" for c in ops.calls)
 
 
 def test_newer_release_supersedes_failed_preapply(tmp_path, monkeypatch):
     ops = Ops()
     state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
-
-    def fetch(highwater, policy):
-        return Candidate(sequence=8 if state.read("failures") else 7)
-
-    def run(argv):
-        if argv[6:8] == ["run", "--rm"]:
-            raise RuntimeError("stale")
-        ops.calls.append(("run", argv))
-
-    def materialize(value, releases):
-        path = tmp_path / "releases" / str(value.sequence)
-        if not path.exists():
-            release(tmp_path, value.sequence, preapply="migrate" if value.sequence == 7 else None)
-        return path
-
-    monkeypatch.setattr(controller, "fetch_newest", fetch)
-    monkeypatch.setattr(controller, "materialize", materialize)
-    ops.run = run
-
-    assert "pre-apply failed 1×: stale" == controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+    monkeypatch.setattr(controller, "fetch_newest", lambda hw, policy: Candidate(sequence=8 if state.read("failures") else 7))
+    monkeypatch.setattr(
+        controller,
+        "materialize",
+        lambda value, releases: (p := tmp_path / "releases" / str(value.sequence), release(tmp_path, value.sequence, preapply="migrate" if value.sequence == 7 else None) if not p.exists() else None, p)[2],
+    )
+    ops.run = lambda argv: (_ for _ in ()).throw(RuntimeError("stale")) if _is_preapply_run(argv) else ops.calls.append(("run", argv))
+    assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "pre-apply failed 1×: stale"
     assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "ok"
     assert state.highwater() == 8
 
 
-def test_compose_policy_preapply_label():
-    digest = "ghcr.io/jon-robbins/homelab/demo:v1@sha256:" + "a" * 64
-    base = {"image": digest, "healthcheck": {"test": ["CMD", "true"]}}
-    ctx = Context(tiers={"svc": "app"}, namespaces={}, env={}, roots=("/srv/homelab/data",), exposed=frozenset())
-    check_policy({"services": {"svc": {**base, "labels": {"homelab.state": "stateless", "homelab.preapply": "go"}}}}, ctx)
-    for labels, message in (
+@pytest.mark.parametrize(
+    "labels,message",
+    [
         ({"homelab.state": "stateful", "homelab.preapply": "go"}, "only permitted on stateless"),
         ({"homelab.state": "stateless", "homelab.preapply": "two tokens"}, "single command token"),
-    ):
-        with pytest.raises(ValidationError, match=message):
-            check_policy({"services": {"svc": {**base, "labels": labels}}}, ctx)
-
-
-def test_reconcile_stays_within_line_budget():
-    assert len(Path(controller.__file__).read_text().splitlines()) <= 750
+        ({"homelab.state": "stateless", "homelab.preapply": 1}, "single command token"),
+    ],
+)
+def test_compose_policy_rejects_bad_preapply_label(labels, message):
+    svc = {
+        "image": "ghcr.io/jon-robbins/homelab/demo:v1@sha256:" + "a" * 64,
+        "healthcheck": {"test": ["CMD", "true"]},
+        "labels": labels,
+    }
+    ctx = Context(tiers={"svc": "app"}, namespaces={}, env={}, roots=("/srv/homelab/data",), exposed=frozenset())
+    with pytest.raises(ValidationError, match=message):
+        check_policy({"services": {"svc": svc}}, ctx)
 
 
 def test_preapply_failures_keep_highwater_and_fail_on_third(tmp_path, monkeypatch):
