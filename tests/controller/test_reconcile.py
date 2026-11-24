@@ -7,6 +7,8 @@ import pytest
 
 from scripts.controller.planner import ContainerView
 from scripts.controller.state import State
+from scripts.release.compose_policy import Context, check_policy
+from scripts.release.contracts import ValidationError
 import scripts.controller.reconcile as controller
 
 
@@ -82,22 +84,27 @@ class Ops:
         return f"snapshot-{service}"
 
 
-def release(tmp_path: Path, sequence=7, *, service="svc", state=None):
+def release(tmp_path: Path, sequence=7, *, service="svc", state=None, preapply=None):
     root = tmp_path / "releases" / str(sequence)
     root.parent.mkdir(parents=True, exist_ok=True)
     root.mkdir()
     definition = {"image": "example/svc@sha256:" + "a" * 64}
+    labels = {}
     if state:
-        definition["labels"] = {"homelab.state": state}
+        labels["homelab.state"] = state
+    if preapply is not None:
+        labels["homelab.preapply"] = preapply
+    if labels:
+        definition["labels"] = labels
     (root / "app.json").write_text(json.dumps({"services": {service: definition}}))
     (root / "edge.json").write_text(json.dumps({"services": {}}))
     (root / "site.yaml").write_text(f"managed: [{service}]\nservices: {{}}\n")
     return root
 
 
-def prepared(monkeypatch, tmp_path, ops, candidate=None, *, release_state=None, verify_error=None):
+def prepared(monkeypatch, tmp_path, ops, candidate=None, *, release_state=None, verify_error=None, preapply=None):
     candidate = candidate or Candidate()
-    root = release(tmp_path, candidate.sequence, state=release_state)
+    root = release(tmp_path, candidate.sequence, state=release_state, preapply=preapply)
 
     def fetch(highwater, policy):  # fetch_newest verifies the record; a verify error surfaces from it
         if verify_error:
@@ -189,6 +196,101 @@ def test_candidate_plan_failure_halts_before_pull_until_ack(tmp_path, monkeypatc
     ops.path_exists = lambda path: True
     assert controller.reconcile(state, object(), root.parent, ops, pinger, now=False) == "ok"
     assert state.highwater() == candidate.sequence
+
+
+def test_preapply_job_runs_after_pull_before_stop(tmp_path, monkeypatch):
+    ops = Ops()
+    state, _, _ = prepared(monkeypatch, tmp_path, ops, release_state="stateful", preapply="migrate")
+    order = []
+
+    def pull(release_dir, services):
+        order.append("pull")
+        Ops.pull(ops, release_dir, services)
+
+    def run(argv):
+        if "run" in argv and "--rm" in argv:
+            order.append("preapply")
+        ops.calls.append(("run", argv))
+
+    def stop(service):
+        order.append("stop")
+        ops.calls.append(("stop", service))
+
+    ops.pull, ops.run, ops.stop = pull, run, stop
+
+    assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "ok"
+    assert order[:3] == ["pull", "preapply", "stop"]
+
+
+def test_preapply_job_failure_skips_compose_up(tmp_path, monkeypatch):
+    ops = Ops()
+    state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
+
+    def run(argv):
+        if argv[6:8] == ["run", "--rm"]:
+            raise RuntimeError("migrate failed")
+        ops.calls.append(("run", argv))
+
+    ops.run = run
+    result = controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert result == "pre-apply failed 1×: migrate failed"
+    assert state.highwater() == 0
+    assert state.read("DEGRADED") is None
+    assert not any(call[1][5] == "up" for call in ops.calls if call[0] == "run")
+
+
+def test_unchanged_hash_skips_preapply_run(tmp_path, monkeypatch):
+    ops = Ops(services={"svc"})
+    state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
+
+    controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+
+    assert not any("run" in call[1] and "--rm" in call[1] for call in ops.calls if call[0] == "run")
+
+
+def test_newer_release_supersedes_failed_preapply(tmp_path, monkeypatch):
+    ops = Ops()
+    state, _, _ = prepared(monkeypatch, tmp_path, ops, preapply="migrate")
+
+    def fetch(highwater, policy):
+        return Candidate(sequence=8 if state.read("failures") else 7)
+
+    def run(argv):
+        if argv[6:8] == ["run", "--rm"]:
+            raise RuntimeError("stale")
+        ops.calls.append(("run", argv))
+
+    def materialize(value, releases):
+        path = tmp_path / "releases" / str(value.sequence)
+        if not path.exists():
+            release(tmp_path, value.sequence, preapply="migrate" if value.sequence == 7 else None)
+        return path
+
+    monkeypatch.setattr(controller, "fetch_newest", fetch)
+    monkeypatch.setattr(controller, "materialize", materialize)
+    ops.run = run
+
+    assert "pre-apply failed 1×: stale" == controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False)
+    assert controller.reconcile(state, object(), tmp_path / "releases", ops, Pinger(), now=False) == "ok"
+    assert state.highwater() == 8
+
+
+def test_compose_policy_preapply_label():
+    digest = "ghcr.io/jon-robbins/homelab/demo:v1@sha256:" + "a" * 64
+    base = {"image": digest, "healthcheck": {"test": ["CMD", "true"]}}
+    ctx = Context(tiers={"svc": "app"}, namespaces={}, env={}, roots=("/srv/homelab/data",), exposed=frozenset())
+    check_policy({"services": {"svc": {**base, "labels": {"homelab.state": "stateless", "homelab.preapply": "go"}}}}, ctx)
+    for labels, message in (
+        ({"homelab.state": "stateful", "homelab.preapply": "go"}, "only permitted on stateless"),
+        ({"homelab.state": "stateless", "homelab.preapply": "two tokens"}, "single command token"),
+    ):
+        with pytest.raises(ValidationError, match=message):
+            check_policy({"services": {"svc": {**base, "labels": labels}}}, ctx)
+
+
+def test_reconcile_stays_within_line_budget():
+    assert len(Path(controller.__file__).read_text().splitlines()) <= 750
 
 
 def test_preapply_failures_keep_highwater_and_fail_on_third(tmp_path, monkeypatch):
