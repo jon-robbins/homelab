@@ -87,6 +87,17 @@ def _state(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]
         yield "label homelab.state must be stateful or stateless"
 
 
+def _preapply_label(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
+    labels = service.get("labels") or {}
+    mode = labels.get("homelab.preapply")
+    if mode is None:
+        return
+    if labels.get("homelab.state") != "stateless":
+        yield "homelab.preapply is only permitted on stateless services"
+    if not isinstance(mode, str) or not mode or mode.split() != [mode]:
+        yield "homelab.preapply must be a single command token"
+
+
 def _namespaces(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
     if service.get("network_mode") == "host" and ctx.tiers.get(name) != "edge":
         yield "host networking is only for the edge tier"
@@ -161,7 +172,19 @@ def _gpu(name: str, service: Mapping[str, Any], ctx: Context) -> Iterator[str]:
         yield "deploy GPU request is not on the allowlist"
 
 
-RULES: tuple[Rule, ...] = (_tier, _image, _health, _state, _namespaces, _binds, _data_dir, _ports, _caps, _gpu)
+RULES: tuple[Rule, ...] = (
+    _tier,
+    _image,
+    _health,
+    _state,
+    _preapply_label,
+    _namespaces,
+    _binds,
+    _data_dir,
+    _ports,
+    _caps,
+    _gpu,
+)
 
 
 # --- rules on the site and the whole model ----------------------------------------------------------------

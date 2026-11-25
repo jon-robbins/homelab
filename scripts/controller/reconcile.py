@@ -116,11 +116,27 @@ def _advance(state: State, releases: Path, current: Path, sequence: int) -> None
     state.write("failures", "0\n")
 
 
+def _preapply_jobs(release: Path, p: Plan) -> tuple[tuple[str, str], ...]:
+    services = _services(release)
+    return tuple(
+        (name, mode)
+        for name in (*p.recreate, *p.create_stopped)
+        if (mode := (services.get(name, {}).get("labels") or {}).get("homelab.preapply"))
+    )
+
+
+def _run_preapply(ops: Ops, release: Path, jobs: tuple[tuple[str, str], ...]) -> None:
+    compose = ["docker", "compose", "-p", "homelab", "-f", str(release / "app.json"), "run", "--rm", "--no-deps", "-T"]
+    for service, mode in jobs:
+        ops.run([*compose, service, mode])
+
+
 def _snapshot(ops: Ops, release: Path, p: Plan, sequence: int) -> dict[str, str]:
-    # Step 7: free space, pull, and a snapshot of each stateful service about to be recreated.
+    # Step 7: free space, pull, pre-apply jobs, then a snapshot of each stateful service about to be recreated.
     if ops.free_pct("/") < 10:
         raise RuntimeError("low free space on /")
     ops.pull(release, tuple(sorted({*p.recreate, *p.create_stopped})))
+    _run_preapply(ops, release, _preapply_jobs(release, p))
     services, snapshots = _services(release), {}
     for service in p.recreate:
         if services.get(service, {}).get("labels", {}).get("homelab.state") == "stateful":

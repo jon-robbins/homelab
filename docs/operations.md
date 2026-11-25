@@ -33,6 +33,18 @@ The release follows within minutes and the next tick applies it.
 To stop a service and keep it stopped: `docker compose -p homelab stop <svc>`, then set `state: stopped` in
 `site.yaml` so the next release agrees. The controller never starts a service you stopped.
 
+## Pre-apply jobs
+
+A stateless managed service labelled `homelab.preapply: <mode>` runs that command through
+`docker compose run` after images are pulled and before any stateful snapshot or `compose up`
+([0021](decisions/0021-preapply-jobs.md)). The job runs only when the planner puts the service in `recreate` or
+`create_stopped` (typically because its image digest changed).
+
+If the job exits non-zero, the controller does not change containers, leaves `highwater` unchanged, increments
+`failures`, and retries on the next tick. The deadman ping fails after three consecutive failures. There is no
+`DEGRADED` file and no `ack` step. Fix forward in a newer signed release, or repair the job and let the same
+release retry once the underlying fault is gone.
+
 ## DEGRADED
 
 A failed apply writes `/srv/homelab/state/DEGRADED` with the service, the snapshot ID and the next command, and
